@@ -205,7 +205,7 @@ test("respond.ts drops only a sales-mode AI answer: before the first bubble, and
   assert.ok(src.slice(dropped, src.lastIndexOf("await saveConversation(")).includes("recentReplies: FieldValue.arrayUnion(now), repliesInWindow: FieldValue.increment(1)"));
 
   // The newer turn's model hears earlier voice notes.
-  assert.ok(src.includes('text: String(m.transcript || m.text || "")'));
+  assert.ok(src.includes('const said = String(m.transcript || m.text || "");'));
 
   for (const f of ["src/app/api/webhooks/whatsapp-inbound/route.ts", "src/app/api/webhooks/meta-whatsapp/route.ts"]) {
     const r = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");

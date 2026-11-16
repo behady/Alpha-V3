@@ -117,7 +117,9 @@ function readExplicitHour(raw: string, dayBounds?: { start: Minutes; end: Minute
   const PM = "بالمساء|مساءً|المساء|بالمسا|مساء|المسا|بالليل|الليل|مسا|pm|م";
   const MARKER = `${AM}|${PM}`;
   const patterns = [
-    new RegExp(`(?:الساعه|الساعة|ساعه|ساعة|el sa3a|elsa3a|sa3a|at|around)\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*(${MARKER})?`),
+    // "س٦" / "س 6" is how Egyptians type "الساعة ٦" — a lone س in front of the number. On
+    // 16/11/2026 the model read it as the slot id "s6" and booked 10:30 م for a patient who asked for 6.
+    new RegExp(`(?:الساعه|الساعة|ساعه|ساعة|(?<![ء-ي])س|el sa3a|elsa3a|sa3a|at|around)\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*(${MARKER})?`),
     new RegExp(`(\\d{1,2})(?:[:.](\\d{2}))?\\s*(${MARKER})(?![ء-يa-zA-Z0-9])`),
     /(\d{1,2}):(\d{2})/,
   ];
@@ -147,6 +149,34 @@ function readExplicitHour(raw: string, dayBounds?: { start: Minutes; end: Minute
     return asPm;
   }
   return null;
+}
+
+/** The clock time of a slot key ("2026-11-17|10:30 PM|Dr Sara"), as minutes from midnight. */
+export function slotKeyMinutes(key: string): Minutes | null {
+  const m = String(key || "").split("|")[1]?.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return null;
+  const hour = Number(m[1]) % 12;
+  return (m[3].toUpperCase() === "PM" ? hour + 12 : hour) * 60 + Number(m[2]);
+}
+
+/**
+ * The hour the patient named beats the slot the model picked.
+ *
+ * Asked "بكره س٦", the model booked tomorrow 10:30 م (16/11/2026). When the patient's own words name
+ * a clock time, the booking must be at that time: the model's pick stands if it is, the offered
+ * slot on the same day at that time replaces it if there is one, and otherwise there is nothing to
+ * book (null) — the caller says so instead of confirming a time nobody asked for. Morning and
+ * evening are not argued over: 6 and 18:00 are the same request here, because the reading of a
+ * bare hour is the shakiest part and the day's slots never hold both.
+ */
+export function honourAskedHour(asked: Minutes, chosenKey: string, offeredKeys: readonly string[]): string | null {
+  const sameClock = (key: string) => {
+    const at = slotKeyMinutes(key);
+    return at !== null && at % 720 === asked % 720;
+  };
+  if (sameClock(chosenKey)) return chosenKey;
+  const day = String(chosenKey).split("|")[0];
+  return offeredKeys.find((k) => k.split("|")[0] === day && sameClock(k)) ?? null;
 }
 
 /** Which part of the day a time falls in. */

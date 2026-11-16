@@ -33,6 +33,8 @@ import { getRulebookCache } from "./rulebookCache";
  */
 
 const MODEL = "gemini-flash-latest";
+/** Tokens the model may think with before it answers (it decides how many it actually needs). */
+const THINKING_BUDGET = 1024;
 /** One WhatsApp answer costs one credit — same unit the in-app assistant charges. */
 const CREDITS_PER_ANSWER = 1;
 /** Measured tail latency runs past 12s; nobody waits on this since the webhook answers first. */
@@ -268,9 +270,12 @@ export async function answerWithAi(args: {
    * asking a model to copy that back verbatim was the single largest cause of lost bookings: it
    * would start the string, fall into repeating the pipe-separated tail, and run to the token
    * limit, leaving JSON that could not be parsed and a patient who had already chosen a time
-   * being told "sorry, I didn't catch that". "s1" is not a shape anything loops on.
+   * being told "sorry, I didn't catch that". A short id is not a shape anything loops on.
+   *
+   * Letters, not numbers: the ids were "s1".."s8" until a patient wrote "بكره س٦" (Egyptian for
+   * "tomorrow at 6") and the model booked "s6" — the sixth slot, 10:30 م (16/11/2026).
    */
-  const offeredSlots = (args.slots || []).slice(0, 8).map((s, i) => ({ id: `s${i + 1}`, key: s.key, label: s.label }));
+  const offeredSlots = (args.slots || []).slice(0, 8).map((s, i) => ({ id: `slot${"ABCDEFGH"[i]}`, key: s.key, label: s.label }));
 
   const coaching = args.coaching?.trim();
   const knowledge = (args.knowledge || []).filter((k) => k.q?.trim() && k.a?.trim()).slice(0, 40);
@@ -374,11 +379,12 @@ export async function answerWithAi(args: {
         // Arabic is token-hungry and the reply travels inside JSON; 1500 leaves margin, and the
         // hard length guard on `reply` below caps what a rambling answer can cost regardless.
         // Gemini 2.5 counts its own thinking against this budget: at 1500 a reply was cut off
-        // mid-word ("Unterminated string in JSON") after ~250 characters. Thinking is switched
-        // off — a receptionist's reply needs no scratchpad — and the ceiling raised regardless.
+        // mid-word ("Unterminated string in JSON") after ~250 characters, so the ceiling is 4096.
+        // Thinking was then switched off; since 16/11/2026 (owner: "let it think before it
+        // answers") it may spend up to THINKING_BUDGET first, which still leaves the reply ~3000.
         maxOutputTokens: 4096,
         temperature: sales ? 0.35 : 0.3,
-        ...({ thinkingConfig: { thinkingBudget: 0 } } as Record<string, unknown>),
+        ...({ thinkingConfig: { thinkingBudget: THINKING_BUDGET } } as Record<string, unknown>),
       },
     };
     const model = cache
