@@ -173,6 +173,11 @@ export type ClaimPatch = {
   removeLine?: number;
   /** Put a deleted service back on the approval. Travels alone. */
   restoreLine?: number;
+  /**
+   * A discount on the PATIENT'S share of one service, named by its treatment row; amount 0 removes
+   * it. Dentists and admins only; travels alone. The insurer's part never changes.
+   */
+  shareDiscount?: { ledgerId: string; amount: number; reason: string };
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
   /** Record the insurer's payment against the treatment rows, and mark them settled. */

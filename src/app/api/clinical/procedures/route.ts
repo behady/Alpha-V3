@@ -46,7 +46,7 @@ import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
+import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim, shareDiscountOf } from "@/lib/insurance/claims";
 import { billingFields, lineDateOf, lineDatesAfterStates, movesSentMonth } from "@/lib/insurance/billingMonth";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { isFdiTooth } from "@/lib/insurance/nextcare";
@@ -695,7 +695,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
       // ledger row's attribution follows so the payer report and payroll agree.
       const applied = applyDentistPicks(claim, { [i]: doctorId || null }, staffById, parsePayers(payersSnap?.data()));
       claimUpdate.dentists = applied.dentists;
-      const rowPatch = dentistRowPatch(line, applied.dentists[i] ?? null);
+      const rowPatch = dentistRowPatch(line, applied.dentists[i] ?? null, shareDiscountOf(claim, i));
       noteUpdate.doctorId = rowPatch.doctorId;
       noteUpdate.doctor = rowPatch.doctor;
       if (ledgerSnap?.exists) {

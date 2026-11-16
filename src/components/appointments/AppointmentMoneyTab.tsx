@@ -36,6 +36,8 @@ import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { patientAccount } from "@/lib/ledgerInsurer";
 import Protect from "@/components/Protect";
+import { useClinic } from "@/context/ClinicContext";
+import { patchClaim, InsuranceCallError } from "@/components/insurance/api";
 
 /**
  * The money and the treatments it is for, on one screen.
@@ -75,6 +77,10 @@ type Charge = {
   branchName: string;
   /** False when another branch took it: shown, never changed from here (the server refuses it too). */
   mine: boolean;
+  /** On an approval row: the approval it came from, and the clinic's discount on the patient's share. */
+  claimId: string | null;
+  shareDiscount: number;
+  shareDiscountReason: string;
 };
 
 type Payment = {
@@ -197,12 +203,6 @@ export default function AppointmentMoneyTab({
     const p = insurerPayers.find((x) => x.id === id);
     return p ? (isAr ? p.nameAr || p.name : p.name) : "";
   };
-
-  const patientId = appointment?.patientId as string | undefined;
-  const appointmentId = appointment?.id as string | undefined;
-
-  const [ledger, setLedger] = useState<any[]>([]);
-  const [ledgerLoading, setLedgerLoading] = useState(true);
   /**
    * Start on the payer the desk booked the visit under (lib/visitPayer), once per visit and once
    * the payers have loaded. A visit with none stored starts on the patient, exactly as before.
@@ -219,6 +219,12 @@ export default function AppointmentMoneyTab({
   /** Charging a company that sends approval paper, on a visit linked to no approval: say so, allow it. */
   const chargeWithoutApproval =
     insurerPays && needsApproval(findPayer(payers, procPayerId)) && parseClaimLinks(appointment).length === 0;
+
+  const patientId = appointment?.patientId as string | undefined;
+  const appointmentId = appointment?.id as string | undefined;
+
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
   const [notes, setNotes] = useState<Note[]>([]);
   const [teethData, setTeethData] = useState<Record<string, any>>({});
 
@@ -244,6 +250,65 @@ export default function AppointmentMoneyTab({
   const [discountValue, setDiscountValue] = useState<number | "">("");
   const [discountReason, setDiscountReason] = useState("");
   const [discounting, setDiscounting] = useState(false);
+
+  /**
+   * A discount on the patient's share of an insurance row (dentists and admins). It goes through the
+   * approval, not the ledger: the approval keeps it, so rows it rebuilds later carry it too, and
+   * the insurer's approved part never moves.
+   */
+  const { clinicId } = useClinic();
+  const [shareTarget, setShareTarget] = useState<string | null>(null);
+  const [shareMode, setShareMode] = useState<"percent" | "fixed">("fixed");
+  const [shareValue, setShareValue] = useState<number | "">("");
+  const [shareReason, setShareReason] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
+  /** The row's whole patient share, as the approval set it (before any discount). */
+  const fullShareOf = (c: { cost: number; insurerPart: number; shareDiscount: number }) => money(c.cost + c.shareDiscount - c.insurerPart);
+  const openShareDiscount = (c: { id: string; shareDiscount: number; shareDiscountReason: string }) => {
+    setShareTarget(c.id);
+    setShareMode("fixed");
+    setShareValue(c.shareDiscount > 0 ? c.shareDiscount : "");
+    setShareReason(c.shareDiscount > 0 && discountSettings.reasons.includes(c.shareDiscountReason) ? c.shareDiscountReason : "");
+  };
+  const saveShareDiscount = async (c: { id: string; claimId: string | null; cost: number; insurerPart: number; shareDiscount: number }, remove = false) => {
+    if (!clinicId || !c.claimId || shareBusy) return;
+    const full = fullShareOf(c);
+    const value = Number(shareValue) || 0;
+    const amount = remove ? 0 : money(shareMode === "percent" ? (full * value) / 100 : value);
+    if (!remove) {
+      if (amount <= 0) {
+        showToast(isAr ? "اكتب قيمة الخصم" : "Enter a discount", "error");
+        return;
+      }
+      if (amount > full + 0.009) {
+        showToast(isAr ? `الخصم أكبر من نصيب المريض (${full})` : `That is more than the patient's share (${full})`, "error");
+        return;
+      }
+      if (!shareReason) {
+        showToast(isAr ? "اختار سبب الخصم" : "Choose a reason for this discount", "error");
+        return;
+      }
+    }
+    setShareBusy(true);
+    try {
+      const error = await patchClaim(clinicId, c.claimId, { shareDiscount: { ledgerId: c.id, amount, reason: remove ? "" : shareReason } });
+      if (error) {
+        showToast(error, "error");
+        return;
+      }
+      showToast(remove ? (isAr ? "اتشال الخصم" : "Discount removed") : isAr ? "تم الخصم على نصيب المريض" : "Discount applied to the patient's share", "success");
+      setShareTarget(null);
+    } catch (e) {
+      showToast(
+        e instanceof InsuranceCallError && e.kind === "signed_out"
+          ? isAr ? "سجّل دخول تاني" : "Please sign in again"
+          : isAr ? "مقدرناش نطبق الخصم" : "Could not apply that discount",
+        "error",
+      );
+    } finally {
+      setShareBusy(false);
+    }
+  };
 
   // Quick add
   /** The service as typed or picked: a catalogue name prefills the price, anything else is recorded as typed. */
@@ -425,6 +490,9 @@ export default function AppointmentMoneyTab({
             dentistName: String(r.doctorName || r.doctor || (r.doctorId ? "—" : "")).trim(),
             branchName: branchNameOf(r.branchId),
             mine: rowIsMine(r.branchId),
+            claimId: typeof r.claimId === "string" && r.claimId ? r.claimId : null,
+            shareDiscount: money(r.shareDiscount),
+            shareDiscountReason: typeof r.shareDiscountReason === "string" ? r.shareDiscountReason : "",
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -1048,6 +1116,15 @@ export default function AppointmentMoneyTab({
                 </span>
               ))}
           </p>
+          {charge.shareDiscount > 0 && (
+            <p className="flex items-center gap-1.5 text-ink-muted">
+              <Tag size={12} className="text-pink-500" />
+              {isAr
+                ? `خصم على نصيب المريض ${charge.shareDiscount.toLocaleString()} من ${fullShareOf(charge).toLocaleString()}`
+                : `Share discount ${charge.shareDiscount.toLocaleString()} of ${fullShareOf(charge).toLocaleString()}`}
+              {charge.shareDiscountReason ? ` · ${charge.shareDiscountReason}` : ""}
+            </p>
+          )}
         </div>
 
         {overpaid > 0.009 && (
@@ -1069,15 +1146,111 @@ export default function AppointmentMoneyTab({
           <span className="text-[11px] font-semibold text-ink-faint">
             {isAr ? "السعر والطبيب بيتعدلوا من تبويب التأمين" : "Price and dentist change on the Insurance tab"}
           </span>
-          {!settled && section !== "service" && (
-            <button
-              onClick={() => openCollect(charge.id)}
-              className="text-[11px] font-bold rounded-full border border-line-strong px-3 py-1 flex items-center gap-1 shrink-0 hover:bg-surface-muted transition-colors"
-            >
-              <Banknote size={13} className="text-emerald-600" /> {isAr ? "تحصيل النصيب" : "Collect share"}
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {charge.mine && charge.claimId && fullShareOf(charge) > 0.009 && (
+              <Protect permission="clinical.edit">
+                <button
+                  onClick={() => (shareTarget === charge.id ? setShareTarget(null) : openShareDiscount(charge))}
+                  className="text-[11px] font-bold rounded-full border border-line px-3 py-1 flex items-center gap-1 text-ink-muted hover:bg-surface-muted transition-colors"
+                >
+                  <Tag size={13} className="text-pink-500" /> {isAr ? "خصم على النصيب" : "Discount share"}
+                </button>
+              </Protect>
+            )}
+            {!settled && section !== "service" && (
+              <button
+                onClick={() => openCollect(charge.id)}
+                className="text-[11px] font-bold rounded-full border border-line-strong px-3 py-1 flex items-center gap-1 shrink-0 hover:bg-surface-muted transition-colors"
+              >
+                <Banknote size={13} className="text-emerald-600" /> {isAr ? "تحصيل النصيب" : "Collect share"}
+              </button>
+            )}
+          </div>
         </div>
+
+        {shareTarget === charge.id && (
+          <div className="mt-3 rounded-xl border border-pink-200 bg-pink-50/60 p-3 animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 mb-2">
+              <Tag size={14} className="text-pink-500" />
+              {isAr
+                ? `خصم على نصيب المريض (${fullShareOf(charge).toLocaleString()})`
+                : `Discount the patient's share (${fullShareOf(charge).toLocaleString()})`}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-full border border-line overflow-hidden shrink-0 bg-surface">
+                {(["fixed", "percent"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setShareMode(m)}
+                    className={`text-[11px] font-bold px-3 py-1.5 transition-colors ${shareMode === m ? "bg-ink-slab text-white" : "text-ink-muted hover:bg-surface-muted"}`}
+                  >
+                    {m === "percent" ? "%" : isAr ? "مبلغ" : "EGP"}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number"
+                min={0}
+                value={shareValue}
+                onChange={(e) => setShareValue(e.target.value ? Number(e.target.value) : "")}
+                placeholder="0"
+                className="flex-1 min-w-0 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-black text-slate-800 outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            {discountSettings.reasons.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {discountSettings.reasons.map((reason) => (
+                  <button
+                    key={reason}
+                    onClick={() => setShareReason(reason)}
+                    className={`text-[11px] font-bold rounded-full px-3 py-1 border transition-colors ${
+                      shareReason === reason ? "bg-ink-slab text-white border-ink-slab" : "border-line text-ink-muted hover:bg-surface-muted bg-surface"
+                    }`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <input
+                value={shareReason}
+                onChange={(e) => setShareReason(e.target.value)}
+                placeholder={isAr ? "سبب الخصم" : "Reason for the discount"}
+                className="mt-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            )}
+            <p className="text-[10px] font-semibold text-slate-400 mt-2">
+              {isAr
+                ? "شركة التأمين بتدفع زي ما هي · السبب مطلوب · الطبيب المتعيّن من ١٦ نوفمبر بيشيل نسبته من الخصم"
+                : "The insurer still pays its full part · a reason is required · a dentist assigned from 16 Nov shares it at their rate"}
+            </p>
+            <div className="flex gap-2 mt-3">
+              <button
+                disabled={shareBusy}
+                onClick={() => void saveShareDiscount(charge)}
+                className="flex-1 bg-ink-slab hover:bg-slate-800 text-white text-sm font-bold rounded-lg py-2 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {shareBusy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                {isAr ? "تطبيق" : "Apply"}
+              </button>
+              {charge.shareDiscount > 0 && (
+                <button
+                  disabled={shareBusy}
+                  onClick={() => void saveShareDiscount(charge, true)}
+                  className="text-sm font-bold text-danger border border-line rounded-lg px-3 bg-surface hover:bg-surface-muted transition-colors disabled:opacity-50"
+                >
+                  {isAr ? "شيل الخصم" : "Remove"}
+                </button>
+              )}
+              <button
+                onClick={() => setShareTarget(null)}
+                className="text-sm font-bold text-ink-muted border border-line rounded-lg px-4 bg-surface hover:bg-surface-muted transition-colors"
+              >
+                {isAr ? "إلغاء" : "Cancel"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1443,6 +1616,16 @@ export default function AppointmentMoneyTab({
                   ))}
                 </select>
               )}
+              {chargeWithoutApproval && (
+                <p role="status" className="mt-2 flex items-start gap-2 rounded-lg border border-accent/40 bg-accent-tint px-3 py-2 text-xs font-semibold text-accent-ink">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    {isAr
+                      ? `الزيارة دي مش مربوطة بموافقة من ${insurerName(procPayerId)}. الشركة غالبًا مش هتدفع من غير موافقة — ارفعها من تبويب التأمين، أو خلّي المريض يدفع.`
+                      : `This visit is not linked to a ${insurerName(procPayerId)} approval. The company usually won't pay without one — upload it on the Insurance tab, or charge the patient.`}
+                  </span>
+                </p>
+              )}
             </div>
           )}
           <ServiceCombobox
@@ -1616,16 +1799,6 @@ export default function AppointmentMoneyTab({
                     </Protect>}
                     <button
                       type="button"
-              {chargeWithoutApproval && (
-                <p role="status" className="mt-2 flex items-start gap-2 rounded-lg border border-accent/40 bg-accent-tint px-3 py-2 text-xs font-semibold text-accent-ink">
-                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                  <span>
-                    {isAr
-                      ? `الزيارة دي مش مربوطة بموافقة من ${insurerName(procPayerId)}. الشركة غالبًا مش هتدفع من غير موافقة — ارفعها من تبويب التأمين، أو خلّي المريض يدفع.`
-                      : `This visit is not linked to a ${insurerName(procPayerId)} approval. The company usually won't pay without one — upload it on the Insurance tab, or charge the patient.`}
-                  </span>
-                </p>
-              )}
                       title={isAr ? "طباعة الإيصال" : "Print receipt"}
                       disabled={printingId === p.id}
                       onClick={() => void printReceipt(p.id)}

@@ -90,7 +90,16 @@ export type InsuranceClaim = {
   finishedDate: string | null;
   /** `yyyy-mm` of every month a service on this approval was done in. Server-derived, like `finishedDate`. */
   workMonths: string[];
+  /**
+   * Discounts the clinic gave on the PATIENT'S share of a line, keyed by the line's index. The
+   * insurer's approved part is never touched: the company is billed exactly what it approved. A
+   * line with no entry has no discount. Capped at the line's share whenever it is read.
+   */
+  shareDiscounts: Record<number, ShareDiscount>;
 };
+
+/** A discount on a line's patient share: how much, why, who, when. */
+export type ShareDiscount = { amount: number; reason: string; by: string; at: string };
 
 export type RemovedLine = { at: string; by: string };
 
@@ -106,6 +115,13 @@ export type LineDentist = {
   name: string;
   rate: number;
   share: number;
+  /**
+   * What the rate is applied to. Absent = the insurer's approved amount only (every entry stamped
+   * before 2026-11-16). "charge" = the approved amount plus the patient's share, less any discount
+   * on that share (the owner's rule from 2026-11-16, for dentists assigned from then on). Old
+   * entries keep their own rule, so no figure already stamped ever moves.
+   */
+  basis?: "charge";
   /** Of the share, what the clinic has handed over / held back — stamped by the staff settlements sync. */
   paid?: number;
   deducted?: number;
@@ -276,6 +292,7 @@ export function claimFromExtraction(args: {
     removedLines: {},
     finishedDate: null,
     workMonths: [],
+    shareDiscounts: {},
   };
 }
 
@@ -335,6 +352,7 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     removedLines,
     finishedDate: isIsoDate(r.finishedDate) ? r.finishedDate : null,
     workMonths: Array.isArray(r.workMonths) ? r.workMonths.filter((m): m is string => typeof m === "string" && /^\d{4}-\d{2}$/.test(m)) : [],
+    shareDiscounts: parseShareDiscounts(r.shareDiscounts, x.lines),
     ...(trimmed(r.branchId) ? { branchId: trimmed(r.branchId) } : {}),
   };
 }
@@ -462,8 +480,37 @@ export function parseLineDentists(raw: unknown, lineCount: number): Record<numbe
     const deducted = Number(v.deducted);
     if (Number.isFinite(paid) && paid > 0) out[i].paid = round2(paid);
     if (Number.isFinite(deducted) && deducted > 0) out[i].deducted = round2(deducted);
+    if (v.basis === "charge") out[i].basis = "charge";
   }
   return out;
+}
+
+/**
+ * `shareDiscounts` as stored: line index -> discount. Junk, out-of-range indices and non-positive
+ * amounts are dropped, and each amount is capped at its line's patient share — an edit of the
+ * paper that lowered the share must not leave a discount bigger than what it discounts.
+ */
+export function parseShareDiscounts(raw: unknown, lines: readonly Pick<MetlifeLine, "patientShare">[]): Record<number, ShareDiscount> {
+  const out: Record<number, ShareDiscount> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= lines.length || !isRecord(v)) continue;
+    const amount = Math.min(round2(Number(v.amount) || 0), round2(Number(lines[i].patientShare) || 0));
+    if (!(amount > 0)) continue;
+    out[i] = {
+      amount,
+      reason: typeof v.reason === "string" ? v.reason : "",
+      by: typeof v.by === "string" ? v.by : "",
+      at: typeof v.at === "string" ? v.at : "",
+    };
+  }
+  return out;
+}
+
+/** The discount on line `i`'s patient share; 0 when there is none. */
+export function shareDiscountOf(claim: { shareDiscounts?: Record<number, ShareDiscount> }, i: number): number {
+  return claim.shareDiscounts?.[i]?.amount ?? 0;
 }
 
 export function isLineStatus(v: unknown): v is LineStatus {
@@ -536,18 +583,35 @@ export function parseShareCollected(raw: unknown): ShareCollected | null {
 }
 
 /**
+ * What a dentist's rate is applied to on a line, by the rule their entry was stamped under.
+ *
+ * Before 2026-11-16 (no `basis`): the APPROVED amount only — approved, not requested, and not what
+ * the insurer eventually pays. From 2026-11-16 (`basis: "charge"`): the approved amount plus the
+ * patient's share, less any discount on that share, so a discount on the share costs the dentist
+ * their rate on it (owner's decision, 2026-11-16).
+ */
+export function dentistBase(
+  line: Pick<MetlifeLine, "approvedAmount"> & Partial<Pick<MetlifeLine, "patientShare">>,
+  basis: LineDentist["basis"],
+  shareDiscount = 0,
+): number {
+  if (basis !== "charge") return round2(line.approvedAmount);
+  return lineCharge({ approvedAmount: line.approvedAmount, patientShare: Number(line.patientShare) || 0 }, shareDiscount);
+}
+
+/**
  * The entry to stamp when a dentist is picked for a line: their rate on this payer, and the share
- * that rate earns on the line's APPROVED amount (the owner's rule: approved, not requested, and not
- * what the insurer eventually pays).
+ * that rate earns. Every pick from 2026-11-16 is stamped under the "charge" rule (`dentistBase`).
  */
 export function lineDentistFor(
-  line: { approvedAmount: number },
+  line: Pick<MetlifeLine, "approvedAmount"> & Partial<Pick<MetlifeLine, "patientShare">>,
   staff: { id: string; name: string } & CommissionRates,
   payerId: string,
   payers?: readonly Payer[],
+  shareDiscount = 0,
 ): LineDentist {
   const rate = commissionRateFor(staff, payerId, payers);
-  return { staffId: staff.id, name: staff.name, rate, share: round2((line.approvedAmount * rate) / 100) };
+  return { staffId: staff.id, name: staff.name, rate, share: round2((dentistBase(line, "charge", shareDiscount) * rate) / 100), basis: "charge" };
 }
 
 /**
@@ -555,7 +619,7 @@ export function lineDentistFor(
  * named keep what they had. Returns the new map, never mutating the old one.
  */
 export function applyDentistPicks(
-  claim: Pick<InsuranceClaim, "lines" | "dentists" | "payerId">,
+  claim: Pick<InsuranceClaim, "lines" | "dentists" | "payerId"> & Partial<Pick<InsuranceClaim, "shareDiscounts">>,
   picks: Record<string, string | null>,
   staffById: ReadonlyMap<string, { id: string; name: string } & CommissionRates>,
   payers?: readonly Payer[],
@@ -574,24 +638,29 @@ export function applyDentistPicks(
       unknownStaff.push(staffId);
       continue;
     }
-    dentists[i] = lineDentistFor(claim.lines[i], staff, claim.payerId, payers);
+    dentists[i] = lineDentistFor(claim.lines[i], staff, claim.payerId, payers, shareDiscountOf(claim, i));
   }
   return { dentists, unknownStaff };
 }
 
 /**
  * The kept dentists after the lines themselves were edited: each share worked out again on the
- * line's NEW approved amount, at the rate stamped when the dentist was assigned. The rate is the
- * promise, the amount is the insurer's; an inlay corrected from 600 to 400 at 25% earns 100, not
- * the 150 stamped on the old figure. Entries for lines that no longer exist are dropped.
+ * line's NEW amounts, at the rate stamped when the dentist was assigned and under the rule it was
+ * stamped with (`dentistBase`). The rate is the promise, the amount is the insurer's; an inlay
+ * corrected from 600 to 400 at 25% earns 100, not the 150 stamped on the old figure. Entries for
+ * lines that no longer exist are dropped.
  */
-export function reshareLineDentists(lines: readonly Pick<MetlifeLine, "approvedAmount">[], dentists: Record<number, LineDentist>): Record<number, LineDentist> {
+export function reshareLineDentists(
+  lines: readonly (Pick<MetlifeLine, "approvedAmount"> & Partial<Pick<MetlifeLine, "patientShare">>)[],
+  dentists: Record<number, LineDentist>,
+  shareDiscounts: Record<number, ShareDiscount> = {},
+): Record<number, LineDentist> {
   const out: Record<number, LineDentist> = {};
   for (const [k, d] of Object.entries(dentists)) {
     const i = Number(k);
     const line = lines[i];
     if (!line) continue;
-    out[i] = { ...d, share: round2((line.approvedAmount * d.rate) / 100) };
+    out[i] = { ...d, share: round2((dentistBase(line, d.basis, shareDiscounts[i]?.amount ?? 0) * d.rate) / 100) };
   }
   return out;
 }
@@ -619,15 +688,20 @@ export function parseInsurerPaid(raw: unknown): InsurerPaid | null {
 
 // --- The treatment rows an approval writes into the patient's file --------------------------------
 
-/** What a line is worth to the clinic: the insurer's approved part plus what the patient pays. */
-export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientShare">): number {
-  return round2(line.approvedAmount + line.patientShare);
+/**
+ * What a line is worth to the clinic: the insurer's approved part plus what the patient pays,
+ * less any discount the clinic gave on the patient's share (never more than the share itself).
+ */
+export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientShare">, shareDiscount = 0): number {
+  const share = Math.max(0, Number(line.patientShare) || 0);
+  const off = Math.min(Math.max(0, Number(shareDiscount) || 0), share);
+  return round2(line.approvedAmount + share - off);
 }
 
 export type TreatmentRowArgs = {
   claimId: string;
   claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists" | "lineStatus"> &
-    Partial<Pick<InsuranceClaim, "lineDates" | "removedLines">>;
+    Partial<Pick<InsuranceClaim, "lineDates" | "removedLines" | "shareDiscounts">>;
   payerName: string;
   /** The clinic's own name per code, else the paper's description prints. */
   wording: Record<string, string>;
@@ -659,8 +733,11 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
   claim.lines.forEach((line, i) => {
     // A service deleted from the approval has no row in the patient's file.
     if (isLineRemoved(claim, i)) return;
-    const charge = lineCharge(line);
-    if (charge <= 0) return;
+    // A rejected line (nothing approved, no share) has no row; a share discounted to nothing still
+    // has one — the insurer's part is real work to bill.
+    if (lineCharge(line) <= 0) return;
+    const shareOff = Math.min(shareDiscountOf(claim, i), Math.max(0, line.patientShare));
+    const charge = lineCharge(line, shareOff);
     const name = wording[line.code]?.trim() || line.description.trim() || line.code;
     const dentist = claim.dentists[i] ?? null;
     const units = Math.max(1, line.unitsApproved || line.unitsRequested || 1);
@@ -686,7 +763,15 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
       discountPercent: null,
       discountValue: discountAmount > 0 ? discountAmount : null,
       discountAmount,
-      discountReason: discountAmount > 0 ? `${payerName} approved ${round2(line.approvedAmount)} of ${listPrice}` : null,
+      discountReason: shareDiscountReason({
+        insurerGap: round2(listPrice - lineCharge(line)),
+        approvalText: `${payerName} approved ${round2(line.approvedAmount)} of ${listPrice}`,
+        shareOff,
+        shareReason: claim.shareDiscounts?.[i]?.reason ?? "",
+      }),
+      // The clinic's own discount on the patient's share, apart from the insurer's gap above.
+      shareDiscount: shareOff > 0 ? shareOff : null,
+      shareDiscountReason: shareOff > 0 ? claim.shareDiscounts?.[i]?.reason ?? "" : null,
       payerId: claim.payerId,
       payerName,
       doctorId: dentist?.staffId ?? null,
@@ -805,9 +890,20 @@ export function rowsActionForStatus(args: { from: ClaimStatus; to: ClaimStatus |
   return "none";
 }
 
+/**
+ * The discount reason on an approval's row: the insurer's gap (requested vs approved) and the
+ * clinic's own discount on the patient's share, each named when it exists. Null when neither does.
+ */
+export function shareDiscountReason(args: { insurerGap: number; approvalText: string; shareOff: number; shareReason: string }): string | null {
+  const parts: string[] = [];
+  if (args.insurerGap > 0.009) parts.push(args.approvalText);
+  if (args.shareOff > 0.009) parts.push(`Patient share discount ${round2(args.shareOff)}${args.shareReason ? `: ${args.shareReason}` : ""}`);
+  return parts.length ? parts.join("; ") : null;
+}
+
 /** The doctor fields to write on an existing row when a line's dentist changes. */
-export function dentistRowPatch(line: Pick<MetlifeLine, "approvedAmount" | "patientShare">, dentist: LineDentist | null): Record<string, unknown> {
-  const charge = lineCharge(line);
+export function dentistRowPatch(line: Pick<MetlifeLine, "approvedAmount" | "patientShare">, dentist: LineDentist | null, shareDiscount = 0): Record<string, unknown> {
+  const charge = lineCharge(line, shareDiscount);
   const commissionAmount = dentist ? dentist.share : 0;
   return {
     doctorId: dentist?.staffId ?? null,

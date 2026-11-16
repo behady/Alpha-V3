@@ -921,9 +921,11 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const mona = { id: "s2", name: "Dr Mona", commissionPercentage: 30, commissionByPayer: null };
   const staff = new Map<string, { id: string; name: string; commissionPercentage: number; commissionByPayer: Record<string, unknown> | null }>([["s1", omar], ["s2", mona]]);
   const claim = claimFixture();                                   // 5 lines: 60, 60, 600, 300, 240 approved
-  // the rate is the dentist's rate on THIS payer, the share is on the approved amount
-  assert.deepEqual(lineDentistFor(claim.lines[2], omar, "metlife"), { staffId: "s1", name: "Dr Omar", rate: 25, share: 150 });
-  assert.deepEqual(lineDentistFor(claim.lines[2], mona, "metlife"), { staffId: "s2", name: "Dr Mona", rate: 30, share: 180 });
+  // the rate is the dentist's rate on THIS payer; a pick from 2026-11-16 is stamped under the
+  // "charge" rule (approved + patient share, tests/shareDiscount.test.mts). These lines carry no
+  // patient share, so the figure is the same as on the approved amount alone.
+  assert.deepEqual(lineDentistFor(claim.lines[2], omar, "metlife"), { staffId: "s1", name: "Dr Omar", rate: 25, share: 150, basis: "charge" });
+  assert.deepEqual(lineDentistFor(claim.lines[2], mona, "metlife"), { staffId: "s2", name: "Dr Mona", rate: 30, share: 180, basis: "charge" });
   assert.equal(lineDentistFor({ approvedAmount: 33.33 }, omar, "metlife").share, 8.33, "share rounds to cents");
   // picks: assign, keep, clear, unknown
   const first = applyDentistPicks(claim, { 0: "s1", 2: "s2" }, staff);
