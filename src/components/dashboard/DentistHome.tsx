@@ -661,19 +661,22 @@ export default function DentistHome() {
                         type="button"
                         onClick={() => router.push(`/patients/${a.patientId}`)}
                         aria-label={isAr ? `ملف ${name}` : `Open ${name}'s profile`}
-                        className={`${pill} border border-line text-ink hover:bg-surface-subtle`}
+                        title={isAr ? "الملف" : "Profile"}
+                        className={`${pill} max-md:w-9 max-md:h-9 max-md:px-0 max-md:justify-center border border-line text-ink hover:bg-surface-subtle`}
                       >
-                        <User size={13} strokeWidth={2.4} /> {isAr ? "الملف" : "Profile"}
+                        <User size={15} strokeWidth={2.4} />
+                        <span className="max-md:hidden">{isAr ? "الملف" : "Profile"}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => void addService(a)}
                         disabled={!!noteLoadingId}
                         aria-label={isAr ? `أضف خدمة لـ ${name}` : `Add a service for ${name}`}
-                        className={`${pill} bg-ink-slab text-white hover:opacity-90`}
+                        title={isAr ? "أضف خدمة" : "Add a service"}
+                        className={`${pill} max-md:w-9 max-md:h-9 max-md:px-0 max-md:justify-center bg-ink-slab text-white hover:opacity-90`}
                       >
-                        {noteLoadingId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} strokeWidth={2.6} />}
-                        {isAr ? "خدمة" : "Service"}
+                        {noteLoadingId === a.id ? <Loader2 size={15} className="animate-spin" /> : <Plus size={16} strokeWidth={2.6} />}
+                        <span className="max-md:hidden">{isAr ? "خدمة" : "Service"}</span>
                       </button>
                     </div>
                   </div>
