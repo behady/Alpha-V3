@@ -1153,7 +1153,7 @@ export default function MobileDashboard() {
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 lg:mt-0">
 
           {/* 5. SCHEDULE LIST WIDGET */}
-          <div className="flex-1 flex flex-col bg-white/30 backdrop-blur-[40px] border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[600px] lg:h-full lg:min-h-0 overflow-clip lg:overflow-hidden">
+          <div className="lg:flex-1 flex flex-col bg-white/30 backdrop-blur-[40px] border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] lg:h-full lg:min-h-0 overflow-clip lg:overflow-hidden">
             {/* Header (Desktop: Original, Mobile: Calendar Header like reference image) */}
             <div className="flex justify-between items-center gap-3 px-4 md:px-6 py-4 border-b border-white/40 bg-transparent shrink-0">
               {/* Desktop Date switcher (Hidden on Mobile) */}
@@ -1409,12 +1409,14 @@ export default function MobileDashboard() {
             )}
             {/* Below lg the schedule grows with its content and the page scrolls, so these clip
                 (overflow: clip) instead of becoming scroll boxes: a scroll box that never scrolls
-                would pin the week's sticky day headers to itself, where they never stick. */}
-            <div className="flex flex-col flex-1 min-h-[400px] overflow-clip lg:overflow-hidden relative">
+                would pin the week's sticky day headers to itself, where they never stick.
+                `flex-1` is `lg:` only on these boxes: its 0% basis made Safari (every iPhone
+                browser) hold them at a fixed height, and the clip cut the rest of the day off. */}
+            <div className="flex flex-col lg:flex-1 min-h-[400px] overflow-clip lg:overflow-hidden relative">
               {loading ? (
                 <div className="py-32 flex justify-center"><Loader2 className="animate-spin text-primary-500" size={32} /></div>
               ) : (
-                <div className="flex-1 overflow-visible lg:overflow-y-auto lg:overflow-x-auto custom-scrollbar relative pb-48">
+                <div className="lg:flex-1 overflow-visible lg:overflow-y-auto lg:overflow-x-auto custom-scrollbar relative pb-48">
                   {(() => {
                     const sched = config;
                     const bounds = clinicDayBoundsMinutes(sched);
