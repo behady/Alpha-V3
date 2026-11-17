@@ -29,7 +29,7 @@ import { allowedNumbers, checkReply, type Violation } from "./checks";
 import type { ProAppointment } from "./person";
 import { proClinicLayer, proRulebook, proTurnLayer } from "./proPrompt";
 import { firestoreProSink, loadProContext, PRO_CREDITS_PER_REPLY, PRO_THREAD_LINES, type ProArgs, type ProContext, type ProSink } from "./proContext";
-import { normalizeForMatch, PRO_TOOL_DECLARATIONS, runTool, type ToolEnv } from "./tools";
+import { normalizeForMatch, PRO_TOOL_DECLARATIONS, runTool, slotIdFor, type ToolEnv } from "./tools";
 
 export { PRO_CREDITS_PER_REPLY };
 export type { ProArgs };
@@ -132,7 +132,7 @@ export function realDoctor(wanted: unknown, doctors: string[]): string {
   return matches.length === 1 ? matches[0] : "";
 }
 
-/** The last turn's offer as s1..sn, past days dropped, labels re-rendered as absolute dates. */
+/** The last turn's offer as slotA.., past days dropped, labels re-rendered as absolute dates. */
 function seedPrevious(keys: string[] | undefined, ctx: ProContext, shown: ToolEnv["shown"]): Array<{ id: string; label: string }> {
   const out: Array<{ id: string; label: string }> = [];
   for (const key of keys ?? []) {
@@ -140,7 +140,7 @@ function seedPrevious(keys: string[] | undefined, ctx: ProContext, shown: ToolEn
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !time.trim() || day < ctx.todayKey) continue;
     if (shown.size >= MAX_SHOWN) break;
     if ([...shown.values()].some((s) => s.key === key)) continue;
-    const id = `s${shown.size + 1}`;
+    const id = slotIdFor(shown.size);
     const label = ctx.dayLabel(day, time, doctor);
     shown.set(id, { key, label });
     out.push({ id, label });

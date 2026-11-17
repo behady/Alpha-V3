@@ -12,7 +12,8 @@ import type { ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { normalizeDateKey } from "@/lib/appointmentTime";
 import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { clinicDayBoundsMinutes } from "@/lib/clinicSchedule";
-import { pickOfferedTimes, readTimePreference, type TimePreference } from "./slotPreference";
+import { honourAskedHour, pickOfferedTimes, readTimePreference, type TimePreference } from "./slotPreference";
+import { waitForQuiet } from "./settle";
 import { clinicNow } from "@/lib/publicBooking";
 import { sendClinicPush } from "@/lib/push";
 import { clinicDisplayName } from "@/lib/sms/events";
@@ -56,7 +57,7 @@ import { feminizeAddress } from "./voiceFix";
 import { tidyModelWording } from "./wordingFix";
 import { LEAD_INTEREST_REASONS, activeOffers, offerForService } from "./sales";
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
-import { newerPatientLines, recentThreadLines, recordThreadMessage } from "./thread";
+import { newerPatientLines, photoNoteSummary, recentThreadLines, recordThreadMessage } from "./thread";
 import { lineTakesOver } from "./supersede";
 import { STAFF_QUESTION_HOLD_MS, deskHearsHeldMessage, staffQuestionAt, staffQuestionCouldHold } from "./staffHold";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
@@ -1325,6 +1326,33 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        * owner's coaching, the answers staff approved, and the playbook. Assisted mode keeps the
        * cheap call it always made.
        */
+      /*
+       * Let the patient finish first (lib/bot/settle). A burst of messages is read and answered
+       * once, by the turn of its last message that reaches the model; this turn steps aside if a
+       * newer one takes over. Before the thread is read, so the answer sees the whole burst.
+       */
+      if (!args.dryRun) {
+        // A photo's or voice note's turn starts only once it has been read, seconds after it
+        // arrived; its own line's time is the one the burst is measured from.
+        let since = args.receivedAt ?? now;
+        if (args.receivedAt === undefined && args.messageId) {
+          const own = (await recentThreadLines(clinicId, chatId, now - 120_000, 30)).find((l) => l.messageId === args.messageId);
+          if (Number(own?.at) > 0) since = Number(own!.at);
+        }
+        const settled = await waitForQuiet({
+          since,
+          newer: async () => {
+            const lines = await newerPatientLines(clinicId, chatId, since, { text, messageId: args.messageId });
+            return Promise.all(
+              lines.map(async (line) => ({
+                at: Number(line.at) || 0,
+                takesOver: await lineTakesOver(line, { state: conversation.state, ctx, today: clinicNow().dateKey, soonAppointment }).catch(() => false),
+              }))
+            );
+          },
+        });
+        if (settled === "superseded") return skip("superseded_waiting");
+      }
       const salesContext = await loadSalesContext(clinicId, chatId, patient, ctx, settings.hideDoctorNames);
       let slotOffer = profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule)), settings.hideDoctorNames) : [];
       heardIntroBefore = (salesContext?.thread || []).some(
@@ -1503,6 +1531,33 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         if (picked) {
           ai.bookSlot = picked;
           ai.openBooking = false;
+        }
+      }
+      /*
+       * And the hour the patient named overrules it too (lib/bot/slotPreference honourAskedHour).
+       * "بكره س٦" was booked as tomorrow 10:30 م on 16/11/2026, confirmed as "حجزتلك بكره" with no
+       * time. A slot at the asked hour replaces the model's pick; with none, nothing is booked and
+       * the patient is told plainly which nearby times there are.
+       */
+      if (ai.kind === "answer" && ai.bookSlot && profile?.schedule.isConfigured) {
+        const asked = readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule));
+        if (asked?.kind === "at") {
+          const honoured = honourAskedHour(asked.minutes, ai.bookSlot, slotOffer.map((s) => s.key));
+          if (honoured) {
+            ai.bookSlot = honoured;
+          } else {
+            const day = ai.bookSlot.split("|")[0];
+            const sameDay = slotOffer.filter((s) => s.key.split("|")[0] === day);
+            const near = (sameDay.length ? sameDay : slotOffer).slice(0, 2);
+            const h = Math.floor(asked.minutes / 60) % 12 || 12;
+            const mm = String(asked.minutes % 60).padStart(2, "0");
+            const askedLabel = `${h}:${mm} ${asked.minutes >= 720 ? "م" : "ص"}`;
+            ai.bookSlot = undefined;
+            ai.openBooking = false;
+            ai.text = near.length
+              ? `الساعة ${askedLabel} مش فاضية للأسف 🙏 أقرب مواعيد: ${near.map((s) => s.label).join(" أو ")}. تحب أنهي؟`
+              : `الساعة ${askedLabel} مش فاضية للأسف 🙏 تحب أشوفلك يوم تاني؟`;
+          }
         }
       }
       /*
@@ -2518,10 +2573,20 @@ async function loadSalesContext(
   }
   // A voice note is its words: its line says "[audio]" (dropped below) with the transcript beside it,
   // so the model never heard an earlier voice note, and a burst that ended on a typed line lost it.
+  // A photo is the patient's: its reading is written as a system line for staff, and as such the
+  // model took it for something it had said itself. Now that a burst is answered by its last
+  // message's turn (lib/bot/settle), that turn must see the photo the way a photo turn asks about it.
   const thread: AiThreadLine[] = rows
     .reverse()
-    .map((m) => ({ author: (m.author as AiThreadLine["author"]) || "bot", text: String(m.transcript || m.text || "") }))
-    .filter((l) => l.text.trim() && !l.text.startsWith("[") );
+    .map((m): AiThreadLine => {
+      const said = String(m.transcript || m.text || "");
+      if (m.kind === "image_note") {
+        const summary = photoNoteSummary(said);
+        if (summary) return { author: "patient", text: `[المريض بعت صورة] ${summary}` };
+      }
+      return { author: (m.author as AiThreadLine["author"]) || "bot", text: said };
+    })
+    .filter((l) => l.text.trim() && (!l.text.startsWith("[") || l.text.startsWith("[المريض بعت صورة]")));
   const knowledge = (knowledgeSnap?.docs ?? []).map((d) => {
     const k = d.data() || {};
     return { q: String(k.question || ""), a: String(k.answer || "") };

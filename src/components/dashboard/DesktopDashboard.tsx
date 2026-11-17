@@ -7,6 +7,8 @@ import {
     X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, Building2, ScanLine
 } from "lucide-react";
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
+import NoApprovalTag from "@/components/appointments/NoApprovalTag";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { db, auth } from "@/lib/firebase";
 import { 
@@ -136,9 +138,10 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
     claimLinks?: unknown;
     patientKind?: string | null;
     workKind?: string | null;
+    payerId?: string | null;
   };
   return {
-    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null,
+    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null, payerId: raw.payerId,
     id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
     treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
     time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
@@ -344,6 +347,8 @@ export default function DesktopDashboard() {
    */
   const [visitMoney, setVisitMoney] = useState<Map<string, VisitMoney>>(new Map());
   const [patientHistory, setPatientHistory] = useState<Map<string, PatientHistory>>(new Map());
+  /** The clinic's insurers, for the "No approval" tag on a card (components/appointments/NoApprovalTag). */
+  const { payers } = usePricingPolicy();
 
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {
@@ -716,6 +721,7 @@ export default function DesktopDashboard() {
         status: String(data.status || "Scheduled"),
         patientKind: data.patientKind ?? null,
         workKind: data.workKind ?? null,
+        payerId: data.payerId,
       } as BookingEditSnapshot);
       setBookingTab("payment");
       showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");
@@ -1829,6 +1835,8 @@ export default function DesktopDashboard() {
                                                                                     {visit.payers.slice(0, 2).map((p) => <InsurerBadge key={p} name={p} size={16} />)}
                                                                                 </span>
                                                                             )}
+                                                                            <NoApprovalTag appointment={apt} payers={payers} isAr={language === "ar"} />
+
                                                                             {/* Only while looking at every branch at once — inside a single
                                                                                 branch the chip would repeat the same word on every card. */}
                                                                             {activeBranchId === ALL_BRANCHES && apt.branchName && (

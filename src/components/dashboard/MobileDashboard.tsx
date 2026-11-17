@@ -7,6 +7,8 @@ import {
   X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
 } from "lucide-react";
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
+import NoApprovalTag from "@/components/appointments/NoApprovalTag";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { useClinic } from "@/context/ClinicContext";
 import { holdsPermission } from "@/lib/permissions";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
@@ -151,9 +153,10 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
     claimLinks?: unknown;
     patientKind?: string | null;
     workKind?: string | null;
+    payerId?: string | null;
   };
   return {
-    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null,
+    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null, payerId: raw.payerId,
     id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
     treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
     time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
@@ -192,6 +195,8 @@ function DashboardClockWidget({ language, showTime = true }: { language: string,
 export default function MobileDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { clinic, role, isAdmin } = useClinic();
+  /** The clinic's insurers, for the "No approval" tag on a card (components/appointments/NoApprovalTag). */
+  const { payers } = usePricingPolicy();
   /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
   const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
   const [readApproval, setReadApproval] = useState(false);
@@ -644,6 +649,7 @@ export default function MobileDashboard() {
         status: String(data.status || "Scheduled"),
         patientKind: data.patientKind ?? null,
         workKind: data.workKind ?? null,
+        payerId: data.payerId,
       } as BookingEditSnapshot);
       setBookingTab("payment");
       showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");
@@ -1147,7 +1153,7 @@ export default function MobileDashboard() {
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 lg:mt-0">
 
           {/* 5. SCHEDULE LIST WIDGET */}
-          <div className="flex-1 flex flex-col bg-white/30 backdrop-blur-[40px] border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[600px] lg:h-full lg:min-h-0 overflow-clip lg:overflow-hidden">
+          <div className="lg:flex-1 flex flex-col bg-white/30 backdrop-blur-[40px] border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] lg:h-full lg:min-h-0 overflow-clip lg:overflow-hidden">
             {/* Header (Desktop: Original, Mobile: Calendar Header like reference image) */}
             <div className="flex justify-between items-center gap-3 px-4 md:px-6 py-4 border-b border-white/40 bg-transparent shrink-0">
               {/* Desktop Date switcher (Hidden on Mobile) */}
@@ -1403,12 +1409,14 @@ export default function MobileDashboard() {
             )}
             {/* Below lg the schedule grows with its content and the page scrolls, so these clip
                 (overflow: clip) instead of becoming scroll boxes: a scroll box that never scrolls
-                would pin the week's sticky day headers to itself, where they never stick. */}
-            <div className="flex flex-col flex-1 min-h-[400px] overflow-clip lg:overflow-hidden relative">
+                would pin the week's sticky day headers to itself, where they never stick.
+                `flex-1` is `lg:` only on these boxes: its 0% basis made Safari (every iPhone
+                browser) hold them at a fixed height, and the clip cut the rest of the day off. */}
+            <div className="flex flex-col lg:flex-1 min-h-[400px] overflow-clip lg:overflow-hidden relative">
               {loading ? (
                 <div className="py-32 flex justify-center"><Loader2 className="animate-spin text-primary-500" size={32} /></div>
               ) : (
-                <div className="flex-1 overflow-visible lg:overflow-y-auto lg:overflow-x-auto custom-scrollbar relative pb-48">
+                <div className="lg:flex-1 overflow-visible lg:overflow-y-auto lg:overflow-x-auto custom-scrollbar relative pb-48">
                   {(() => {
                     const sched = config;
                     const bounds = clinicDayBoundsMinutes(sched);
@@ -1481,6 +1489,7 @@ export default function MobileDashboard() {
                                     <span className="shrink-0 text-[9px] font-black text-ink-body uppercase tracking-widest bg-surface-subtle border border-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
                                       {getAppointmentStageLabel(apt.status, language)}
                                     </span>
+                                    <NoApprovalTag appointment={apt} payers={payers} isAr={language === "ar"} />
                                     {aptDetail && (
                                       <span className="min-w-0 max-w-full text-[11px] font-bold text-ink-muted leading-snug line-clamp-2 break-words">{aptDetail}</span>
                                     )}
@@ -1761,8 +1770,9 @@ export default function MobileDashboard() {
                                     <div className="flex-1 flex justify-between items-center px-4 py-2">
                                       {/* Left: Patient Name & Time Range */}
                                       <div className="flex flex-col min-w-0 gap-0.5">
-                                        <h4 className="text-xs font-black text-slate-800 truncate">
-                                          {apt.patientName}
+                                        <h4 className="flex items-center gap-1.5 text-xs font-black text-slate-800 min-w-0">
+                                          <span className="truncate">{apt.patientName}</span>
+                                          <NoApprovalTag appointment={apt} payers={payers} isAr={language === "ar"} size="xs" />
                                         </h4>
                                         <span className="text-[10px] font-bold text-slate-400">
                                           {normalizeTimeKey(apt.time)} — {getEndTimeStr(apt.time, apt.duration || 30)}

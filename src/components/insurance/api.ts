@@ -16,6 +16,7 @@ import type { Check, MetlifeExtraction, MetlifeHeader, MetlifeLine } from "@/lib
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
 import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
 import type { BinNotice } from "@/lib/recycleBin";
+import type { SheetChoice } from "@/lib/insurance/companySheet";
 
 export type ApiAnswer = { status: number; data: Record<string, unknown> };
 
@@ -172,6 +173,11 @@ export type ClaimPatch = {
   removeLine?: number;
   /** Put a deleted service back on the approval. Travels alone. */
   restoreLine?: number;
+  /**
+   * A discount on the PATIENT'S share of one service, named by its treatment row; amount 0 removes
+   * it. Dentists and admins only; travels alone. The insurer's part never changes.
+   */
+  shareDiscount?: { ledgerId: string; amount: number; reason: string };
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
   /** Record the insurer's payment against the treatment rows, and mark them settled. */
@@ -261,4 +267,30 @@ export async function collectPatientShare(clinicId: string, claimId: string, bra
 /** Record the insurer's payment for an approval. Resolves to the server's message on a refusal, null on success. */
 export async function recordInsurerPayment(clinicId: string, claimId: string, branchId?: string): Promise<string | null> {
   return patchClaim(clinicId, claimId, { insurerPaid: true }, branchId);
+}
+
+/** Resolves to null on success, else the refusal's `reason` (or "failed" when the call itself did not work). */
+async function companySheetCall(body: Record<string, unknown>): Promise<string | null> {
+  try {
+    const { status, data } = await call("POST", "/api/insurance/company-sheet", body);
+    if (status === 200 && data.ok === true) return null;
+    return typeof data.reason === "string" && data.reason ? data.reason : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** The company's monthly sheet: tick a patient onto this month ("include"), carry him on ("hold"), or back to automatic (null). */
+export function markCompanySheet(clinicId: string, payerId: string, patientId: string, month: string, choice: SheetChoice | null): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "mark", payerId, month, patientId, choice });
+}
+
+/** Freeze a month as sent to the company. */
+export function sendCompanySheet(clinicId: string, payerId: string, month: string): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "send", payerId, month });
+}
+
+/** Open a sent month again. */
+export function unsendCompanySheet(clinicId: string, payerId: string, month: string): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "unsend", payerId, month });
 }

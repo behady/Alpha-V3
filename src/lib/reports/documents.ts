@@ -31,11 +31,12 @@ import { adStats } from "@/lib/reports/adStats";
 import { doctorLabel, partitionRows, rollupPatients, rowDate, type PatientRollup, type ReportLedgerRow, type ReportPatient } from "@/lib/reportPatients";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 import { buildPayerReport, type LedgerRowLite } from "@/lib/payerReport";
-import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, isInsurerFormat, type Payer } from "@/lib/payers";
 import { buildCaseSheet, settlementOf, sumCases } from "@/lib/caseSheet";
 import { buildTreatmentStatus, type TreatmentState } from "@/lib/reports/treatmentStatus";
 import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
 import { readMemberNumbers } from "@/lib/patientInsurance";
+import { companyStatement, type SheetInputs } from "@/lib/insurance/companySheet";
 import { parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { statusLabel, workTypeLabel } from "@/lib/labCases";
 
@@ -82,6 +83,8 @@ export type ReportInputs = {
   payroll: PayrollRow[] | null;
   /** The clinic's geofence and hours are not needed; the name is, for the title. */
   clinicName?: string;
+  /** Insurance statement only: the finished-month sheet's inputs for each contract company, by payer id. */
+  companySheets?: Record<string, SheetInputs>;
 };
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
@@ -169,6 +172,16 @@ function outcomeRow(c: OutcomeCounts): DocRow {
 }
 
 // --- the builder ---------------------------------------------------------------------------------------
+
+/**
+ * The sheet's charges only start at 2026-11, but the part of a range before that prints per visit
+ * from the report's own rows: hand `companyStatement` both, one entry per id.
+ */
+function withRangeRows(sheetCharges: SheetInputs["charges"], rows: Row[], payerId: string): SheetInputs["charges"] {
+  const seen = new Set(sheetCharges.map((c) => String(c.id)));
+  const extra = rows.filter((r) => String(r.payerId || "") === payerId && !seen.has(String(r.id)));
+  return [...sheetCharges, ...(extra as unknown as SheetInputs["charges"][number][])];
+}
 
 export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
   const meta = reportMeta(id);
@@ -547,7 +560,15 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       for (const p of insurers) {
         const memberNumbers = new Map<string, string>();
         input.allPatients.forEach((pt) => { const n = readMemberNumbers(pt)[p.id]; if (n) memberNumbers.set(String(pt.id), n); });
-        const st = buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName: isAr ? p.nameAr || p.name : p.name, month, range, memberNumbers });
+        const payerName = isAr ? p.nameAr || p.name : p.name;
+        const sheet = input.companySheets?.[p.id];
+        // The route tried to read this company's sheet and could not: say so rather than quietly printing visits.
+        if (input.companySheets && !sheet && !isInsurerFormat(p.format)) {
+          note(isAr ? `${payerName}: التقفيلة ماتقريتش، دي الزيارات بدلها.` : `${payerName}: the sheet could not be read; showing visits instead.`);
+        }
+        const st = sheet
+          ? companyStatement({ ...sheet, charges: withRangeRows(sheet.charges, input.procedures, p.id), payerId: p.id, payerName, range, memberNumbers }).statement
+          : buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName, month, range, memberNumbers });
         if (st.cases.length === 0) continue;
         totalAll += st.total;
         casesAll += st.cases.length;

@@ -87,6 +87,47 @@ const compare = buildReportDoc("compare", inputs("en"));
 ok(compare.figures[0].delta?.text.includes("50%"), "vs previous: income rose from 1,000 to 1,500, a 50% rise");
 ok(!compare.figures[0].delta?.bad, "and a rise in income is not red");
 
+// --- insurance statement: a contract company follows the finished-month sheet ---------------------------
+// (placed before the P&L check, which already fails on origin/main and stops this file there)
+{
+  const gascoCharges = [
+    { id: "g1", type: "procedure", patientId: "p1", patientName: "Mona Adel", serviceName: "Crown", cost: 1500, date: "2026-11-05", normDate: "2026-11-05", payerId: "gasco", payerName: "GASCO", clinicalNoteId: "n1" },
+    { id: "g2", type: "procedure", patientId: "p2", patientName: "Karim Said", serviceName: "Filling", cost: 300, date: "2026-11-12", normDate: "2026-11-12", payerId: "gasco", payerName: "GASCO", clinicalNoteId: "n2" },
+  ];
+  const novRange = { start: "2026-11-01", end: "2026-11-30" };
+  const gascoIn = (withSheet: boolean): ReportInputs => ({
+    ...inputs("en"),
+    range: novRange,
+    procedures: gascoCharges,
+    payments: [],
+    payers: [{ id: "gasco", name: "GASCO", active: true } as unknown as ReportInputs["payers"][number]],
+    ...(withSheet
+      ? { companySheets: { gasco: {
+          charges: gascoCharges as never,
+          cards: [
+            { id: "n1", status: "Completed", date: "2026-11-05", completedDate: "2026-11-05" },
+            { id: "n2", status: "Ongoing", date: "2026-11-12" },
+          ],
+          marks: {},
+          sent: [],
+        } } }
+      : {}),
+  });
+  const gascoTable = (i: ReportInputs) => buildReportDoc("insurance", i).sections.find((s) => s.type === "table");
+  const on = gascoTable(gascoIn(true));
+  ok(on?.type === "table" && on.rows.length === 1 && on.rows[0]._patientId === "p1" && on.total?.value === 1500, "insurance doc: a contract company's table follows the sheet, only the finished patient, total = her cost");
+  const off = gascoTable(gascoIn(false));
+  ok(off?.type === "table" && off.rows.length === 2 && off.total?.value === 1800, "insurance doc: no sheet entry means today's output, both patients");
+
+  // Before November the sheet's charges hold no history; the range's own rows still print per visit.
+  const octCharge = { id: "g0", type: "procedure", patientId: "p3", patientName: "Hana Fathy", serviceName: "Scaling", cost: 200, date: "2026-10-15", normDate: "2026-10-15", payerId: "gasco", payerName: "GASCO" };
+  const octRange = { start: "2026-10-01", end: "2026-10-31" };
+  const octOld = gascoTable({ ...gascoIn(false), range: octRange, procedures: [octCharge, ...gascoCharges] });
+  const octNew = gascoTable({ ...gascoIn(true), range: octRange, procedures: [octCharge, ...gascoCharges] });
+  ok(octOld?.type === "table" && octOld.rows.length === 1 && octOld.total?.value === 200, "insurance doc: October prints the October visit on the old path");
+  eq(octNew, octOld, "insurance doc: a contract company's October range prints exactly as the old path does");
+}
+
 const pnl = buildReportDoc("pnl", inputs("en"));
 const statement = pnl.sections.find((s) => s.type === "statement")!;
 ok(statement.type === "statement" && statement.lines[statement.lines.length - 1].value === 1500 - 400 - 300 - 5000, "P&L: net = income − lab − commissions − expenses");

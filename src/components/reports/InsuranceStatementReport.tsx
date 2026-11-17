@@ -20,11 +20,16 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
 import type { ReportProps } from "@/components/reports/types";
 import { Note, PatientLink, ReportState, SectionTitle } from "@/components/reports/reportKit";
-import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, isInsurerFormat, type Payer } from "@/lib/payers";
 import { readMemberNumbers } from "@/lib/patientInsurance";
 import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
+import { companyStatement, type SheetCharge } from "@/lib/insurance/companySheet";
+import { useCompanyCharges, useCompanySheet } from "@/components/insurance/useCompanySheet";
+import { tr } from "@/components/insurance/text";
 import { useStatementHeader } from "@/lib/insuranceStatementHeader";
 
 const TEXT = {
@@ -69,6 +74,7 @@ const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits
 export default function InsuranceStatementReport({ procedures, allPatients, range, setRange, isAr, payers }: ReportProps & { payers: Payer[] }) {
   const t = (k: keyof typeof TEXT) => (isAr ? TEXT[k].ar : TEXT[k].en);
   const { clinicId } = useClinic();
+  const { scopeBranchId } = useActiveBranch();
 
   const insurers = useMemo(() => payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active), [payers]);
   const [payerId, setPayerId] = useState<string>("");
@@ -97,17 +103,37 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
     return map;
   }, [allPatients, payerId]);
 
-  const statement = useMemo(
-    () =>
-      buildInsuranceStatement({
-        rows: procedures as unknown as StatementRowLite[],
-        payerId,
-        payerName: payer ? (isAr ? payer.nameAr || payer.name : payer.name) : "",
-        month,
-        memberNumbers,
-      }),
-    [procedures, payerId, payer, isAr, month, memberNumbers]
+  // A contract company (no approval paper, e.g. GASCO) prints from the same finished-month sheet as the
+  // Insurance page: every charge of the company, all branches, read live; approval insurers are untouched.
+  const isContract = !!payer && !isInsurerFormat(payer.format);
+  const { charges: liveCharges, failed: chargesFailed } = useCompanyCharges(isContract ? payerId : null);
+  const sheetCharges = useMemo(
+    () => (liveCharges ? liveCharges.map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as SheetCharge) : null),
+    [liveCharges]
   );
+  const { inputs: sheetInputs, failed: inputsFailed } = useCompanySheet(clinicId, payerId, isContract ? sheetCharges : null);
+  const sheetFailed = isContract && (chargesFailed || inputsFailed);
+  const sheetWaiting = isContract && !sheetFailed && !sheetInputs;
+
+  const payerName = payer ? (isAr ? payer.nameAr || payer.name : payer.name) : "";
+  const statement = useMemo(() => {
+    if (isContract) {
+      if (sheetInputs) {
+        // The branch on screen narrows the printed lists; "all branches" ("") keeps everything.
+        return companyStatement({
+          ...sheetInputs,
+          payerId,
+          payerName,
+          range: { start: `${month}-01`, end: lastDayOf(month) },
+          memberNumbers,
+          keep: (c) => rowInScope(c, scopeBranchId),
+        }).statement;
+      }
+      // Not answered yet, or could not be read: nothing to show (and no Excel) rather than a half sheet.
+      return buildInsuranceStatement({ rows: [], payerId, payerName, month, memberNumbers });
+    }
+    return buildInsuranceStatement({ rows: procedures as unknown as StatementRowLite[], payerId, payerName, month, memberNumbers });
+  }, [isContract, sheetInputs, procedures, payerId, payerName, month, memberNumbers, scopeBranchId]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +215,7 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
             <button
               type="button"
               onClick={download}
-              disabled={busy || statement.cases.length === 0}
+              disabled={busy || sheetWaiting || sheetFailed || statement.cases.length === 0}
               data-tour="insurance-excel"
               className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-[11.5px] font-black text-ink-body transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -202,7 +228,11 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
         </SectionTitle>
         {error && <Note>{error}</Note>}
 
-        {statement.cases.length === 0 ? (
+        {sheetWaiting ? (
+          <Note>{tr(isAr)("sheetLoading")}</Note>
+        ) : sheetFailed ? (
+          <Note>{tr(isAr)("sheetLoadFailed")}</Note>
+        ) : statement.cases.length === 0 ? (
           <ReportState kind="empty" isAr={isAr} text={t("noCases")} />
         ) : (
           <>

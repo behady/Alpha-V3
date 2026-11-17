@@ -338,7 +338,7 @@ export interface ProTurnExtra {
   /** Today as YYYY-MM-DD in the clinic's timezone: the model needs it to date find_slots. */
   todayKey: string;
   /**
-   * Slots offered on earlier turns, with the ids the brain seeds into env.shown (s1..sn) before
+   * Slots offered on earlier turns, with the ids the brain seeds into env.shown (slotA..) before
    * this turn's searches continue the numbering — so "الأول" can still be booked next turn.
    */
   previousSlots?: Array<{ id: string; label: string }>;

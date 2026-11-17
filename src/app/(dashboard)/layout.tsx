@@ -710,7 +710,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
            className={`flex-1 min-h-0 relative animate-in fade-in duration-300 ${
              isFullHeightPage
                ? phoneCalendarPage
-                 ? "flex flex-col max-lg:overflow-clip lg:overflow-hidden"
+                 /* `max-lg:flex-auto`: sized by its content on a phone, never by `flex-1`'s 0%
+                    basis. Safari (every iPhone browser) resolved that basis to the screen's height
+                    and the clip then cut the day's list off there, with nothing left to scroll. */
+                 ? "flex flex-col max-lg:flex-auto max-lg:overflow-clip lg:overflow-hidden"
                  : "flex flex-col overflow-hidden"
                : phoneStickyPage
                  ? "max-lg:overflow-x-clip lg:overflow-x-hidden lg:overflow-y-auto pb-32 lg:pb-0"

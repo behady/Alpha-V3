@@ -294,6 +294,17 @@ export function newerLinesOf(lines: Array<Record<string, unknown>>, current: Cur
  * newer lines will really reach the model). Read from 20 seconds before the message, so a repeat
  * can be recognised. Never throws: a read failure means "nothing newer", and the answer goes out.
  */
+/**
+ * What a photo showed, from the staff line the webhook writes for it ("🖼️ وصف الصورة (للفريق):
+ * …", see webhooks/meta-whatsapp) — the summary alone, the same words a photo's own turn puts to
+ * the model. Null for any other line.
+ */
+export function photoNoteSummary(line: string): string | null {
+  const m = String(line || "").match(/^🖼️ وصف الصورة \(للفريق\): ([\s\S]*?)(?: — ⚠️ يبدو عاجل)?(?:\nقراءة مبدئية: [\s\S]*)?$/u);
+  const summary = m?.[1]?.trim();
+  return summary ? summary : null;
+}
+
 export async function newerPatientLines(clinicId: string, address: string, sinceMs: number, current: CurrentInbound): Promise<Array<Record<string, unknown>>> {
   const lines = await recentThreadLines(clinicId, address, sinceMs - REPEAT_MS - 1, 30);
   return newerLinesOf(lines.reverse(), current, sinceMs);

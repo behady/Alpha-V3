@@ -10,8 +10,10 @@ import Protect from "@/components/Protect";
 import LabTeethPicker from "@/components/lab/LabTeethPicker";
 import LabBridgeField from "@/components/lab/LabBridgeField";
 import LabOrderCreated from "@/components/lab/LabOrderCreated";
+import ShadeButtons from "@/components/lab/ShadeButtons";
 import { bridgeGaps, bridgeRuns, bridgeWorkApplies, cleanPontics, suggestBridge } from "@/lib/labBridge";
 import { prefillFromPast } from "@/lib/labPrefill";
+import type { LabCarry } from "@/lib/labBag";
 import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
@@ -25,7 +27,6 @@ import {
   GUM_SHADE_SUGGESTIONS,
   LAB_WORK_TYPES,
   RETENTION_OPTIONS,
-  TOOTH_SHADES,
   CERVICAL_SHADES,
   formatPalmerShorthand,
   hasPrimaryTeeth,
@@ -58,6 +59,18 @@ type Props = {
   defaultBranchId: string;
   currentUserName?: string;
   onSaved: (result: { id: string; code: string; isNew: boolean }) => void;
+  /**
+   * One visit, one bag (see labBag.ts). All optional: only the patient file, where one sitting can
+   * leave several treatments waiting for an order, passes them.
+   */
+  /** Answers carried from the order raised just before this one, for a new order only. */
+  carry?: LabCarry | null;
+  /** Orders already raised in this sitting, shown with the new one's code. */
+  earlier?: LabCase[];
+  /** The next treatment still waiting for its order, offered from the code screen. */
+  next?: LabCaseSeed | null;
+  /** Move on to `next`. The caller swaps `seed`; this form stays open and starts again. */
+  onNext?: (made: LabCase) => void;
 };
 
 const INPUT =
@@ -82,6 +95,10 @@ export default function LabCaseModal({
   defaultBranchId,
   currentUserName,
   onSaved,
+  carry,
+  earlier,
+  next,
+  onNext,
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -293,13 +310,15 @@ export default function LabCaseModal({
       setCreated(null);
       return;
     }
-    const key = existing?.id || "new";
+    // A new order is told apart by the treatment it is for, so moving on to the next treatment
+    // in the same sitting starts the form again instead of keeping the last one's answers.
+    const key = existing?.id || `new:${seed?.clinicalNoteId || ""}`;
     if (seededFor.current === key) return;
     seededFor.current = key;
     setMoreOpen(false);
 
     const src = existing;
-    setLabText(src?.labName || (labs.length === 1 ? labs[0].name : ""));
+    setLabText(src?.labName || carry?.labName || (labs.length === 1 ? labs[0].name : ""));
     setBranchId(src?.branchId || seed?.branchId || defaultBranchId || "");
     setWorkText(src?.workType ? workTypeLabel(src.workType, language) : "");
     setWorkDescription(src?.workDescription || seed?.workDescription || "");
@@ -312,8 +331,10 @@ export default function LabCaseModal({
     // An order being edited keeps what it says. A new one follows the patient's chart.
     setBridgeChoice(src ? src.bridge === true : null);
     setPonticChoice(src ? src.pontics || [] : null);
-    setBodyShade(src?.bodyShade || "");
-    setCervicalShade(src?.cervicalShade || "");
+    // The same patient, the same sitting, the same bag: the shade and the day it comes back are
+    // offered from the order before. A work type with no shade drops it again on save.
+    setBodyShade((src ? src.bodyShade : carry?.bodyShade) || "");
+    setCervicalShade((src ? src.cervicalShade : carry?.cervicalShade) || "");
     setGumShade(src?.gumShade || "");
     setMaterial(src?.material || "");
     setImplantSystem(src?.implantSystem || "");
@@ -336,15 +357,15 @@ export default function LabCaseModal({
     setAgreedPrice(seededAgreed);
     setSentVia(src?.sentVia || (workTypeFor(src?.workType || "zirconia").digitalByDefault ? "digital" : "driver"));
     setNeedsTryIn(src ? src.needsTryIn : false);
-    setDueDate(src?.dueDate || "");
-    setSendNow(src ? src.status !== "draft" : true);
+    setDueDate((src ? src.dueDate : carry?.dueDate) || "");
+    setSendNow(src ? src.status !== "draft" : carry ? carry.sendNow : true);
     setPatientId(src?.patientId || seed?.patientId || "");
     setPatientName(src?.patientName || seed?.patientName || "");
     setPatientPhone(src?.patientPhone || seed?.patientPhone || "");
     setPatientQuery("");
     setDoctorId(src?.doctorId || seed?.doctorId || "");
     setDoctorName(src?.doctorName || seed?.doctorName || "");
-  }, [open, existing, seed, defaultBranchId, labs, language]);
+  }, [open, existing, seed, carry, defaultBranchId, labs, language]);
 
   /**
    * The work type and the lab, offered for an order raised from a treatment.
@@ -353,15 +374,16 @@ export default function LabCaseModal({
    * goes (see labPrefill.ts). Once per opening, after the past orders have answered, and only into
    * a box that is still empty: something a person typed is never replaced.
    */
-  const prefilledFor = useRef(false);
+  const prefilledFor = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open) {
-      prefilledFor.current = false;
+      prefilledFor.current = null;
       return;
     }
-    if (isEdit || !pastReady || prefilledFor.current) return;
-    prefilledFor.current = true;
+    const key = `new:${seed?.clinicalNoteId || ""}`;
+    if (isEdit || !pastReady || prefilledFor.current === key) return;
+    prefilledFor.current = key;
     const offer = prefillFromPast(pastCases, seed?.workDescription);
     if (offer.workType) setWorkText((typed) => (typed.trim() ? typed : workTypeLabel(offer.workType, language)));
     if (offer.labName) setLabText((typed) => (typed.trim() ? typed : offer.labName));
@@ -744,6 +766,14 @@ export default function LabCaseModal({
     onClose();
   };
 
+  /** From the code screen to the next treatment's order: the bag is still being filled. */
+  const goNext = () => {
+    if (!created || !onNext) return;
+    const made = created;
+    setCreated(null);
+    onNext(made);
+  };
+
   if (!open) return null;
 
   return (
@@ -783,7 +813,14 @@ export default function LabCaseModal({
         </div>
 
         {created ? (
-          <LabOrderCreated labCase={created} labs={knownLabs} onDone={finishCreated} />
+          <LabOrderCreated
+            labCase={created}
+            earlier={earlier}
+            labs={knownLabs}
+            next={onNext ? next : null}
+            onNext={goNext}
+            onDone={finishCreated}
+          />
         ) : (
         <>
         {/* Body */}
@@ -911,20 +948,14 @@ export default function LabCaseModal({
             />
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {wt.bodyShade && (
-                <div>
-                  <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
-                  <select value={bodyShade} onChange={(e) => setBodyShade(e.target.value)} className={INPUT}>
-                    <option value="">—</option>
-                    {TOOTH_SHADES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+          {wt.bodyShade && (
+            <div>
+              <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
+              <ShadeButtons value={bodyShade} onChange={setBodyShade} label={isAr ? "لون الجسم" : "Body shade"} />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "ميعاد الرجوع" : "Due back"}</label>
               <input

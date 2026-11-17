@@ -22,6 +22,7 @@ import { binEntry, liveEntryId, stripUndefined } from "@/lib/server/recycleBinSt
 import { binNoticeOf, type BinNotice } from "@/lib/recycleBin";
 import { INSURER_PAYMENT_METHOD, patientPortion } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
 import { checkApproval } from "@/lib/insurance/formats";
@@ -52,6 +53,10 @@ import {
   isLineStatus,
   lineStatusOf,
   lineDentistFor,
+  lineCharge,
+  dentistBase,
+  shareDiscountOf,
+  shareDiscountReason,
   rowsActionForStatus,
   type LineDentist,
   type LineLedger,
@@ -67,7 +72,7 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid", "shareDiscount"]);
 const LINE_KEY = /^\d{1,3}$/;
 const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
@@ -783,6 +788,134 @@ export async function POST(req: Request) {
  *
  * Every edit stamps `updatedAt`/`updatedBy`.
  */
+/**
+ * A discount on the PATIENT'S share of one approval service (owner's decision, 2026-11-16).
+ *
+ * The insurer's approved part does not move: the company is billed exactly what it approved, and
+ * the approval's paper, totals and monthly sheet are untouched. What moves is the treatment row's
+ * price (approved + share − discount) and so the patient's open share, which "Collect share" reads.
+ * A dentist stamped under the "charge" rule (`dentistBase`) earns their rate on the lower price; an
+ * entry stamped before that rule keeps its figure. The discount is kept on the claim, so rows the
+ * approval rebuilds later carry it. 0 removes it.
+ *
+ * Refused when the patient already paid more of the share than the discount would leave owing —
+ * that would turn a discount into a silent refund.
+ */
+async function applyShareDiscount(args: { clinicId: string; claimId: string; ledgerId: string; amount: number; reason: string; actor: Actor }) {
+  const { clinicId, claimId, ledgerId, amount, reason, actor } = args;
+  const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+  type Outcome =
+    | { kind: "no_claim" }
+    | { kind: "unreadable" }
+    | { kind: "cancelled" }
+    | { kind: "no_row" }
+    | { kind: "too_big"; share: number }
+    | { kind: "already_paid"; paid: number; left: number }
+    | { kind: "ok"; before: Record<string, unknown>; after: Record<string, unknown>; restamp: Array<string | null>; service: string; from: number };
+  const result = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
+    // --- reads ----------------------------------------------------------------------------------
+    const claimSnap = await tx.get(claimRef);
+    if (!claimSnap.exists) return { kind: "no_claim" };
+    const claim = parseClaim(claimId, claimSnap.data());
+    if (!claim) return { kind: "unreadable" };
+    if (claim.status === "cancelled") return { kind: "cancelled" };
+    const entry = Object.entries(claim.ledgerIds).find(([, l]) => l.ledgerId === ledgerId);
+    if (!entry) return { kind: "no_row" };
+    const index = Number(entry[0]);
+    const link = entry[1];
+    const line = claim.lines[index];
+    if (!line || isLineRemoved(claim, index)) return { kind: "no_row" };
+    const share = round2(Math.max(0, line.patientShare));
+    if (amount > share + 0.009) return { kind: "too_big", share };
+    const chargeRef = adminClinicDoc(clinicId, "ledger", link.ledgerId);
+    const noteRef = adminClinicDoc(clinicId, "clinical_notes", link.noteId);
+    const [chargeSnap, noteSnap] = await Promise.all([tx.get(chargeRef), tx.get(noteRef)]);
+    if (!chargeSnap.exists) return { kind: "no_row" };
+    const payments = await readProcedurePayments(tx, clinicId, link.ledgerId);
+    // The patient's own money on this row; the insurer's payment is the insurer's.
+    const patientPaid = sumPayments(payments.filter((p) => p.method !== INSURER_METHOD));
+    const leftOwing = round2(share - amount);
+    if (patientPaid > leftOwing + 0.009) return { kind: "already_paid", paid: patientPaid, left: leftOwing };
+
+    // --- the new figures -------------------------------------------------------------------------
+    const before = chargeSnap.data() ?? {};
+    const from = shareDiscountOf(claim, index);
+    const charge = lineCharge(line, amount);
+    const units = Math.max(1, line.unitsApproved || line.unitsRequested || 1);
+    const unitCost = round2(charge / units);
+    const listPrice = round2(line.grossTotal);
+    const discountAmount = Math.max(0, round2(listPrice - charge));
+    const payerName = String(before.payerName || claim.payerId);
+    const discountReason = shareDiscountReason({
+      insurerGap: round2(listPrice - lineCharge(line)),
+      approvalText: `${payerName} approved ${round2(line.approvedAmount)} of ${listPrice}`,
+      shareOff: amount,
+      shareReason: reason,
+    });
+    const priceFields = {
+      cost: charge,
+      unitCost,
+      pricingFormula: `${units} x ${unitCost}`,
+      discountMode: discountAmount > 0 ? "fixed" : "none",
+      discountFixed: discountAmount > 0 ? discountAmount : null,
+      discountPercent: null,
+      discountValue: discountAmount > 0 ? discountAmount : null,
+      discountAmount,
+      discountReason,
+      shareDiscount: amount > 0 ? amount : null,
+      shareDiscountReason: amount > 0 ? reason : null,
+    };
+
+    // The dentist: only an entry stamped under the "charge" rule follows the price.
+    const dentist: LineDentist | undefined = claim.dentists[index];
+    let dentists = claim.dentists;
+    let commission = Number(before.doctorCommissionAmount) || 0;
+    const restamp: Array<string | null> = [];
+    if (dentist && dentist.basis === "charge") {
+      const nextShare = round2((dentistBase(line, "charge", amount) * dentist.rate) / 100);
+      if (nextShare !== dentist.share) {
+        dentists = { ...claim.dentists, [index]: { ...dentist, share: nextShare } };
+        commission = nextShare;
+        restamp.push(dentist.staffId);
+      }
+    }
+
+    // --- writes ----------------------------------------------------------------------------------
+    const stamp = { updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid };
+    const after = { ...priceFields, amount: charge, doctorCommissionAmount: commission, clinicProfit: round2(charge - commission) };
+    tx.update(chargeRef, { ...after, updatedAt: FieldValue.serverTimestamp() });
+    if (noteSnap.exists) tx.update(noteRef, { ...priceFields, updatedAt: FieldValue.serverTimestamp() });
+    const claimUpdate: Record<string, unknown> = {
+      [`shareDiscounts.${index}`]: amount > 0 ? { amount, reason, by: actor.uid, at: ymdInTimeZone(clinicTimeZone()) } : FieldValue.delete(),
+      ...stamp,
+    };
+    if (dentists !== claim.dentists) claimUpdate.dentists = dentists;
+    tx.update(claimRef, claimUpdate);
+    return { kind: "ok", before, after, restamp, service: String(before.serviceName || line.description || line.code), from };
+  });
+
+  if (result.kind === "no_claim") return fail(404, "That claim was not found.");
+  if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
+  if (result.kind === "cancelled") return fail(409, "This approval is cancelled. / الموافقة دي ملغية.");
+  if (result.kind === "no_row") return fail(404, "That treatment is not on this approval any more. Refresh and try again.");
+  if (result.kind === "too_big") {
+    return fail(400, `The discount can't be more than the patient's share (${result.share}). / الخصم مينفعش يكون أكتر من نصيب المريض (${result.share}).`);
+  }
+  if (result.kind === "already_paid") {
+    return fail(409, `The patient already paid ${result.paid} of this share; this discount would leave only ${result.left} owing. Refund the difference first. / المريض دفع ${result.paid} من نصيبه، والخصم ده هيخلي المطلوب ${result.left} بس. رجّعله الفرق الأول.`, { reason: "already_paid" });
+  }
+
+  await restampStaffSettlementsFor(clinicId, result.restamp);
+  await recordMoneyChange({
+    entry: { clinicId, action: "update", collection: "ledger", documentId: ledgerId, before: result.before, after: result.after, actor, via: "insurance/claims:share-discount" },
+    action: amount > 0 ? "Discount Applied" : "Discount Removed",
+    details: amount > 0
+      ? `${result.service} - patient share discount ${amount} EGP (${reason})${result.from > 0 ? `, was ${result.from}` : ""}`
+      : `${result.service} - patient share discount removed (was ${result.from} EGP)`,
+  }).catch((err) => reportServerError("Share discount audit failed:", err));
+  return NextResponse.json({ ok: true, amount });
+}
+
 export async function PATCH(req: Request) {
   try {
     // --- body -------------------------------------------------------------------------------
@@ -809,6 +942,33 @@ export async function PATCH(req: Request) {
         return fail(403, "Insurance is not part of this clinic's subscription.", { reason: "feature_locked" });
       }
       return await changeLineMembership({ clinicId, claimId, op, index, actor: { uid: authz.uid, name: authz.name, role: authz.role }, branchId: body.branchId });
+    }
+
+    // A discount on the patient's share of one service: its own transaction, never mixed.
+    if ("shareDiscount" in patch) {
+      if (keys.length !== 1) return fail(400, "Discount the patient's share on its own, not with another change.");
+      const sd = patch.shareDiscount;
+      if (!isRecord(sd)) return fail(400, "shareDiscount must be { ledgerId, amount, reason }.");
+      const ledgerId = segment(sd.ledgerId);
+      const amount = Math.round((Number(sd.amount) || 0) * 100) / 100;
+      const reason = typeof sd.reason === "string" ? sd.reason.trim().slice(0, 200) : "";
+      if (!ledgerId) return fail(400, "shareDiscount.ledgerId names the treatment row.");
+      if (!Number.isFinite(amount) || amount < 0) return fail(400, "The discount must be zero or more.");
+      const authz = await requireStaffPermission(req, clinicId, PERMISSION);
+      if (!authz.ok) return authz.response;
+      // Dentists and admins (owner's decision, 2026-11-16): clinical work, not the finance desk's.
+      if (!(isFullAccessRole(authz.role) || authz.permissions.includes("clinical.edit"))) {
+        return fail(403, "Only a dentist or an admin can discount the patient's share.");
+      }
+      if (!(await clinicHasFeature(clinicId, "insurance"))) {
+        return fail(403, "Insurance is not part of this clinic's subscription.", { reason: "feature_locked" });
+      }
+      if (amount > 0) {
+        if (!reason) return fail(400, "Choose a reason for this discount.");
+        const settings = parseDiscountSettings((await adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get()).data() ?? null);
+        if (settings.reasons.length > 0 && !settings.reasons.includes(reason)) return fail(400, "That discount reason is not one this clinic offers.");
+      }
+      return await applyShareDiscount({ clinicId, claimId, ledgerId, amount, reason, actor: { uid: authz.uid, name: authz.name, role: authz.role } });
     }
 
     let status: ClaimStatus | undefined;
@@ -1139,7 +1299,7 @@ export async function PATCH(req: Request) {
       // their stamped rate on the edited amounts, and the rebuilt rows below carry that share.
       const onLines = <T,>(m: Record<number, T>): Record<number, T> =>
         Object.fromEntries(Object.entries(m).filter(([k]) => Number(k) < lines.length)) as Record<number, T>;
-      let dentists = rawLines !== undefined ? reshareLineDentists(lines, claim.dentists) : claim.dentists;
+      let dentists = rawLines !== undefined ? reshareLineDentists(lines, claim.dentists, claim.shareDiscounts) : claim.dentists;
       if (rawLines !== undefined) update.dentists = dentists;
       // Whose payouts sit on work this edit changes hands or amount: re-stamped once it commits.
       const restamp: Array<string | null> = [];
@@ -1225,7 +1385,7 @@ export async function PATCH(req: Request) {
           const line = lines[i];
           if (!link || !line) continue;
           const dentist: LineDentist | null = dentists[i] ?? null;
-          const rowPatch = dentistRowPatch(line, dentist);
+          const rowPatch = dentistRowPatch(line, dentist, shareDiscountOf(claim, i));
           if (chargeSnaps.get(link.ledgerId)?.exists) {
             chargeUpdate(link.ledgerId, { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
             stampPaymentsDentist(tx, clinicId, siblingsByRow.get(link.ledgerId) ?? [], { doctorId: (rowPatch.doctorId as string | null) ?? null, doctorName: String(rowPatch.doctorName ?? "") });
@@ -1289,6 +1449,8 @@ export async function PATCH(req: Request) {
             lineStatus,
             lineDates,
             removedLines,
+            // Rebuilt rows keep the clinic's discount on each patient share (capped to the new share).
+            shareDiscounts: claim.shareDiscounts,
           },
           payerName,
           wording: rowWording(wordingSnap?.get(claim.insurer), {}),
