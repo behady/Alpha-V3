@@ -158,6 +158,8 @@
     "test:stock-scanner": "npx tsx tests/stockScanner.test.mts",
     "test:stock-history": "npx tsx tests/stockHistory.test.mts",
     "test:stock-counts": "npx tsx tests/stockCounts.test.mts",
+    "test:stock-low": "npx tsx tests/stockLow.test.mts",
+    "test:stock-browse": "npx tsx tests/stockBrowse.test.mts",
     "test:staged-once": "npx tsx tests/stagedProcedureOnce.test.mts",
     "test:note-photos-route": "npx tsx tests/notePhotosRoute.test.mts",
     "test:approval-teeth-route": "npx tsx tests/approvalTeethRoute.test.mts",

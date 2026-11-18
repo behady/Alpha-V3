@@ -26,6 +26,7 @@ const RULES: Rule[] = [
   [/^That is not an uploaded photo\.$/, () => "الصورة ما اترفعتش. صوّر تاني."],
   [/^The item needs a name\.$/, () => "الصنف محتاج اسم."],
   [/^(The|A) brand needs a name\.$/, () => "الماركة محتاجة اسم."],
+  [/^The warning level must be a whole number/, () => "حد التنبيه لازم يكون رقم صحيح، صفر أو أكتر."],
   [/^Which drawer does it live in\?$/, () => "اختار الدرج."],
   [/^Which item is this a brand of\?$/, () => "اختار الصنف."],
   [/^Which patient\?$/, () => "اكتب اسم المريض."],

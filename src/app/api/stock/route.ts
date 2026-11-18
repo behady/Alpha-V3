@@ -31,6 +31,8 @@ import {
 } from "@/lib/stock/catalog";
 import { lineKey, todayKey } from "@/lib/stock/math";
 import { deriveEvents } from "@/lib/stock/history";
+import { MAX_WARN_AT } from "@/lib/stock/low";
+import { afterStockChange } from "@/lib/alerts/stockAlerts";
 import { buildCountSave, compareCounts, type CountStep } from "@/lib/stock/counts";
 import type {
   LibraryProduct,
@@ -113,6 +115,8 @@ function variantOf(id: string, d: FirebaseFirestore.DocumentData): StockVariant 
     photoUrl: typeof d.photoUrl === "string" ? d.photoUrl : null,
     supplier: typeof d.supplier === "string" && d.supplier ? d.supplier : null,
     lastPrice: typeof d.lastPrice === "number" ? d.lastPrice : null,
+    // Absent on every record saved before the warning level existed; the screens read that as 1.
+    warnAt: typeof d.warnAt === "number" && Number.isFinite(d.warnAt) && d.warnAt >= 0 ? d.warnAt : null,
     isGeneric: d.isGeneric === true,
   };
 }
@@ -646,6 +650,11 @@ async function updateVariant(args: { clinicId: string; body: Body }) {
   if (typeof body.barcode === "string") patch.barcode = body.barcode.trim() || null;
   if (typeof body.supplier === "string") patch.supplier = body.supplier.trim() || null;
   if (body.lastPrice !== undefined) patch.lastPrice = num(body.lastPrice) > 0 ? num(body.lastPrice) : null;
+  if (body.warnAt !== undefined) {
+    const level = num(body.warnAt, -1);
+    if (!Number.isInteger(level) || level < 0 || level > MAX_WARN_AT) return bad("The warning level must be a whole number, 0 or more.");
+    patch.warnAt = level;
+  }
   await ref.set(patch, { merge: true });
   return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
 }
@@ -1094,6 +1103,16 @@ async function compareCountSaves(args: { clinicId: string; body: Body }) {
 
 // --- dispatcher ------------------------------------------------------------------------------
 
+/** Wait for a courtesy job, but only so long: a slow WhatsApp line must not hold a save hostage. */
+async function settleWithin(job: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([job.catch(() => undefined), new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const PERMISSION: Record<string, string> = {
   snapshot: "access.inventory",
   history: "access.inventory",
@@ -1202,6 +1221,9 @@ export async function POST(request: Request) {
           reportServerError("stock count record failed", e, { action });
         }
       }
+      // Anything this save took down to its warning level: bell, phones, WhatsApp. Waited for, so
+      // the message is not cut off when the request ends, but never for long and never fatal.
+      if (result.snapshot) await settleWithin(afterStockChange(clinicId, before, result.snapshot as StockSnapshot), 8000);
     }
     return response;
   } catch (e) {

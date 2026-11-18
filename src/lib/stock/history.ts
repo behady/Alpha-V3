@@ -1,4 +1,5 @@
 import { UNIT_NAMES } from "./catalog";
+import { warnAtOf } from "./low";
 import type { StockDrawer, StockEvent, StockEventDraft, StockEventType, StockItem, StockLine, StockSnapshot, StockVariant } from "./types";
 
 /**
@@ -187,6 +188,7 @@ export function deriveEvents(action: string, body: Record<string, unknown>, befo
           ["barcode", was.barcode, v.barcode],
           ["supplier", was.supplier, v.supplier],
           ["price", was.lastPrice, v.lastPrice],
+          ["warnAt", warnAtOf(was), warnAtOf(v)],
         ]);
         if (changes.length) push("brand-edited", { variantId: v.id }, { changes });
       }
@@ -279,6 +281,7 @@ const FIELD_LABEL: Record<string, { en: string; ar: string }> = {
   barcode: { en: "barcode", ar: "الباركود" },
   supplier: { en: "supplier", ar: "المورّد" },
   price: { en: "price", ar: "السعر" },
+  warnAt: { en: "warning level", ar: "حد التنبيه" },
 };
 
 function unitWord(unit: string | undefined, n: number, ar: boolean): string {
