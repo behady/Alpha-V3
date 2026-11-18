@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2, Lock, RotateCcw, X } from "lucide-react";
+import { ChevronDown, Loader2, Lock, X } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
@@ -67,6 +67,8 @@ export default function CompanyPatientDrawer({
   const { confirm, showToast } = useUI();
   /** The service being saved; every button waits while one is in flight. */
   const [busy, setBusy] = useState<string | null>(null);
+  /** Services whose history is open. */
+  const [openStory, setOpenStory] = useState<ReadonlySet<string>>(new Set());
   const today = cairoToday();
 
   useEffect(() => {
@@ -141,37 +143,68 @@ export default function CompanyPatientDrawer({
           ? "rounded-full bg-accent border-ink"
           : "rounded-full bg-surface border-ink";
 
-  const service = (c: SheetCharge, locked: boolean) => {
+  // One flat list: work not sent yet first (oldest first), then what was sent, newest month first.
+  const ordered = groups
+    .flatMap((g) => g.charges)
+    .map((c) => ({ c, s: serviceState(c, cards, children, sent) }))
+    .sort((x, y) => {
+      if (!x.s.sentMonth !== !y.s.sentMonth) return x.s.sentMonth ? 1 : -1;
+      if (x.s.sentMonth !== y.s.sentMonth) return y.s.sentMonth.localeCompare(x.s.sentMonth);
+      return toYmd(x.c.date).localeCompare(toYmd(y.c.date));
+    })
+    .map((x) => x.c);
+
+  const service = (c: SheetCharge) => {
     const id = String(c.id);
     const state = serviceState(c, cards, children, sent);
     const story = serviceStory(c, cards, children, sent);
-    const isLocked = locked || state.sentMonth !== "";
+    const isLocked = state.sentMonth !== "";
+    const canChange = !isLocked && state.noteId !== "";
     const name = statementLineText(c) || "—";
     const rowBusy = busy === id;
+    const storyOpen = openStory.has(id);
+    const pill = state.done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800";
+    const label = state.done ? t("dwFinished") : t("dwInProgress");
+
+    // The one status control: tap to switch Finished <-> In progress (each asks first).
+    const toggle = async () => {
+      if (state.done) {
+        const ok = await confirm(fill(t("dwUndoConfirm"), { service: name, patient: row.patientName }), { title: t("dwInProgress"), confirmLabel: t("dwInProgress") });
+        if (ok) await run(id, () => reopenTreatment(clinicId, payerId, state.noteId));
+      } else {
+        const ok = await confirm(fill(t("dwFinishConfirm"), { service: name }), { title: t("dwFinished"), confirmLabel: t("dwFinished") });
+        if (ok) await run(id, () => finishTreatment(clinicId, payerId, state.noteId));
+      }
+    };
+
     return (
-      <li key={id} className={`rounded-2xl border p-4 ${isLocked ? "border-line bg-surface-subtle" : "border-line bg-surface"}`}>
+      <li key={id} className={`rounded-2xl border border-line p-4 ${isLocked ? "bg-surface-subtle" : "bg-surface"}`}>
         <div className="flex items-baseline gap-3">
           <p className={`min-w-0 flex-1 text-[14px] font-bold ${isLocked ? "text-ink-body" : "text-ink"}`}>{name}</p>
           <span className="font-figure text-[15px] font-black text-ink">{money(amountOf(c), ar)}</span>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2.5">
-          <span
-            className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
-              state.done ? "border-emerald-100 bg-emerald-50 text-emerald-800" : "border-amber-100 bg-amber-50 text-amber-800"
-            }`}
-          >
-            {state.done ? t("dwFinished") : t("dwInProgress")}
-          </span>
+          {canChange ? (
+            <Protect permission="patients.edit" fallback={<span className={`inline-flex rounded-full border px-3 py-1 text-[12px] font-bold ${pill}`}>{label}</span>}>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void toggle()}
+                title={t("dwTapToChange")}
+                className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[12px] font-bold disabled:opacity-50 ${pill}`}
+              >
+                {label}
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            </Protect>
+          ) : (
+            <span className={`inline-flex rounded-full border px-3 py-1 text-[12px] font-bold ${pill}`}>{label}</span>
+          )}
 
-          {isLocked ? (
-            <span className="text-[12px] font-semibold text-ink-muted">{fill(t("dwLocked"), { date: dayLabel(state.finishDate, ar) || "—" })}</span>
-          ) : !state.noteId ? (
-            <span className="text-[12px] font-semibold text-ink-muted">{t("dwNoCard")}</span>
-          ) : state.done ? (
-            <Protect permission="patients.edit">
-              <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-ink-muted">
-                {t("dwFinishedOn")}
+          {state.done &&
+            (canChange ? (
+              <Protect permission="patients.edit" fallback={<span className="text-[12px] font-semibold text-ink-muted">{dayLabel(state.finishDate, ar)}</span>}>
                 <DoneDateField
                   key={`${state.noteId}|${state.finishDate}`}
                   stored={state.finishDate}
@@ -183,49 +216,40 @@ export default function CompanyPatientDrawer({
                   hint={fill(t("dwFinishedOnHint"), { min: dayLabel(state.lastVisit, ar) })}
                   onCommit={(day) => run(id, () => setTreatmentFinishDate(clinicId, payerId, state.noteId, day))}
                 />
-              </label>
-              <button
-                type="button"
-                disabled={busy !== null}
-                onClick={async () => {
-                  const ok = await confirm(fill(t("dwUndoConfirm"), { service: name, patient: row.patientName }), {
-                    title: t("dwUndo"),
-                    confirmLabel: t("dwUndo"),
-                  });
-                  if (ok) await run(id, () => reopenTreatment(clinicId, payerId, state.noteId));
-                }}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line px-3 text-[12px] font-bold text-ink-body hover:border-ink hover:text-ink disabled:opacity-50"
-              >
-                <RotateCcw size={13} />
-                {t("dwUndo")}
-              </button>
-            </Protect>
-          ) : (
-            <>
-              <span className="text-[12px] font-semibold text-ink-muted">{t("dwNoFinishYet")}</span>
-              <Protect permission="patients.edit">
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={async () => {
-                    const ok = await confirm(fill(t("dwFinishConfirm"), { service: name }), {
-                      title: t("dwMarkFinished"),
-                      confirmLabel: t("dwMarkFinished"),
-                    });
-                    if (ok) await run(id, () => finishTreatment(clinicId, payerId, state.noteId));
-                  }}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-ink bg-surface px-3 text-[12px] font-bold text-ink hover:bg-surface-subtle disabled:opacity-50"
-                >
-                  <CheckCircle2 size={13} />
-                  {t("dwMarkFinished")}
-                </button>
               </Protect>
-            </>
+            ) : (
+              <span className="text-[12px] font-semibold text-ink-muted">{dayLabel(state.finishDate, ar)}</span>
+            ))}
+
+          {isLocked && (
+            <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-ink-muted" title={t("dwLockedHint")}>
+              <Lock size={12} aria-hidden="true" />
+              {fill(t("dwSentWith"), { month: monthLabel(state.sentMonth, ar) })}
+            </span>
           )}
           {rowBusy && <Loader2 size={14} className="animate-spin text-ink-muted" />}
+
+          {story.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setOpenStory((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+              aria-expanded={storyOpen}
+              className="ms-auto inline-flex min-h-9 items-center gap-1 rounded-full px-2 text-[12px] font-bold text-ink-muted hover:text-ink"
+            >
+              {t("dwHistory")}
+              <ChevronDown size={13} className={storyOpen ? "rotate-180" : ""} aria-hidden="true" />
+            </button>
+          )}
         </div>
 
-        {story.length > 0 && (
+        {storyOpen && (
           <ol className="mt-3 flex flex-col gap-1.5 border-t border-dashed border-line pt-3">
             {story.map((e, i) => (
               <li key={i} className="flex items-baseline gap-2.5 text-[12px] leading-relaxed text-ink-body">
@@ -243,8 +267,6 @@ export default function CompanyPatientDrawer({
       </li>
     );
   };
-
-  const byDate = (a: SheetCharge, b: SheetCharge) => toYmd(a.date).localeCompare(toYmd(b.date));
 
   return (
     <>
@@ -285,34 +307,7 @@ export default function CompanyPatientDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 pb-8">
-          {groups.map((g) => {
-            const sentLine =
-              g.kind === "month" && g.sent
-                ? g.sent.sentByName
-                  ? fill(t("dwGroupSent"), { date: dayLabel(g.sent.sentAt ?? "", ar) || "—", name: g.sent.sentByName })
-                  : fill(t("dwGroupSentNoName"), { date: dayLabel(g.sent.sentAt ?? "", ar) || "—" })
-                : "";
-            const title = g.kind === "pending" ? t("dwGroupPending") : fill(t("sheetTitle"), { month: monthLabel(g.month, ar) });
-            const sub =
-              g.kind === "pending"
-                ? g.reason === "not_finished"
-                  ? t("dwGroupWaiting")
-                  : fill(t("dwGroupGoesOn"), { month: monthLabel(g.month, ar) })
-                : g.sent
-                  ? sentLine
-                  : t("dwGroupNotSent");
-            const locked = g.kind === "month" && g.sent !== null;
-            return (
-              <section key={`${g.kind}-${g.month}`} className="pt-5">
-                <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-                  {locked && <Lock size={13} className="text-ink-muted" aria-hidden="true" />}
-                  <h3 className={`text-[12px] font-black uppercase tracking-wider ${locked ? "text-ink-muted" : "text-ink"}`}>{title}</h3>
-                  <span className="text-[12px] font-semibold text-ink-muted">· {sub}</span>
-                </div>
-                <ul className="flex flex-col gap-3">{[...g.charges].sort(byDate).map((c) => service(c, locked))}</ul>
-              </section>
-            );
-          })}
+          <ul className="flex flex-col gap-3 pt-5">{ordered.map((c) => service(c))}</ul>
         </div>
       </aside>
     </>
