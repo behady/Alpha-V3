@@ -72,7 +72,7 @@ async function main() {
 
   const genAI = new GoogleGenerativeAI(apiKey);
   let languageFaults = 0;
-  let inventionFaults = 0;
+  const inventionFaults = 0;
   let dataFaults = 0;
   let inTokens = 0;
   let outTokens = 0;

@@ -20,7 +20,11 @@ import { spawnSync } from "node:child_process";
 // functions/ (a CommonJS package, where require() is correct). All 55 of those were that one rule.
 // The notification centre had pushed the real count to 82 and turned CI red for every pull
 // request; this closes that and tightens the gate at the same time.
-const BASELINE = 25;
+//
+// 25 -> 24 on 2026-11-18. The real count had drifted up to 31 unseen, because an earlier step of the
+// same CI job was failing and this one never ran. Seven were fixed: six quote marks in page text
+// and one let that is never reassigned.
+const BASELINE = 24;
 
 const result = spawnSync("npx", ["eslint", ".", "--format", "json"], {
   encoding: "utf8",

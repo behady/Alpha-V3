@@ -676,6 +676,11 @@ const ALLOWED_INACTIVE = [
   "finance/recovery/route.ts",            // GET: the unpaid-balances list, read
   "push/register-token/route.ts",         // POST, but writes only the caller's own users/ doc
                                           // (their phone's push token) — no clinic record
+  "stock/route.ts",                // One POST for every stock action. Only the five that read are
+                                   // exempt (the cupboard, a barcode lookup, the history, the saved
+                                   // counts and their comparison): a lapsed clinic may still see
+                                   // what is on its shelves. Every action that changes the cupboard
+                                   // is gated, and the assertion below holds it that way.
 ];
 
 const apiDir = join(REPO, "src/app/api");
@@ -749,6 +754,26 @@ const mcpPost = mcpKeys.slice(mcpKeys.indexOf("export async function POST"));
 assert.ok(
   !mcpPost.slice(0, mcpPost.indexOf("export async function DELETE")).includes("allowInactive: true"),
   "minting an AI connector key must stay behind the expiry gate"
+);
+
+// Stock: one handler serves reads and writes alike, so the exemption is a list of action names
+// rather than a verb. The list is pinned here. An action added to it has to be added here too,
+// which is the moment to check that it writes nothing.
+const stockRoute = readFileSync(join(apiDir, "stock/route.ts"), "utf8");
+assert.equal(
+  (stockRoute.match(/allowInactive/g) || []).length,
+  1,
+  "stock may waive the expiry gate in one place only: the read-only actions"
+);
+assert.ok(
+  stockRoute.includes("{ allowInactive: readOnly }"),
+  "stock must waive the expiry gate for its read-only actions and for nothing else"
+);
+const stockReadOnly = /const readOnly = ([^;]+);/.exec(stockRoute)?.[1] ?? "";
+assert.deepEqual(
+  [...stockReadOnly.matchAll(/action === "([^"]+)"/g)].map((m) => m[1]).sort(),
+  ["count-compare", "counts", "history", "lookup-barcode", "snapshot"],
+  "the stock actions exempt from the expiry gate changed. Only an action that writes nothing may be on this list."
 );
 
 // Nobody should be hand-rolling this decision again. The two local copies that existed read

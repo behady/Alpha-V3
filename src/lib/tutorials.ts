@@ -344,31 +344,31 @@ export const TUTORIALS: Tutorial[] = [
     id: "add-inventory-item",
     title: { en: "Add an inventory item", ar: "إضافة صنف للمخزون" },
     description: {
-      en: "Stock a new material: open Inventory, press Add Item, name it, save.",
-      ar: "تسجيل خامة جديدة: افتح المخزون، اضغط إضافة صنف، اكتب اسمه، احفظ.",
+      en: "Put a new item in the cupboard: open its drawer, press Add an item here, pick it.",
+      ar: "تسجيل صنف جديد في الدولاب: افتح الدرج بتاعه، اضغط ضيف صنف هنا، واختاره.",
     },
     steps: [
       {
         route: "/inventory",
-        anchor: "inventory-add",
+        anchor: "stock-drawer",
         text: {
-          en: "Click Add Item — it scrolls you down to the item form at the bottom of the page.",
-          ar: "اضغط إضافة صنف — هينزلك على استمارة الصنف في آخر الصفحة.",
+          en: "Tap the drawer or shelf this item lives in.",
+          ar: "اضغط على الدرج أو الرف اللي الصنف ده بيتحط فيه.",
         },
       },
       {
-        anchor: "inventory-item-name",
+        anchor: "stock-add-item",
+        text: {
+          en: "Press Add an item here, at the bottom of the drawer's list.",
+          ar: "اضغط ضيف صنف هنا، في آخر قايمة الدرج.",
+        },
+      },
+      {
+        anchor: "stock-add-form",
         advanceOn: "next",
         text: {
-          en: "Type the item's name, and set its stock count and minimum level next to it — the minimum is what triggers the low-stock warning.",
-          ar: "اكتب اسم الصنف، وظبط الكمية والحد الأدنى اللي جنبه — الحد الأدنى هو اللي بيطلع تنبيه النقص.",
-        },
-      },
-      {
-        anchor: "inventory-save",
-        text: {
-          en: "Press Save, and the item joins your stock list.",
-          ar: "اضغط حفظ، والصنف هيتضاف لقايمة المخزون.",
+          en: "Search for the item and tap it. It joins this drawer. Not in the list? Choose My own item and type its name.",
+          ar: "دوّر على الصنف واضغط عليه، هيتضاف للدرج ده. مش موجود؟ اختار صنف من عندي واكتب اسمه.",
         },
       },
     ],

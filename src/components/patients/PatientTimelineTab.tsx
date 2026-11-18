@@ -314,7 +314,7 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                           </p>
                           {visit.noteDetails.note && (
                             <div className="mt-3 bg-surface-subtle p-2.5 rounded-lg border border-slate-100">
-                               <p className="text-sm text-ink-body italic">"{visit.noteDetails.note}"</p>
+                               <p className="text-sm text-ink-body italic">&quot;{visit.noteDetails.note}&quot;</p>
                             </div>
                           )}
                         </div>
@@ -362,7 +362,7 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
 
                       {visit.note && (
                         <div className="mt-4 bg-surface-subtle p-3 rounded-lg border border-slate-100">
-                           <p className="text-sm text-ink-body italic">"{visit.note}"</p>
+                           <p className="text-sm text-ink-body italic">&quot;{visit.note}&quot;</p>
                         </div>
                       )}
                     </div>

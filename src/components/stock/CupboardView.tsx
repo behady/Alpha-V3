@@ -148,7 +148,7 @@ function CupboardMap({ ctx, find, lowOnly }: { ctx: StockCtx; find: string; lowO
                       <div key={d.id} className="grid grid-cols-[44px_64px_1fr] items-center gap-2.5 border-t border-line bg-surface px-3 py-2">
                         <span className="font-display text-[13px] font-black text-ink"><Ltr>{shortCode(d)}</Ltr></span>
                         <DrawerPhoto ctx={ctx} drawer={d} />
-                        <button type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: d.code })} className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-2.5 rounded-lg py-1 text-start hover:bg-surface-subtle">
+                        <button type="button" data-tour="stock-drawer" onClick={() => ctx.go({ tab: "cupboard", drawer: d.code })} className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-2.5 rounded-lg py-1 text-start hover:bg-surface-subtle">
                         <span className="min-w-0">
                           <b className="block truncate text-[13.5px] font-semibold text-ink">{ar ? d.nameAr : d.nameEn}</b>
                           <span className="block text-[12.5px] text-ink-muted">{ar ? d.nameEn : d.nameAr}</span>
@@ -522,7 +522,7 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
           {!lines.length ? <p className="p-4 text-sm text-ink-muted">{t("Nothing lives here yet.", "لسه مفيش حاجة هنا.")}</p> : null}
           {ctx.canStructure ? (
             <div className="flex flex-wrap gap-2 border-t border-line p-3">
-              <Btn onClick={() => setMode(mode === "item" ? null : "item")}><Plus size={14} /> {t("Add an item here", "ضيف صنف هنا")}</Btn>
+              <span data-tour="stock-add-item" className="inline-flex"><Btn onClick={() => setMode(mode === "item" ? null : "item")}><Plus size={14} /> {t("Add an item here", "ضيف صنف هنا")}</Btn></span>
               <Btn onClick={() => setMode(mode === "brand" ? null : "brand")}><Plus size={14} /> {t("Add a brand", "ضيف ماركة")}</Btn>
             </div>
           ) : null}
@@ -622,7 +622,7 @@ function AddItemHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDraw
 
   return (
     <Card className="grid gap-3 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div data-tour="stock-add-form" className="flex flex-wrap items-center justify-between gap-2">
         <Eyebrow>{t("Add an item to", "ضيف صنف لـ")} {drawer.code}</Eyebrow>
         <div className="flex gap-1 rounded-xl border border-line p-0.5 text-[12px] font-bold">
           <button type="button" onClick={() => setOwn(false)} className={`rounded-lg px-3 py-1.5 ${!own ? "bg-ink text-white" : "text-ink-body"}`}>{t("From the catalogue", "من الكتالوج")}</button>
