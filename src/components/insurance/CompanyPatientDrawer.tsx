@@ -47,7 +47,7 @@ export default function CompanyPatientDrawer({
   row,
   groups,
   cards,
-  children,
+  cardKids: children,
   sent,
   onClose,
 }: {
@@ -56,7 +56,8 @@ export default function CompanyPatientDrawer({
   row: PatientRow;
   groups: DrawerGroup[];
   cards: ReadonlyMap<string, SheetCard>;
-  children: ReadonlyMap<string, SheetCard[]>;
+  /** Cards by the card they continue. */
+  cardKids: ReadonlyMap<string, SheetCard[]>;
   sent: readonly SentMonth[];
   onClose: () => void;
 }) {

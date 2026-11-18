@@ -148,7 +148,7 @@ export default function CompanySheetPanel({
           row={open}
           groups={patientGroups(walked, open.patientId)}
           cards={cards}
-          children={children}
+          cardKids={children}
           sent={inputs.sent}
           onClose={() => setOpenId(null)}
         />

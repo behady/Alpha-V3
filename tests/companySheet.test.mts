@@ -463,6 +463,20 @@ check("story: started, visits, drawer changes, finished, sent — in order", () 
   assert.equal(story[4].month, "2026-11");
 });
 
+check("story: an undo then a finish on the same day stay in the order they were made", () => {
+  const cards = [
+    {
+      ...card("n", "Completed", "2026-11-09", "2026-11-18"),
+      finishLog: [
+        { day: "2026-11-18", kind: "reopened", byName: "Sara", from: "2026-11-09" },
+        { day: "2026-11-18", kind: "finished", byName: "Sara" },
+      ],
+    },
+  ];
+  const story = serviceStory(charge("c1", "p1", "2026-11-09", "n"), new Map(cards.map((c) => [c.id, c])), cardChildren(cards), []);
+  assert.deepEqual(story.map((e) => e.kind), ["started", "reopened", "marked_finished"]);
+});
+
 check("story: no card = started and finished on the charge date", () => {
   const story = serviceStory(charge("c1", "p1", "2026-11-02"), new Map(), new Map(), []);
   assert.deepEqual(story.map((e) => e.kind), ["started", "finished"]);

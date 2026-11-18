@@ -136,14 +136,15 @@ export function parseFinishLog(raw: unknown): FinishLogEntry[] {
 export type StoryKind = "started" | "visit" | "finished" | "date_changed" | "reopened" | "marked_finished" | "sent";
 export type StoryEvent = { date: string; kind: StoryKind; by?: string; from?: string; to?: string; month?: string };
 
+/** Same-day order: the visits, then the finish, then the drawer's changes in the order they were made, then sent. */
 const STORY_ORDER: Record<StoryKind, number> = {
   started: 0,
   visit: 1,
-  marked_finished: 2,
-  finished: 3,
-  date_changed: 4,
-  reopened: 5,
-  sent: 6,
+  finished: 2,
+  marked_finished: 3,
+  date_changed: 3,
+  reopened: 3,
+  sent: 4,
 };
 
 /** The timeline of one service: started, each visit, finished, every change made in the drawer, sent. */
@@ -156,6 +157,7 @@ export function serviceStory(
   const events: StoryEvent[] = [];
   const found = treatmentChain(text(charge.clinicalNoteId), cards, children);
   const doctor = (c: SheetCard) => text(c.doctor).replace(/^Dr\.?\s*/i, "") || undefined;
+  let lastLog: StoryKind | null = null;
   if (!found) {
     events.push({ date: toYmd(charge.date), kind: "started" });
   } else {
@@ -165,11 +167,13 @@ export function serviceStory(
         if (e.kind === "date") events.push({ date: e.day, kind: "date_changed", by: e.byName || undefined, from: e.from, to: e.to });
         else if (e.kind === "reopened") events.push({ date: e.day, kind: "reopened", by: e.byName || undefined, from: e.from });
         else events.push({ date: e.day, kind: "marked_finished", by: e.byName || undefined });
+        lastLog = events[events.length - 1].kind;
       }
     });
   }
   const done = chargeDone(charge, cards, children);
-  if (done.done && done.date) events.push({ date: done.date, kind: "finished" });
+  // "Marked finished" already says it was finished that day.
+  if (done.done && done.date && lastLog !== "marked_finished") events.push({ date: done.date, kind: "finished" });
   const id = text(charge.id);
   const went = sent.find((s) => s.chargeIds.includes(id));
   if (went) events.push({ date: went.sentAt ?? "", kind: "sent", month: went.month, by: went.sentByName });
