@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Camera, Check, Loader2, Pencil, Plus, Printer, Search, Trash2, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, Camera, Check, Loader2, Pencil, Plus, Printer, Search, Trash2, UserRound, X } from "lucide-react";
 import { getDocs, limit, orderBy, query } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { CATALOG, CATALOG_GROUPS, unitLabel, type CatalogGroup } from "@/lib/stock/catalog";
 import { stockApi, uploadStockPhoto } from "@/lib/stock/api";
 import { daysLabel, matches } from "@/lib/stock/math";
+import { searchStock, sortLines } from "@/lib/stock/browse";
 import type { StockDrawer, StockItem, StockLine, StockVariant } from "@/lib/stock/types";
 import { StockPicture } from "./Art";
 import { printDrawerLabels } from "./labels";
@@ -15,10 +16,15 @@ import { EditLineSheet } from "./EditLineSheet";
 import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, NumberBox, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, fmtMoney, inputCls, linesOfDrawer, shortCode, useBusy, useCountDraft, useOverlay, variantLabel, type StockCtx } from "./shared";
 
 /** The map of rooms, cabinets and drawers — or one drawer, when `drawerCode` is set. */
-export function CupboardView({ ctx, drawerCode }: { ctx: StockCtx; drawerCode: string | null }) {
+export function CupboardView({ ctx, drawerCode, find, lowOnly }: { ctx: StockCtx; drawerCode: string | null; find: string; lowOnly: boolean }) {
   const drawer = drawerCode ? ctx.snap.drawers.find((d) => d.code === drawerCode) : null;
   if (drawer) return <DrawerDetail key={drawer.id} ctx={ctx} drawer={drawer} />;
-  return <CupboardMap ctx={ctx} />;
+  return <CupboardMap ctx={ctx} find={find} lowOnly={lowOnly} />;
+}
+
+/** How many of a drawer's rows are at their warning level. */
+function lowInDrawer(ctx: StockCtx, drawerId: string): number {
+  return linesOfDrawer(ctx.snap, drawerId).filter((l) => ctx.low.has(l.variantId)).length;
 }
 
 function drawerDays(ctx: StockCtx, drawerId: string): number | null {
@@ -30,9 +36,16 @@ function drawerDays(ctx: StockCtx, drawerId: string): number | null {
   return min;
 }
 
-function CupboardMap({ ctx }: { ctx: StockCtx }) {
+function CupboardMap({ ctx, find, lowOnly }: { ctx: StockCtx; find: string; lowOnly: boolean }) {
   const { snap, t, ar, toast } = ctx;
   const { busy, run } = useBusy();
+  const [q, setQ] = useState(find);
+  // What the search box, or the "Running low" tile, has narrowed the cupboard down to.
+  const found = useMemo(() => {
+    if (!q.trim() && !lowOnly) return null;
+    const rows = q.trim() ? searchStock(snap, q, ar) : sortLines(snap.lines, snap, ar);
+    return lowOnly ? rows.filter((l) => ctx.low.has(l.variantId)) : rows;
+  }, [q, lowOnly, snap, ar, ctx.low]);
   const rooms = useMemo(() => {
     const map = new Map<string, { code: string; en: string; ar: string; cabinets: Map<string, { letter: string; where: string; drawers: StockDrawer[] }> }>();
     for (const d of snap.drawers) {
@@ -46,17 +59,40 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
   }, [snap.drawers]);
 
   const units = snap.lines.reduce((a, l) => a + l.qty, 0);
-  const low = [...ctx.pace.values()].filter((p) => p.daysLeft != null && p.daysLeft < 14).length;
+  const low = ctx.low.size;
   const lastCount = snap.counts[snap.counts.length - 1];
   const lastDeliv = snap.deliveries[snap.deliveries.length - 1];
   const countDue = !lastCount || daysBetween(lastCount.date, ctx.today) >= 7;
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      {/* One box finds anything by its name, brand, barcode or drawer, in either language. */}
+      <label className="flex h-12 items-center gap-2.5 rounded-2xl border border-line bg-surface px-3.5 shadow-sm focus-within:border-ink-muted">
+        <Search size={18} className="shrink-0 text-ink-muted" />
+        <input
+          id="stock-search"
+          type="text"
+          inputMode="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={t("Search the cupboard: an item, a brand, a drawer…", "دوّر في الدولاب: صنف، ماركة، درج…")}
+          aria-label={t("Search the cupboard", "دوّر في الدولاب")}
+          autoComplete="off"
+          enterKeyHint="search"
+          className="h-full w-full min-w-0 bg-transparent text-base text-ink outline-none placeholder:text-ink-muted"
+        />
+        {q ? (
+          <button type="button" onClick={() => setQ("")} aria-label={t("Clear the search", "امسح البحث")} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-surface-subtle hover:text-ink">
+            <X size={17} />
+          </button>
+        ) : null}
+      </label>
+
+      {/* While something is being looked for, the answer sits right under the box. */}
+      <div className={`flex flex-wrap items-end justify-between gap-3 ${found ? "hidden" : ""}`}>
         <div>
           <Eyebrow>{t("The cupboard", "الدولاب")}</Eyebrow>
-          <p className="mt-1 max-w-2xl text-sm text-ink-body">{t("Tap a drawer to see its photo and what lives in it. Yellow means something in it runs out within two weeks at the current pace.", "دوس على درج تشوف صورته واللي جواه. الأصفر معناه حاجة فيه هتخلص خلال أسبوعين بالمعدل الحالي.")}</p>
+          <p className="mt-1 max-w-2xl text-sm text-ink-body">{t("Tap a drawer to see its photo and what lives in it. Yellow means something in it is running low.", "دوس على درج تشوف صورته واللي جواه. الأصفر معناه حاجة فيه قربت تخلص.")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {ctx.canStructure ? (
@@ -72,14 +108,22 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {found ? <FoundList ctx={ctx} rows={found} q={q} lowOnly={lowOnly} /> : null}
+
+      <div className={`grid grid-cols-2 gap-3 md:grid-cols-4 ${found ? "hidden" : ""}`}>
         <Tile label={t("On the shelf", "على الرف")} value={String(units)} sub={`${snap.lines.length} ${t("lines", "سطر")} · ${snap.items.length} ${t("items", "صنف")} · ${snap.drawers.length} ${t("drawers", "درج")}`} />
-        <Tile label={t("Running out", "هتخلص")} value={String(low)} sub={t("items under 14 days", "صنف تحت 14 يوم")} yellow={low > 0} />
+        <Tile
+          label={t("Running low", "قربت تخلص")}
+          value={String(low)}
+          sub={lowOnly ? t("showing them · tap to show all", "معروضين دلوقتي · دوس تشوف الكل") : low > 0 ? t("at their warning level · tap to see", "وصلت لحد التنبيه · دوس تشوفهم") : t("nothing at its warning level", "مفيش حاجة وصلت لحد التنبيه")}
+          yellow={low > 0}
+          onClick={low > 0 || lowOnly ? () => ctx.go({ show: lowOnly ? null : "low" }) : undefined}
+        />
         <Tile label={t("Weekly count", "العدّ الأسبوعي")} value={countDue ? t("Due", "مستحق") : t("Done", "تم")} sub={lastCount ? `${t("last", "آخر")} ${fmtDate(lastCount.date, ar)} · ${lastCount.byName}` : t("never counted", "لسه ما اتعدّش")} yellow={countDue} />
         <Tile label={t("Last delivery", "آخر توريد")} value={lastDeliv ? fmtDate(lastDeliv.date, ar) : "—"} sub={lastDeliv ? `${lastDeliv.supplier} · ${lastDeliv.lines.length} ${t("lines", "سطر")} · ${fmtMoney(lastDeliv.total)} ${t("EGP", "جنيه")}` : t("none yet", "لسه مفيش")} />
       </div>
 
-      {rooms.map((r) => (
+      {(found ? [] : rooms).map((r) => (
         <Card key={r.code} className="grid gap-3 p-4">
           <div className="flex flex-wrap items-baseline gap-2">
             <span className="rounded-md bg-ink px-2 py-0.5 font-display text-[12px] font-black text-white">{r.code}</span>
@@ -99,6 +143,7 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
                     const lines = linesOfDrawer(snap, d.id);
                     const days = d.tracked ? null : drawerDays(ctx, d.id);
                     const lowHere = days != null && days < 14;
+                    const lowRows = lowInDrawer(ctx, d.id);
                     return (
                       <div key={d.id} className="grid grid-cols-[44px_64px_1fr] items-center gap-2.5 border-t border-line bg-surface px-3 py-2">
                         <span className="font-display text-[13px] font-black text-ink"><Ltr>{shortCode(d)}</Ltr></span>
@@ -111,7 +156,7 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
                         <span className="text-end text-[12.5px] text-ink-muted">
                           {lines.length} {t("lines", "سطر")}
                           <br />
-                          {d.tracked ? <Pill>{t("per patient", "لكل مريض")}</Pill> : lowHere ? <Pill yellow>{daysLabel(days, ar)}</Pill> : <span>{daysLabel(days, ar)}</span>}
+                          {lowRows > 0 ? <Pill yellow>{lowRows} {t("low", "ناقص")}</Pill> : d.tracked ? <Pill>{t("per patient", "لكل مريض")}</Pill> : lowHere ? <Pill yellow>{daysLabel(days, ar)}</Pill> : <span>{daysLabel(days, ar)}</span>}
                         </span>
                       </button>
                       </div>
@@ -136,12 +181,74 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(b + "T00:00:00").getTime() - new Date(a + "T00:00:00").getTime()) / 86400000);
 }
 
-function Tile({ label, value, sub, yellow = false }: { label: string; value: string; sub: string; yellow?: boolean }) {
-  return (
-    <Card className="p-3.5">
+function Tile({ label, value, sub, yellow = false, onClick }: { label: string; value: string; sub: string; yellow?: boolean; onClick?: () => void }) {
+  const body = (
+    <>
       <Eyebrow>{label}</Eyebrow>
       <div className={`mt-1 inline-block font-display text-2xl font-bold leading-tight ${yellow ? "rounded-lg bg-[#FACC15] px-2 text-[#1A1206]" : "text-ink"}`}>{value}</div>
       <div className="mt-1 text-[12.5px] text-ink-muted">{sub}</div>
+    </>
+  );
+  if (!onClick) return <Card className="p-3.5">{body}</Card>;
+  return (
+    <button type="button" onClick={onClick} className="rounded-2xl border border-line bg-surface p-3.5 text-start shadow-sm hover:bg-surface-subtle">
+      {body}
+    </button>
+  );
+}
+
+/**
+ * What the search box found, or everything that is running low: one row per place a thing
+ * lives, A to Z, each saying how many are there and which drawer to walk to. A tap opens that
+ * drawer, and the way back returns to this same list.
+ */
+function FoundList({ ctx, rows, q, lowOnly }: { ctx: StockCtx; rows: StockLine[]; q: string; lowOnly: boolean }) {
+  const { t, ar } = ctx;
+  const shown = rows.slice(0, 100);
+  return (
+    <Card>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 p-3.5">
+        <Eyebrow>
+          {lowOnly ? t("Running low", "قربت تخلص") : t("Found", "النتيجة")} · {rows.length}
+        </Eyebrow>
+        {lowOnly ? (
+          <button type="button" onClick={() => ctx.go({ show: null })} className="inline-flex h-10 items-center rounded-lg border border-line px-3 font-display text-[13px] font-bold text-ink hover:bg-surface-subtle">
+            {t("Show the whole cupboard", "اعرض الدولاب كله")}
+          </button>
+        ) : null}
+      </div>
+      {shown.map((l) => {
+        const item = ctx.items.get(l.itemId);
+        const v = ctx.variants.get(l.variantId);
+        const d = ctx.drawers.get(l.drawerId);
+        const low = ctx.low.get(l.variantId);
+        return (
+          <button key={l.id} type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: d?.code || null, find: q.trim() || null })} className="grid w-full grid-cols-[56px_1fr_auto] items-center gap-3 border-t border-line p-3 text-start hover:bg-surface-subtle">
+            <span className="block h-11 w-14 overflow-hidden rounded-lg border border-line bg-surface-subtle">
+              <LinePicture variant={v} item={item} />
+            </span>
+            <span className="min-w-0">
+              <b className="block text-[14px] font-semibold leading-snug text-ink">{item ? (ar ? item.nameAr : item.nameEn) : "?"}</b>
+              {v && !v.isGeneric ? <span className="block text-[12.5px] text-ink-body"><Ltr>{variantLabel(v, item, ar)}</Ltr></span> : null}
+              <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12.5px] text-ink-muted">
+                {d ? <CodeBadge code={d.code} /> : null}
+                <span>{d ? (ar ? d.nameAr : d.nameEn) : ""}</span>
+              </span>
+            </span>
+            <span className="grid justify-items-end gap-1 text-end">
+              <b className="font-display text-xl font-black leading-none text-ink">{l.qty}</b>
+              <span className="text-[12px] text-ink-muted">{unitLabel(item?.unit || "box", l.qty, ar)}</span>
+              {low ? <Pill yellow>{t("low", "ناقص")}</Pill> : null}
+            </span>
+          </button>
+        );
+      })}
+      {!rows.length ? (
+        <p className="border-t border-line p-4 text-sm text-ink-muted">
+          {lowOnly && !q.trim() ? t("Nothing is at its warning level.", "مفيش حاجة وصلت لحد التنبيه.") : t("Nothing found. Try another word, or part of the name.", "مفيش نتيجة. جرّب كلمة تانية أو جزء من الاسم.")}
+        </p>
+      ) : null}
+      {rows.length > shown.length ? <p className="border-t border-line p-3.5 text-[12.5px] text-ink-muted">{t(`Showing the first ${shown.length}. Type more of the name to narrow it down.`, `معروض أول ${shown.length}. اكتب أكتر من الاسم عشان تقلّل النتيجة.`)}</p> : null}
     </Card>
   );
 }
@@ -223,7 +330,8 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
   // The Edit sheet: the phone's Back button closes it instead of leaving the drawer.
   const [editing, setEditing, closeEditing] = useOverlay<{ lineId: string; del: boolean }>();
-  const lines = linesOfDrawer(snap, drawer.id);
+  // A to Z by name, so a thing is found in the list the way it is looked for.
+  const lines = sortLines(linesOfDrawer(snap, drawer.id), snap, ar);
   // Quantities typed here but not saved yet. Saving them IS a count — of this drawer, today.
   // They are kept on the device, so leaving the page or a locked phone does not lose them.
   const kept = useCountDraft(`drawer:${drawer.id}`, ctx.today, new Set(lines.map((l) => l.id)));
@@ -347,6 +455,7 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                 <div className="grid gap-1.5">
                   {ls.map((l) => {
                     const v = ctx.variants.get(l.variantId);
+                    const lowRow = ctx.low.get(l.variantId);
                     return (
                       <div key={l.id} className={`grid grid-cols-[72px_1fr_auto] items-center gap-3 rounded-xl border p-1.5 ${draft[l.id] != null && draft[l.id] !== l.qty ? "border-[#FACC15] bg-surface-subtle" : "border-line bg-surface"}`}>
                         {ctx.canEdit ? (
@@ -366,6 +475,15 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                             {v?.lastPrice ? <> · <Ltr>{fmtMoney(v.lastPrice)}</Ltr> {t("EGP", "جنيه")}</> : null}
                             {v?.supplier ? <> · <Ltr>{v.supplier}</Ltr></> : null}
                           </span>
+                          {lowRow ? (
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-muted">
+                              <Pill yellow>{lowRow.onHand <= 0 ? t("finished", "خلص") : t("low", "ناقص")}</Pill>
+                              <span>
+                                {lowRow.drawerIds.length > 1 ? `${lowRow.onHand} ${t("in all drawers", "في كل الأدراج")} · ` : ""}
+                                {t("warns at", "التنبيه عند")} {lowRow.warnAt}
+                              </span>
+                            </span>
+                          ) : null}
                           {drawer.tracked && ctx.canEdit && l.qty > 0 ? (
                             <button type="button" onClick={() => setMode({ use: l })} className="mt-1 inline-flex items-center gap-1 text-[12px] font-bold text-ink underline">
                               <UserRound size={12} /> {t("Used on a patient", "اتستخدم لمريض")}

@@ -35,6 +35,13 @@ export function sortLines(lines: StockLine[], names: Names, ar: boolean): StockL
   return [...lines].sort((a, b) => cmp.compare(itemName(a), itemName(b)) || collators.en.compare(brandName(a), brandName(b)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/** Items A to Z by their name in the language on screen, for a list to pick from. */
+export function sortItems(items: StockItem[], ar: boolean): StockItem[] {
+  const cmp = ar ? collators.ar : collators.en;
+  const name = (i: StockItem) => (ar ? i.nameAr || i.nameEn : i.nameEn || i.nameAr);
+  return [...items].sort((a, b) => cmp.compare(name(a), name(b)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /**
  * What the search box finds: rows whose item, brand, shade, barcode, supplier or home (drawer
  * code, drawer name, room) holds every word typed, in either language. One answer per row, so a

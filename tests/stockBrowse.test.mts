@@ -1,7 +1,7 @@
 // Finding a thing in the cupboard, and the order rows are listed in: by name, the way a person
 // looks for them, in the language on the screen.
 import assert from "node:assert/strict";
-import { searchStock, sortLines } from "../src/lib/stock/browse";
+import { searchStock, sortItems, sortLines } from "../src/lib/stock/browse";
 import type { StockDrawer, StockItem, StockLine, StockVariant } from "../src/lib/stock/types";
 
 const item = (id: string, nameEn: string, nameAr: string): StockItem => ({ id, nameEn, nameAr, unit: "box", per: "", shape: "box", tracked: false, catalogKey: null, photoUrl: null });
@@ -52,6 +52,10 @@ const names = (ls: StockLine[], ar: boolean) => ls.map((l) => { const i = items.
   const ls = its.map((i) => line(`${i.id}-g`, i.id, "d1"));
   assert.deepEqual(sortLines(ls, { items: its, variants: vs }, false).map((l) => l.itemId), ["c", "a", "b"]);
 }
+
+// the list to pick an item from is A to Z as well
+assert.deepEqual(sortItems(items, false).map((i) => i.nameEn), ["Articaine", "Bond", "Composite", "Face masks", "Gloves"]);
+assert.equal(items[0].id, "gloves");
 
 // --- search --------------------------------------------------------------------------------------
 {

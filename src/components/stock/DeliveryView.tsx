@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Barcode, Check, Plus, ScanLine, Trash2 } from "lucide-react";
 import { CATALOG_BY_KEY, unitLabel } from "@/lib/stock/catalog";
+import { sortItems } from "@/lib/stock/browse";
 import { stockApi, uploadStockPhoto } from "@/lib/stock/api";
 import { normaliseBarcode } from "@/lib/stock/math";
 import { deliveryWarnings } from "@/lib/stock/input";
@@ -365,7 +366,7 @@ function NewProductForm({ ctx, barcode, library, initialItemId, onCancel, onAdd 
           <Field label={t("Which item is it?", "ده أي صنف؟")}>
             <select value={itemId} onChange={(e) => { setItemId(e.target.value); const d = snap.lines.find((l) => l.itemId === e.target.value)?.drawerId; if (d) setDrawerId(d); }} className={inputCls}>
               <option value="" disabled>{t("Choose the item…", "اختار الصنف…")}</option>
-              {snap.items.map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn} · {ar ? i.nameEn : i.nameAr}</option>)}
+              {sortItems(snap.items, ar).map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn} · {ar ? i.nameEn : i.nameAr}</option>)}
             </select>
           </Field>
           <Field label={t("Brand", "الماركة")}><input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputCls} placeholder="3M" /></Field>
@@ -407,7 +408,7 @@ function ManualLine({ ctx, onCancel, onPick, onNew }: { ctx: StockCtx; onCancel:
       <Field label={t("Item", "الصنف")}>
         <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputCls}>
           <option value="" disabled>{t("Choose the item…", "اختار الصنف…")}</option>
-          {snap.items.map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn}</option>)}
+          {sortItems(snap.items, ar).map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn}</option>)}
         </select>
       </Field>
       <div className="flex flex-wrap gap-2">

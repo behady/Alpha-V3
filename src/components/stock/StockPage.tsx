@@ -11,6 +11,7 @@ import { useUI } from "@/context/UIContext";
 import { stockApi } from "@/lib/stock/api";
 import { friendlyStockError } from "@/lib/stock/errors";
 import { paceByItem, todayKey } from "@/lib/stock/math";
+import { lowRows } from "@/lib/stock/low";
 import type { StockSnapshot } from "@/lib/stock/types";
 import type { StockCtx } from "./shared";
 import { CupboardView } from "./CupboardView";
@@ -88,6 +89,7 @@ export default function StockPage() {
       items: new Map(snap.items.map((i) => [i.id, i])),
       variants: new Map(snap.variants.map((v) => [v.id, v])),
       pace,
+      low: new Map(lowRows(snap).map((r) => [r.variantId, r])),
       ar,
       t: (en: string, arText: string) => (ar ? arText : en),
       toast,
@@ -120,7 +122,7 @@ export default function StockPage() {
               <button
                 key={k}
                 type="button"
-                onClick={() => go({ tab: k, drawer: null, count: null })}
+                onClick={() => go({ tab: k, drawer: null, count: null, find: null, show: null })}
                 className={`min-w-0 flex-1 whitespace-nowrap rounded-xl px-0 py-2.5 font-display text-[13px] font-bold tracking-tight transition-colors sm:flex-none sm:px-3.5 sm:py-2 sm:tracking-normal ${on ? "bg-ink-slab text-white" : "text-ink-body hover:bg-surface-subtle"}`}
                 aria-current={on ? "page" : undefined}
               >
@@ -153,7 +155,7 @@ export default function StockPage() {
         ) : tab === "reports" ? (
           <ReportsView ctx={ctx} />
         ) : (
-          <CupboardView ctx={ctx} drawerCode={params.get("drawer")} />
+          <CupboardView ctx={ctx} drawerCode={params.get("drawer")} find={params.get("find") || ""} lowOnly={params.get("show") === "low"} />
         )}
       </div>
     </div>

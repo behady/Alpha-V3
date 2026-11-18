@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, RotateCcw } from "lucide-react";
 import { unitLabel } from "@/lib/stock/catalog";
 import { stockApi } from "@/lib/stock/api";
 import { deliveredBetween } from "@/lib/stock/math";
+import { sortLines } from "@/lib/stock/browse";
 import { DrawerThumb } from "./CupboardView";
 import { Btn, Card, CodeBadge, Eyebrow, LinePicture, Ltr, Stepper, fmtDate, linesOfDrawer, useBusy, useCountDraft, variantLabel, type StockCtx } from "./shared";
 
@@ -127,7 +128,8 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
   }
 
   const d = drawers[i];
-  const lines = linesOfDrawer(snap, d.id);
+  // A to Z by name, the same order the drawer itself is listed in.
+  const lines = sortLines(linesOfDrawer(snap, d.id), snap, ar);
   const typed = Object.keys(values).length;
 
   return (

@@ -5,8 +5,9 @@ import { ArrowRightLeft, Trash2 } from "lucide-react";
 import { UNIT_NAMES, unitLabel } from "@/lib/stock/catalog";
 import { stockApi } from "@/lib/stock/api";
 import { parseCount, toAsciiDigits } from "@/lib/stock/input";
+import { MAX_WARN_AT, warnAtOf } from "@/lib/stock/low";
 import type { StockDrawer, StockLine } from "@/lib/stock/types";
-import { Btn, Eyebrow, Field, LinePicture, Ltr, Reveal, Sheet, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Eyebrow, Field, LinePicture, Ltr, NumberBox, Reveal, Sheet, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
 
 /**
  * Everything that can be changed about one row of a drawer, in one place: what the item is
@@ -35,6 +36,9 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
   const [barcode, setBarcode] = useState(variant?.barcode || "");
   const [supplier, setSupplier] = useState(variant?.supplier || "");
   const [price, setPrice] = useState(variant?.lastPrice ? String(variant.lastPrice) : "");
+  const [warn, setWarn] = useState(warnAtOf(variant));
+  const warnChanged = !!variant && warn !== warnAtOf(variant);
+  const onHandAll = snap.lines.filter((l) => l.variantId === line.variantId).reduce((a, l) => a + l.qty, 0);
 
   const otherDrawers = snap.drawers.filter((d) => d.id !== drawer.id);
   const [toDrawer, setToDrawer] = useState(otherDrawers.length === 1 ? otherDrawers[0].id : "");
@@ -49,7 +53,8 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
       spec.trim() !== variant.spec ||
       barcode.trim() !== (variant.barcode || "") ||
       supplier.trim() !== (variant.supplier || "") ||
-      priceNum !== (variant.lastPrice || 0));
+      priceNum !== (variant.lastPrice || 0) ||
+      warnChanged);
   const drawersUsingItem = new Set(snap.lines.filter((l) => l.itemId === line.itemId).map((l) => l.drawerId)).size;
 
   const save = () =>
@@ -59,7 +64,7 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
       if (itemChanged && item) latest = await stockApi.updateItem(item.id, { nameEn: nameEn.trim() || nameAr.trim(), nameAr: nameAr.trim() || nameEn.trim(), unit, per: per.trim() });
       if (variantChanged && variant) {
         if (!generic && !brand.trim()) throw new Error(t("A brand needs a name.", "الماركة محتاجة اسم."));
-        latest = await stockApi.updateVariant(variant.id, { brand: brand.trim(), product: product.trim(), spec: spec.trim(), barcode: barcode.trim(), supplier: supplier.trim(), lastPrice: priceNum });
+        latest = await stockApi.updateVariant(variant.id, { brand: brand.trim(), product: product.trim(), spec: spec.trim(), barcode: barcode.trim(), supplier: supplier.trim(), lastPrice: priceNum, ...(warnChanged ? { warnAt: warn } : {}) });
       }
       ctx.setSnap(latest);
       toast(t("Saved.", "اتحفظ."));
@@ -123,6 +128,18 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
           <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(unit, 1, ar)} (${t("EGP", "جنيه")})`}><input id="stock-edit-price" type="text" inputMode="decimal" autoComplete="off" value={price} onChange={(e) => setPrice(toAsciiDigits(e.target.value))} className={inputCls} dir="ltr" /></Field>
         </div>
         {generic ? <p className="text-[12px] text-ink-muted">{t("Type a brand name to turn this row into that brand. Leave it empty to keep it without a brand.", "اكتب اسم الماركة عشان السطر ده يبقى الماركة دي. سيبه فاضي لو مش عايز ماركة.")}</p> : null}
+      </section>
+
+      <section className="grid gap-2">
+        <Eyebrow>{t("Running-low warning", "تنبيه النواقص")}</Eyebrow>
+        <div className="flex flex-wrap items-center gap-2.5 text-[13.5px] text-ink-body">
+          <span>{t("Warn me when there are", "نبّهني لما يبقى")}</span>
+          <NumberBox id="stock-edit-warn" value={warn} onChange={setWarn} max={MAX_WARN_AT} label={t("Warning level", "حد التنبيه")} className={`${inputCls} !w-20 text-center font-display font-bold`} />
+          <span>{unitLabel(unit, warn, ar)} {t("or fewer left", "أو أقل")}</span>
+        </div>
+        <p className="text-[12px] text-ink-muted">
+          {t(`It turns yellow and an alert is sent once it reaches this number, all drawers added up. It is 1 unless you change it. There ${onHandAll === 1 ? "is" : "are"} ${onHandAll} now.`, `بيبقى أصفر ويتبعت تنبيه أول ما يوصل للرقم ده، في كل الأدراج مع بعض. الرقم 1 إلا لو غيّرته. الموجود دلوقتي ${onHandAll}.`)}
+        </p>
       </section>
 
       <div className="flex flex-wrap gap-2">

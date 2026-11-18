@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Minus, Plus, X } from "lucide-react";
 import type { StockDrawer, StockItem, StockLine, StockSnapshot, StockVariant } from "@/lib/stock/types";
 import type { PaceRow } from "@/lib/stock/math";
+import type { LowRow } from "@/lib/stock/low";
 import { currentClinicId } from "@/lib/db-utils";
 import { clearDraft, draftKey, localDraftStore, parseCount, readDraft, toAsciiDigits, writeDraft, type CountDraft } from "@/lib/stock/input";
 import { StockPicture } from "./Art";
@@ -16,6 +17,8 @@ export interface StockCtx {
   items: Map<string, StockItem>;
   variants: Map<string, StockVariant>;
   pace: Map<string, PaceRow>;
+  /** Brands at or under their warning level, by brand id. */
+  low: Map<string, LowRow>;
   ar: boolean;
   /** Pick the string for the current language. */
   t: (en: string, ar: string) => string;
