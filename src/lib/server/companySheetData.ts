@@ -3,9 +3,9 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { toYmd } from "@/lib/reports/patientStats";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { COMPANY_SHEET_START, marksDocId, sentDocId, type SentMonth, type SheetCard, type SheetCharge, type SheetChoice, type SheetInputs } from "@/lib/insurance/companySheet";
+import { COMPANY_SHEET_START, sentDocId, type SentMonth, type SheetCard, type SheetCharge, type SheetInputs } from "@/lib/insurance/companySheet";
 
-export { marksDocId, sentDocId };
+export { sentDocId };
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const MAX_ROUNDS = 20; // safety cap, same as the hop limit in chargeDone
@@ -58,12 +58,6 @@ export async function loadCompanySheetInputs(clinicId: string, payerId: string):
     frontier = found;
   }
 
-  // Marks: the dentist's per-patient, per-month switch.
-  const marksSnap = await adminClinicDoc(clinicId, "settings", marksDocId(payerId)).get();
-  const rawMarks = (marksSnap.data()?.marks ?? {}) as Record<string, unknown>;
-  const marks: Record<string, SheetChoice> = {};
-  for (const [k, v] of Object.entries(rawMarks)) if (v === "include" || v === "hold") marks[k] = v;
-
   // Sent months: every settings document of this company's sent range, by document id.
   const sentSnap = await adminClinicCollection(clinicId, "settings")
     .where(FieldPath.documentId(), ">=", sentDocId(payerId, "0000-00"))
@@ -84,5 +78,5 @@ export async function loadCompanySheetInputs(clinicId: string, payerId: string):
     sent.push(s);
   }
 
-  return { charges, cards: [...cards.values()], marks, sent };
+  return { charges, cards: [...cards.values()], sent };
 }

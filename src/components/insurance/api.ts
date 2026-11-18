@@ -16,7 +16,6 @@ import type { Check, MetlifeExtraction, MetlifeHeader, MetlifeLine } from "@/lib
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
 import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
 import type { BinNotice } from "@/lib/recycleBin";
-import type { SheetChoice } from "@/lib/insurance/companySheet";
 
 export type ApiAnswer = { status: number; data: Record<string, unknown> };
 
@@ -280,9 +279,19 @@ async function companySheetCall(body: Record<string, unknown>): Promise<string |
   }
 }
 
-/** The company's monthly sheet: tick a patient onto this month ("include"), carry him on ("hold"), or back to automatic (null). */
-export function markCompanySheet(clinicId: string, payerId: string, patientId: string, month: string, choice: SheetChoice | null): Promise<string | null> {
-  return companySheetCall({ clinicId, action: "mark", payerId, month, patientId, choice });
+/** Change the day a finished treatment was finished (`noteId`: the card that speaks for it). */
+export function setTreatmentFinishDate(clinicId: string, payerId: string, noteId: string, date: string): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "finishDate", payerId, noteId, date });
+}
+
+/** A treatment marked finished by mistake goes back to In progress. */
+export function reopenTreatment(clinicId: string, payerId: string, noteId: string): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "reopen", payerId, noteId });
+}
+
+/** Mark an unfinished treatment finished today. */
+export function finishTreatment(clinicId: string, payerId: string, noteId: string): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "finish", payerId, noteId });
 }
 
 /** Freeze a month as sent to the company. */

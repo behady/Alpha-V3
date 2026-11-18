@@ -5,11 +5,11 @@
  *
  * - from November 2026 each month's sheet lists a patient whose work is all Done, with everything
  *   that was waiting on him (old finished visits and new ones together);
- * - a patient with any treatment still Planned or Ongoing is held, whatever the clinic tapped: he
- *   carries to the next month with his work waiting;
- * - a patient who finished AFTER the month ended is held as "finished late" and printed the month
- *   after, unless the clinic ticked "include" to pull him into the month he was treated in;
- * - ticking "hold" carries a finished patient to the next month;
+ * - a patient with any treatment still Planned or Ongoing is held: he carries to the next month
+ *   with his work waiting;
+ * - a patient who finished AFTER the month ended is held as "finished late" and printed in the
+ *   month he finished — so his work goes on the sheet of the month his LAST service was finished.
+ *   To move him, the clinic changes that finish date (there is no per-patient switch any more);
  * - once printed, the waiting list is empty: a patient who comes back prints only his new work.
  *
  * Pure: no Firebase, no React. Charges before the start month never enter the walk.
@@ -26,18 +26,27 @@ import { toYmd } from "@/lib/reports/patientStats";
 
 export const COMPANY_SHEET_START = "2026-11";
 
-export type SheetChoice = "include" | "hold";
 export type SheetCharge = StatementRowLite & { clinicalNoteId?: unknown; branchId?: unknown };
-export type SheetCard = { id: string; status?: unknown; date?: unknown; completedDate?: unknown; continuedFromNoteId?: unknown };
+/** A treatment card. The fields after `continuedFromNoteId` are read only for the drawer's story. */
+export type SheetCard = {
+  id: string;
+  status?: unknown;
+  date?: unknown;
+  completedDate?: unknown;
+  continuedFromNoteId?: unknown;
+  doctor?: unknown;
+  createdByName?: unknown;
+  finishLog?: unknown;
+};
 export type SentMonth = { month: string; chargeIds: string[]; sentAt?: string; sentByName?: string };
+/** not_finished: some work is not done; finished_late: finished after the month ended; moved: the month was already sent. */
 export type HeldReason = "not_finished" | "finished_late" | "moved";
-export type SheetPatient = { patientId: string; patientName: string; charges: SheetCharge[]; value: number; choice: SheetChoice | null };
+export type SheetPatient = { patientId: string; patientName: string; charges: SheetCharge[]; value: number };
 export type HeldPatient = SheetPatient & { reason: HeldReason };
 export type MonthSheet = { month: string; printed: SheetPatient[]; held: HeldPatient[]; sent: SentMonth | null };
 export type SheetInputs = {
   charges: readonly SheetCharge[];
   cards: readonly SheetCard[];
-  marks: Readonly<Record<string, SheetChoice>>;
   sent: readonly SentMonth[];
 };
 
@@ -45,23 +54,34 @@ const text = (v: unknown) => (typeof v === "string" ? v.trim() : v == null ? "" 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const amountOf = (c: SheetCharge) => round2(Number(c.cost) || Number(c.amount) || 0);
 
-/** Document ids of a company's switch document and of each month's sent document, in `settings`. */
-export const marksDocId = (payerId: string) => `company_sheet_${payerId}`;
+/** Document id of each month's sent document, in `settings`. */
 export const sentDocId = (payerId: string, month: string) => `company_sheet_${payerId}_${month}`;
 
-export function markKey(patientId: string, month: string): string {
-  return `${patientId}__${month}`;
+/** Cards by the card they continue. */
+export function cardChildren(cards: readonly SheetCard[]): Map<string, SheetCard[]> {
+  const children = new Map<string, SheetCard[]>();
+  for (const c of cards) {
+    const parent = text(c.continuedFromNoteId);
+    if (!parent) continue;
+    const list = children.get(parent);
+    if (list) list.push(c);
+    else children.set(parent, [c]);
+  }
+  return children;
 }
 
-/** Done state of the treatment behind a charge: newest card of its chain; no card / no status = done on the charge date. */
-export function chargeDone(
-  charge: SheetCharge,
+/**
+ * The whole treatment a card belongs to: every card of it, oldest first (the first card leads a
+ * same-day tie), and the card that speaks for it — the newest; on the same day, a continuation.
+ * null when the card is not in `cards`.
+ */
+export function treatmentChain(
+  noteId: string,
   cards: ReadonlyMap<string, SheetCard>,
   children: ReadonlyMap<string, SheetCard[]>,
-): { done: boolean; date: string } {
-  const chargeDate = toYmd(charge.date);
-  const start = cards.get(text(charge.clinicalNoteId));
-  if (!start) return { done: true, date: chargeDate };
+): { chain: SheetCard[]; latest: SheetCard } | null {
+  const start = cards.get(noteId);
+  if (!start) return null;
 
   // The first card of the treatment, then every card that continues it.
   let root = start;
@@ -88,6 +108,23 @@ export function chargeDone(
     if (db !== da) return db > da ? b : a;
     return b.id !== root.id ? b : a;
   });
+  const rootId = root.id;
+  const ordered = [...chain].sort(
+    (a, b) => toYmd(a.date).localeCompare(toYmd(b.date)) || (a.id === rootId ? -1 : b.id === rootId ? 1 : 0),
+  );
+  return { chain: ordered, latest };
+}
+
+/** Done state of the treatment behind a charge: newest card of its chain; no card / no status = done on the charge date. */
+export function chargeDone(
+  charge: SheetCharge,
+  cards: ReadonlyMap<string, SheetCard>,
+  children: ReadonlyMap<string, SheetCard[]>,
+): { done: boolean; date: string } {
+  const chargeDate = toYmd(charge.date);
+  const found = treatmentChain(text(charge.clinicalNoteId), cards, children);
+  if (!found) return { done: true, date: chargeDate };
+  const { latest } = found;
   const status = text(latest.status);
   if (!status) return { done: true, date: chargeDate };
   if (status !== "Completed") return { done: false, date: "" };
@@ -109,14 +146,7 @@ export function buildCompanySheets(inputs: SheetInputs & { payerId: string; thro
   if (months.length === 0) return [];
 
   const cards = new Map(inputs.cards.map((c) => [c.id, c]));
-  const children = new Map<string, SheetCard[]>();
-  for (const c of inputs.cards) {
-    const parent = text(c.continuedFromNoteId);
-    if (!parent) continue;
-    const list = children.get(parent);
-    if (list) list.push(c);
-    else children.set(parent, [c]);
-  }
+  const children = cardChildren(inputs.cards);
 
   // A charge in any sent list belongs to that sent month only, wherever it is dated now.
   const sentIds = new Set<string>();
@@ -171,7 +201,6 @@ export function buildCompanySheets(inputs: SheetInputs & { payerId: string; thro
           patientName: e.name,
           charges: e.charges,
           value: round2(e.charges.reduce((s, c) => s + amountOf(c), 0)),
-          choice: inputs.marks[markKey(patientId, month)] ?? null,
         });
       }
     }
@@ -180,23 +209,18 @@ export function buildCompanySheets(inputs: SheetInputs & { payerId: string; thro
       const list = [...(waiting.get(patientId) ?? []), ...(p.byMonth.get(month) ?? [])];
       if (list.length === 0) continue;
       const states = list.map((c) => chargeDone(c, cards, children));
-      const choice = inputs.marks[markKey(patientId, month)] ?? null;
       const row: SheetPatient = {
         patientId,
         patientName: p.name,
         charges: list,
         value: round2(list.reduce((s, c) => s + amountOf(c), 0)),
-        choice,
       };
 
-      let reason: HeldReason | null;
+      let reason: HeldReason | null = null;
       if (states.some((s) => !s.done)) reason = "not_finished";
-      else if (choice === "hold") reason = "moved";
-      else if (choice === "include") reason = null;
-      else reason = states.some((s) => s.date > `${month}-31`) ? "finished_late" : null;
-
+      else if (states.some((s) => s.date > `${month}-31`)) reason = "finished_late";
       // a sent month takes no new patients
-      if (!reason && sent) reason = states.some((s) => s.date > `${month}-31`) ? "finished_late" : "moved";
+      else if (sent) reason = "moved";
 
       if (reason) {
         held.push({ ...row, reason });

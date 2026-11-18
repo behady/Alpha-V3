@@ -1,19 +1,23 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID } from "@/lib/payers";
+import { isApprovalRow } from "@/lib/ledgerInsurer";
+import { toYmd } from "@/lib/reports/patientStats";
 import { reportServerError } from "@/lib/server/reportError";
 import { logActivityServer } from "@/lib/server/systemLog";
-import { loadCompanySheetInputs, marksDocId, sentDocId } from "@/lib/server/companySheetData";
+import { loadCompanySheetInputs, sentDocId } from "@/lib/server/companySheetData";
 import {
   buildCompanySheets,
+  cardChildren,
   COMPANY_SHEET_START,
-  markKey,
   sendRefusal,
   sheetChargeIds,
+  treatmentChain,
   unsendRefusal,
 } from "@/lib/insurance/companySheet";
 
@@ -22,6 +26,11 @@ export const dynamic = "force-dynamic";
 
 const PERMISSION = "patients.edit";
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+type Action = "send" | "unsend" | "finishDate" | "reopen" | "finish";
+const ACTIONS: readonly Action[] = ["send", "unsend", "finishDate", "reopen", "finish"];
+const TREATMENT_ACTIONS: readonly Action[] = ["finishDate", "reopen", "finish"];
 
 function fail(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -40,15 +49,30 @@ function isAlreadyExists(err: unknown): boolean {
   return code === 6 || code === "already-exists" || code === "ALREADY_EXISTS";
 }
 
+/** A refusal decided inside the transaction, turned into a 409 with its reason. */
+class Refused extends Error {
+  constructor(readonly reason: string, readonly status = 409) {
+    super(reason);
+  }
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 /**
- * The dentist's per-patient "this month / next month" switch on a contract company's (GASCO's)
- * monthly sheet, and the sent lock on a whole month.
+ * A contract company's (GASCO's) monthly sheet: the sent lock on a whole month, and the three
+ * things the patient drawer can do to one treatment's finish — the day that decides which
+ * month's sheet it goes on.
  *
- * Body: { clinicId, action: "mark" | "send" | "unsend", payerId, month, patientId?, choice? }.
- * Every answer is computed on the server from the clinic's own rows; the browser's list of
- * charges is never trusted.
+ * Body: { clinicId, action, payerId, month?, noteId?, date? }
+ * - send / unsend { month }: freeze a month's list, or open it again;
+ * - finishDate { noteId, date }: change the day a finished treatment was finished;
+ * - reopen { noteId }: a treatment marked finished by mistake goes back to In progress;
+ * - finish { noteId }: mark an unfinished treatment finished today.
+ *
+ * `noteId` is the card that speaks for the treatment (the newest of its chain). A treatment whose
+ * charge is on a sent month is locked; a finish day inside a sent month is refused. Every answer
+ * is computed on the server from the clinic's own rows; the browser's lists are never trusted.
  */
 export async function POST(req: Request) {
   try {
@@ -64,24 +88,28 @@ export async function POST(req: Request) {
     // --- shape ------------------------------------------------------------------------------
     const clinicId = segment(body.clinicId);
     const payerId = segment(body.payerId);
-    const month = typeof body.month === "string" ? body.month : "";
-    const action = body.action;
+    const action = body.action as Action;
     if (!clinicId) return fail(400, "clinicId is required.");
-    if (action !== "mark" && action !== "send" && action !== "unsend") return fail(400, 'action must be "mark", "send" or "unsend".');
+    if (!ACTIONS.includes(action)) return fail(400, `action must be one of ${ACTIONS.join(", ")}.`);
     if (!payerId) return fail(400, "payerId is required.");
-    if (!MONTH.test(month) || month < COMPANY_SHEET_START) return fail(400, `month must be yyyy-mm, ${COMPANY_SHEET_START} or later.`);
-    const currentMonth = ymdInTimeZone(clinicTimeZone()).slice(0, 7);
-    if (month > currentMonth) return fail(400, "That month has not started yet.");
+    const today = ymdInTimeZone(clinicTimeZone());
+    const currentMonth = today.slice(0, 7);
 
-    let patientId = "";
-    let choice: "include" | "hold" | null = null;
-    if (action === "mark") {
-      patientId = segment(body.patientId);
-      if (!patientId) return fail(400, "patientId is required.");
-      if (!("choice" in body) || (body.choice !== null && body.choice !== "include" && body.choice !== "hold")) {
-        return fail(400, 'choice must be "include", "hold" or null.');
+    const onTreatment = TREATMENT_ACTIONS.includes(action);
+    const month = typeof body.month === "string" ? body.month : "";
+    let noteId = "";
+    let date = "";
+    if (onTreatment) {
+      noteId = segment(body.noteId);
+      if (!noteId) return fail(400, "noteId is required.");
+      if (action === "finishDate") {
+        date = typeof body.date === "string" ? body.date : "";
+        if (!DAY.test(date)) return fail(400, "date must be yyyy-mm-dd.", { reason: "bad_date" });
+        if (date > today) return fail(400, "A finish date cannot be after today.", { reason: "future_date" });
       }
-      choice = body.choice as "include" | "hold" | null;
+    } else {
+      if (!MONTH.test(month) || month < COMPANY_SHEET_START) return fail(400, `month must be yyyy-mm, ${COMPANY_SHEET_START} or later.`);
+      if (month > currentMonth) return fail(400, "That month has not started yet.");
     }
 
     // --- who --------------------------------------------------------------------------------
@@ -103,43 +131,106 @@ export async function POST(req: Request) {
 
     // --- the sheets, as the server sees them now --------------------------------------------
     const inputs = await loadCompanySheetInputs(clinicId, payerId);
-    const sheets = buildCompanySheets({ ...inputs, payerId, through: currentMonth });
-    const sheet = sheets.find((s) => s.month === month);
-    const sentRef = adminClinicDoc(clinicId, "settings", sentDocId(payerId, month));
 
-    if (action === "mark") {
-      if (sheet?.sent) return fail(409, "That month is already sent.", { reason: "sent_locked" });
-      if (choice === "include") {
-        // Is he unfinished? Ask with this patient's own switch for the month taken off, so a
-        // "hold" tick cannot hide the reason.
-        const rest = { ...inputs.marks };
-        delete rest[markKey(patientId, month)];
-        const bare = buildCompanySheets({ ...inputs, marks: rest, payerId, through: currentMonth });
-        const entry = bare.find((s) => s.month === month)?.held.find((h) => h.patientId === patientId);
-        if (entry?.reason === "not_finished") {
-          return fail(409, "That patient still has treatment waiting.", { reason: "not_finished" });
-        }
+    if (onTreatment) {
+      // The company's live charges whose treatment this card speaks for.
+      const cards = new Map(inputs.cards.map((c) => [c.id, c]));
+      const children = cardChildren(inputs.cards);
+      const owned = inputs.charges.filter((c) => {
+        const status = text(c.status).toLowerCase();
+        if (c.type !== "procedure" || text(c.payerId) !== payerId || status === "deleted" || status === "cancelled") return false;
+        return treatmentChain(text(c.clinicalNoteId), cards, children)?.latest.id === noteId;
+      });
+      if (owned.length === 0) return fail(404, "That treatment is not on this company's sheet.", { reason: "not_found" });
+      const sentIds = new Set(inputs.sent.flatMap((s) => s.chargeIds));
+      if (owned.some((c) => sentIds.has(text(c.id)))) {
+        return fail(409, "That treatment is on a month already sent.", { reason: "sent_locked" });
       }
-      await adminClinicDoc(clinicId, "settings", marksDocId(payerId)).set(
-        {
-          marks: { [markKey(patientId, month)]: choice === null ? FieldValue.delete() : choice },
-          updatedAt: FieldValue.serverTimestamp(),
-          updatedBy: actor.uid,
-        },
-        { merge: true },
-      );
-      // Name the patient the way the sheet does; the id only when no charge of his carries a name.
-      const named = inputs.charges.find((c) => String(c.patientId ?? "").trim() === patientId && String(c.patientName ?? "").trim());
+      const sentMonths = new Set(inputs.sent.map((s) => s.month));
+
+      const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
+      let result: { procedure: string; patient: string; from: string; to: string };
+      try {
+        result = await adminDb().runTransaction(async (tx) => {
+          const snap = await tx.get(noteRef);
+          if (!snap.exists) throw new Refused("not_found", 404);
+          const note = snap.data() ?? {};
+          if (isApprovalRow(note)) throw new Refused("approval");
+          const appointmentId = text(note.appointmentId);
+          const apptRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
+          const apptSnap = apptRef ? await tx.get(apptRef) : null;
+
+          const done = String(note.status ?? "") === "Completed";
+          const was = toYmd(note.completedDate) || toYmd(note.date);
+          let fields: Record<string, unknown>;
+          let status: string | null = null;
+          let entry: Record<string, unknown>;
+          let to = "";
+          if (action === "finishDate") {
+            if (!done) throw new Refused("not_done");
+            if (date < toYmd(note.date)) throw new Refused("before_visit", 400);
+            if (sentMonths.has(date.slice(0, 7))) throw new Refused("month_sent");
+            to = date;
+            fields = { completedDate: date };
+            entry = { kind: "date", from: was, to: date };
+          } else if (action === "reopen") {
+            if (!done) throw new Refused("not_done");
+            status = "Ongoing";
+            fields = { status, completedDate: FieldValue.delete() };
+            entry = { kind: "reopened", from: was, to: "" };
+          } else {
+            if (done) throw new Refused("already_done");
+            if (sentMonths.has(currentMonth)) throw new Refused("month_sent");
+            status = "Completed";
+            to = today;
+            fields = { status, completedDate: today };
+            entry = { kind: "finished", from: "", to: today };
+          }
+
+          tx.update(noteRef, {
+            ...fields,
+            finishLog: FieldValue.arrayUnion({ ...entry, day: today, at: new Date().toISOString(), byUid: actor.uid, byName: actor.name || "" }),
+            updatedByUid: actor.uid,
+            updatedByName: actor.name || "",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          // The visit's own list of treatments shows the state too; keep that one line in step.
+          if (status && apptRef && apptSnap?.exists) {
+            const services = apptSnap.get("services");
+            if (Array.isArray(services) && services.some((s) => s && typeof s === "object" && s.clinicalNoteId === noteId)) {
+              tx.update(apptRef, {
+                services: services.map((s) => (s && typeof s === "object" && s.clinicalNoteId === noteId ? { ...s, status } : s)),
+              });
+            }
+          }
+          return { procedure: text(note.procedure) || "treatment", patient: text(owned[0].patientName) || text(owned[0].patientId), from: was, to };
+        });
+      } catch (err) {
+        if (err instanceof Refused) return fail(err.status, "That change is not allowed.", { reason: err.reason });
+        throw err;
+      }
+
+      const what =
+        action === "finishDate"
+          ? `finish date ${result.from} -> ${result.to}`
+          : action === "reopen"
+            ? `marked not finished (was finished ${result.from})`
+            : `marked finished ${result.to}`;
       void logActivityServer({
         clinicId,
         user: actor,
-        action: "Company Sheet Switch",
-        details: `${payer.name} ${month}: patient ${named ? String(named.patientName).trim() : patientId} -> ${choice ?? "automatic"}`,
+        action: action === "finishDate" ? "Finish Date Changed" : action === "reopen" ? "Treatment Reopened" : "Treatment Finished",
+        details: `${payer.name}: ${result.patient} — ${result.procedure}, ${what}`,
         severity: "LOW",
         module: "finance",
       });
       return NextResponse.json({ ok: true });
     }
+
+    const sheets = buildCompanySheets({ ...inputs, payerId, through: currentMonth });
+    const sheet = sheets.find((s) => s.month === month);
+    const sentRef = adminClinicDoc(clinicId, "settings", sentDocId(payerId, month));
 
     if (action === "send") {
       const refusal = sendRefusal(sheets, month);
