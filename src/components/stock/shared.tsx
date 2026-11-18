@@ -146,9 +146,15 @@ export function Sheet({ title, onClose, children, dir }: { title: string; onClos
 export function Reveal({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const el = ref.current;
+    if (!el) return;
+    // A form taller than the screen, centred, puts its own first row above the top of the page:
+    // the catalogue's "My own item" switch ended up under the top bar. Those start at their top.
+    const tall = el.offsetHeight > window.innerHeight - 160;
+    el.scrollIntoView({ behavior: "smooth", block: tall ? "start" : "center" });
   }, []);
-  return <div ref={ref}>{children}</div>;
+  // Room for a top bar, wherever the page has one, when the form is lined up by its top.
+  return <div ref={ref} style={{ scrollMarginTop: 96 }}>{children}</div>;
 }
 
 /**
