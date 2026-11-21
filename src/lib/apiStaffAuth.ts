@@ -1,3 +1,4 @@
+import { listHoldsPermission } from "@/config/permissionsCatalog";
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { CLINIC_INACTIVE_CODE, clinicActivity } from "@/lib/clinicStatus";
@@ -178,7 +179,7 @@ export async function requireStaffPermission(
   const staff = await requireStaffUser(request, clinicId, options);
   if (!staff.ok) return staff;
   if (isFullAccessRole(staff.role)) return staff;
-  if (staff.permissions.includes(permission)) return staff;
+  if (listHoldsPermission(staff.permissions, permission)) return staff;
   return {
     ok: false as const,
     response: NextResponse.json(

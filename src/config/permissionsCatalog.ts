@@ -10,6 +10,15 @@ export type PermissionCatalogItem = {
   /** Short tooltip for admins */
   hintEn?: string;
   hintAr?: string;
+  /**
+   * Held by everyone until an admin switches it off for a person.
+   *
+   * A permission added after clinics went live cannot simply be "off until ticked": every stored
+   * list predates it, so the day it shipped it would take away something each person could do the
+   * day before. A default-on permission is the opposite record — nothing is stored while it is on,
+   * and switching it off stores a marker (`denyMarker`). No existing account is rewritten.
+   */
+  defaultOn?: boolean;
 };
 
 export type PermissionCatalogGroup = {
@@ -219,9 +228,79 @@ export const PERMISSIONS_CATALOG: PermissionCatalogGroup[] = [
         hintAr: "يسمح بتصدير البيانات إلى ملفات PDF أو Excel."
       }
     ],
+  },
+
+  {
+    id: "insurance_actions",
+    titleEn: "Insurance — monthly sheet",
+    titleAr: "التأمين — تقفيلة الشهر",
+    descriptionEn: "On for everyone unless you switch it off. The person still needs to open the Insurance page.",
+    descriptionAr: "شغّالة للكل إلا لو قفلتها. الشخص لازم يكون بيفتح صفحة التأمين أصلاً.",
+    items: [
+      {
+        id: "insurance.edit",
+        labelEn: "Change a procedure on the sheet",
+        labelAr: "تعديل إجراء في التقفيلة",
+        hintEn: "Start and end dates, status, and the month a procedure goes on.",
+        hintAr: "تاريخ البداية والنهاية، الحالة، والشهر اللي الإجراء بيطلع فيه.",
+        defaultOn: true,
+      },
+      {
+        id: "insurance.send",
+        labelEn: "Mark a month sent / not sent",
+        labelAr: "تعليم الشهر اتبعت / ماتبعتش",
+        hintEn: "Sending a month locks its procedures.",
+        hintAr: "لما الشهر يتبعت، إجراءاته بتتقفل.",
+        defaultOn: true,
+      },
+    ],
   }
 ];
 
 export function getAllPermissionIds(): string[] {
   return PERMISSIONS_CATALOG.flatMap((g) => g.items.map((i) => i.id));
+}
+
+/** The permissions everyone holds until one is switched off for them. */
+export function getDefaultOnPermissionIds(): string[] {
+  return PERMISSIONS_CATALOG.flatMap((g) => g.items.filter((i) => i.defaultOn === true).map((i) => i.id));
+}
+
+const DEFAULT_ON = new Set(getDefaultOnPermissionIds());
+const DENY_PREFIX = "no:";
+
+/** What a stored list holds when a default-on permission was switched OFF for someone. */
+export function denyMarker(id: string): string {
+  return `${DENY_PREFIX}${id}`;
+}
+
+/** Whether `value` is the off-marker of a default-on permission. */
+export function isDenyMarker(value: string): boolean {
+  return value.startsWith(DENY_PREFIX) && DEFAULT_ON.has(value.slice(DENY_PREFIX.length));
+}
+
+/**
+ * Does a stored permission list hold `id`?
+ *
+ * The one test every door uses for a non-admin (`Protect`, `requireStaffPermission`,
+ * `holdsPermission`). An ordinary permission is held when it is in the list. A default-on one is
+ * held unless its off-marker is.
+ */
+export function listHoldsPermission(list: readonly string[] | null | undefined, id: string): boolean {
+  const held = Array.isArray(list) ? list : [];
+  if (held.includes(id)) return true;
+  return DEFAULT_ON.has(id) && !held.includes(denyMarker(id));
+}
+
+/** Every catalogue permission a stored list holds, default-on ones included. */
+export function effectivePermissions(list: readonly string[] | null | undefined): string[] {
+  return getAllPermissionIds().filter((id) => listHoldsPermission(list, id));
+}
+
+/** The stored list after switching `id` on or off: default-on permissions trade places with their marker. */
+export function withPermission(list: readonly string[] | null | undefined, id: string, on: boolean): string[] {
+  const marker = denyMarker(id);
+  const rest = (Array.isArray(list) ? list : []).filter((p) => p !== id && p !== marker);
+  if (on) return [...rest, id];
+  return DEFAULT_ON.has(id) ? [...rest, marker] : rest;
 }

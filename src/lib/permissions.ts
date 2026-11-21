@@ -27,7 +27,19 @@
  * `expandPermissions` never removes what someone was explicitly granted.
  */
 
-import { getAllPermissionIds } from "@/config/permissionsCatalog";
+import { effectivePermissions, getAllPermissionIds, getDefaultOnPermissionIds, isDenyMarker, listHoldsPermission } from "@/config/permissionsCatalog";
+
+/**
+ * The entries of a granted list worth storing: catalogue ids, and the off-markers of default-on
+ * permissions (an id and its own marker never both — the id wins).
+ */
+function storable(granted: unknown): string[] {
+  const catalogue = new Set(getAllPermissionIds());
+  const list = Array.isArray(granted) ? granted.filter((p): p is string => typeof p === "string") : [];
+  const ids = list.filter((p) => catalogue.has(p));
+  const off = list.filter((p) => isDenyMarker(p) && !ids.includes(p.slice(p.indexOf(":") + 1)));
+  return [...ids, ...off];
+}
 
 /**
  * The roles the app assigns. Anything else is treated as having no baseline.
@@ -149,10 +161,7 @@ export function expandPermissions(role: string | null | undefined, granted: unkn
   // otherwise be copied forward forever, making every permission list longer and less readable
   // than the access it describes. Dropping them changes nothing enforceable: an id no rule and no
   // guard ever compares against grants exactly as much absent as present.
-  const catalogue = new Set(getAllPermissionIds());
-  const explicit = Array.isArray(granted)
-    ? granted.filter((p): p is string => typeof p === "string" && catalogue.has(p))
-    : [];
+  const explicit = storable(granted);
 
   // Owner and Admin short-circuit every check, so a materialised list for them would be a
   // second source of truth that goes stale the first time the catalogue changes.
@@ -173,7 +182,8 @@ export function expandPermissions(role: string | null | undefined, granted: unkn
  */
 export function rolePreset(role: string | null | undefined): string[] {
   if (isFullAccessRole(role)) return [...getAllPermissionIds()].sort();
-  return [...new Set(ROLE_BASELINE[String(role || "")] || [])].sort();
+  // Default-on permissions are part of every role's starting point: nobody has to be given them.
+  return [...new Set([...(ROLE_BASELINE[String(role || "")] || []), ...getDefaultOnPermissionIds()])].sort();
 }
 
 /**
@@ -192,7 +202,8 @@ export function presetDiff(
     return { added: [], removed: [], matchesPreset: false, hasRecord: false };
   }
   const preset = new Set(rolePreset(role));
-  const held = new Set(sanitizePermissionList(stored));
+  // What the person actually holds: a default-on permission counts until it is switched off.
+  const held = new Set(effectivePermissions(sanitizePermissionList(stored)));
   const added = [...held].filter((p) => !preset.has(p)).sort();
   const removed = [...preset].filter((p) => !held.has(p)).sort();
   return {
@@ -216,11 +227,7 @@ export function presetDiff(
  * exists to fix. Once a person edits the list, the list is the decision.
  */
 export function sanitizePermissionList(granted: unknown): string[] {
-  const catalogue = new Set(getAllPermissionIds());
-  const explicit = Array.isArray(granted)
-    ? granted.filter((p): p is string => typeof p === "string" && catalogue.has(p))
-    : [];
-  return [...new Set(explicit)].sort();
+  return [...new Set(storable(granted))].sort();
 }
 
 /**
@@ -237,7 +244,7 @@ export function holdsPermission(
 ): boolean {
   if (permission == null) return true;
   if (isFullAccessRole(role)) return true;
-  return Array.isArray(permissions) && permissions.includes(permission);
+  return listHoldsPermission(permissions, permission);
 }
 
 /**

@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import { listHoldsPermission } from "@/config/permissionsCatalog";
 
 interface ProtectProps {
   children: React.ReactNode;
@@ -15,8 +16,8 @@ export default function Protect({ children, permission, fallback = null }: Prote
 
   if (isAdmin) return <>{children}</>; // Admins ignore locks
 
-  // Check if the user's permissions array includes the specific key
-  if (user?.permissions?.includes(permission)) {
+  // In the user's list — or a default-on permission nobody switched off for them.
+  if (listHoldsPermission(user?.permissions, permission)) {
     return <>{children}</>;
   }
 
