@@ -43,6 +43,7 @@ export default function CompanySheetPreview({
   onExcel,
   exporting,
   excelReady,
+  unfinished,
   onClose,
 }: {
   clinicId: string;
@@ -57,6 +58,8 @@ export default function CompanySheetPreview({
   onExcel: () => void;
   exporting: boolean;
   excelReady: boolean;
+  /** The charges whose procedure is not finished (placed on a sheet by hand). */
+  unfinished: ReadonlySet<string>;
   onClose: () => void;
 }) {
   const { language, isRTL } = useLanguage();
@@ -96,12 +99,20 @@ export default function CompanySheetPreview({
     if (ok) await act(month, () => sendCompanySheet(clinicId, payerId, month));
   };
 
+  /** The procedures of one patient on a sheet; one that is not finished says so. */
   const detail = (charges: MonthSheet["printed"][number]["charges"]) =>
     [...charges]
       .sort((a, b) => toYmd(a.date).localeCompare(toYmd(b.date)))
-      .map((c) => statementLineText(c))
-      .filter(Boolean)
-      .join(" + ");
+      .filter((c) => statementLineText(c))
+      .map((c, i) => (
+        <span key={String(c.id)}>
+          {i > 0 && " + "}
+          {statementLineText(c)}
+          {unfinished.has(String(c.id)) && (
+            <span className="ms-1.5 inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[10.5px] font-bold text-amber-800">{t("pvNotFinishedTag")}</span>
+          )}
+        </span>
+      ));
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-10 backdrop-blur-sm sm:py-16" onClick={onClose}>
@@ -186,7 +197,7 @@ export default function CompanySheetPreview({
                   </div>
                 )}
 
-                <Protect permission="patients.edit">
+                <Protect permission="insurance.send">
                   <div className="flex flex-wrap justify-end gap-2">
                     {canSend && (
                       <button

@@ -1,5 +1,6 @@
 "use client";
 
+import { registerConfirm } from "@/lib/confirmBridge";
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { X, CheckCircle2, AlertCircle, Info, AlertTriangle, HelpCircle, PenLine } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -314,6 +315,12 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       confirmResolver.current = resolve;
     });
   }, []);
+
+  // Code outside React (lib/moneyApi) asks its questions through this same dialog.
+  useEffect(() => {
+    registerConfirm(confirm);
+    return () => registerConfirm(null);
+  }, [confirm]);
 
   // --- PROMPT LOGIC ---
   const prompt = useCallback((message: string, options?: PromptDialogOptions): Promise<string | null> => {

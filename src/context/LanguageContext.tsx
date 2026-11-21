@@ -1,5 +1,6 @@
 "use client";
 
+import { setBridgeLanguage } from "@/lib/confirmBridge";
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { pickStartupLanguage } from "@/lib/startupLanguage";
 
@@ -886,6 +887,11 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en');
+
+  // Questions asked from outside React (lib/confirmBridge) follow the same language.
+  useEffect(() => {
+    setBridgeLanguage(language);
+  }, [language]);
 
   useEffect(() => {
     // A saved choice wins; otherwise the browser's language decides (Arabic for any Arabic

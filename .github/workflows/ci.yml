@@ -155,6 +155,8 @@ jobs:
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:insurance-line-dates-route"
       - name: Company sheet switch and sent lock (GASCO monthly sheet)
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:company-sheet-route"
+      - name: A treatment on a sent company sheet is locked in the patient file (owner or admin may confirm)
+        run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:sent-sheet-lock"
 
   build:
     name: Production build

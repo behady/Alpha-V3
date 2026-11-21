@@ -273,7 +273,8 @@ async function companySheetCall(body: Record<string, unknown>): Promise<string |
   try {
     const { status, data } = await call("POST", "/api/insurance/company-sheet", body);
     if (status === 200 && data.ok === true) return null;
-    return typeof data.reason === "string" && data.reason ? data.reason : "failed";
+    if (typeof data.reason === "string" && data.reason) return data.reason;
+    return data.code === "branch_forbidden" ? "branch_forbidden" : "failed";
   } catch {
     return "failed";
   }
@@ -285,23 +286,23 @@ export function setProcedureSheetMonth(clinicId: string, payerId: string, charge
 }
 
 /** Change the day a procedure started: its charge and its first treatment card. */
-export function setProcedureStartDate(clinicId: string, payerId: string, chargeId: string, date: string): Promise<string | null> {
-  return companySheetCall({ clinicId, action: "startDate", payerId, chargeId, date });
+export function setProcedureStartDate(clinicId: string, payerId: string, chargeId: string, date: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "startDate", payerId, chargeId, date, confirmSent });
 }
 
 /** Change the day a finished treatment was finished (`noteId`: the card that speaks for it). */
-export function setTreatmentFinishDate(clinicId: string, payerId: string, noteId: string, date: string): Promise<string | null> {
-  return companySheetCall({ clinicId, action: "finishDate", payerId, noteId, date });
+export function setTreatmentFinishDate(clinicId: string, payerId: string, noteId: string, date: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "finishDate", payerId, noteId, date, confirmSent });
 }
 
 /** A treatment marked finished by mistake goes back to In progress. */
-export function reopenTreatment(clinicId: string, payerId: string, noteId: string): Promise<string | null> {
-  return companySheetCall({ clinicId, action: "reopen", payerId, noteId });
+export function reopenTreatment(clinicId: string, payerId: string, noteId: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "reopen", payerId, noteId, confirmSent });
 }
 
 /** Mark an unfinished treatment finished today. */
-export function finishTreatment(clinicId: string, payerId: string, noteId: string): Promise<string | null> {
-  return companySheetCall({ clinicId, action: "finish", payerId, noteId });
+export function finishTreatment(clinicId: string, payerId: string, noteId: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "finish", payerId, noteId, confirmSent });
 }
 
 /** Freeze a month as sent to the company. */

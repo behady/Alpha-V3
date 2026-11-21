@@ -52,6 +52,7 @@ import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { isFdiTooth } from "@/lib/insurance/nextcare";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { sentSheetGate } from "@/lib/server/companySheetLock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -780,6 +781,24 @@ async function linkedChargeBranch(clinicId: string, noteId: string, note: Record
   return linked.empty ? null : linked.docs[0].data().branchId ?? null;
 }
 
+/** The charges a treatment card carries: its own link, and any charge that points back at it. */
+async function noteChargeIds(clinicId: string, noteId: string, note: Record<string, unknown> | undefined): Promise<string[]> {
+  const legacyId = typeof note?.ledgerId === "string" ? note.ledgerId.trim() : "";
+  const linked = await adminClinicCollection(clinicId, "ledger").where("clinicalNoteId", "==", noteId).where("type", "==", "procedure").get();
+  return [...new Set([legacyId, ...linked.docs.map((d) => d.id)].filter(Boolean))];
+}
+
+/**
+ * A treatment on a company sheet that was already sent: nobody but an Owner or Admin changes it,
+ * and they only after the screen's warning (see lib/server/companySheetLock). A private treatment
+ * is on no company's sheet, so it is not looked up.
+ */
+async function sentSheetRefusal(clinicId: string, actor: Actor, noteId: string, note: Record<string, unknown> | undefined, body: Record<string, unknown>) {
+  const payerId = typeof note?.payerId === "string" ? note.payerId.trim() : "";
+  if (!payerId || payerId === "private") return null;
+  return sentSheetGate({ clinicId, role: actor.role, chargeIds: await noteChargeIds(clinicId, noteId, note), confirmed: body.confirmSentSheet });
+}
+
 async function updateProcedure(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
   const noteId = String(body.noteId || "").trim();
@@ -799,6 +818,10 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   }
   if (current.exists && isApprovalRow(current.data())) {
     return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {} });
+  }
+  if (current.exists) {
+    const locked = await sentSheetRefusal(clinicId, actor, noteId, current.data(), body);
+    if (locked) return locked;
   }
 
   const storedPayerId = current.exists ? current.data()?.payerId : null;
@@ -966,6 +989,10 @@ async function deleteProcedure(args: { clinicId: string; actor: Actor; body: Rec
     rowBranchId: charge ? charge.data().branchId : await linkedChargeBranch(clinicId, noteId, note),
   });
   if (!gate.ok) return gate.response;
+  {
+    const locked = await sentSheetRefusal(clinicId, actor, noteId, note, body);
+    if (locked) return locked;
+  }
   const related: Array<{ id: string; type?: string; procedureId?: string | null; clinicalNoteId?: string | null }> =
     linkedSnap.docs.map((d) => ({ id: d.id, type: String(d.data().type || ""), clinicalNoteId: noteId }));
 
@@ -1037,6 +1064,12 @@ async function moveProcedure(args: { clinicId: string; actor: Actor; body: Recor
   // payroll read. Moving it here would re-date the books alone and the three would disagree.
   if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_MOVE_MESSAGE, 409);
   const linkedIds = linkedSnap.docs.map((d) => d.id);
+  {
+    // Moving it re-dates its charge: on a sent sheet that is a change to what the company received.
+    const moving = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
+    const locked = moving.exists ? await sentSheetRefusal(clinicId, actor, noteId, moving.data(), body) : null;
+    if (locked) return locked;
+  }
 
   const result = await adminDb().runTransaction(async (txn) => {
     const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);

@@ -74,6 +74,7 @@ export default function CompanySheetPanel({
   const earlier = rows.filter((r) => r.standing.kind === "earlier");
   const visible = showAll ? rows : rows.filter((r) => r.standing.kind !== "earlier");
 
+  const unfinished = useMemo(() => new Set([...placed].filter(([, at]) => !at.done).map(([id]) => id)), [placed]);
   const cards = useMemo(() => new Map(inputs.cards.map((c) => [c.id, c])), [inputs.cards]);
   const cardKids = useMemo(() => cardChildren(inputs.cards), [inputs.cards]);
   const months = walked.filter((s) => s.month >= from && s.month <= to);
@@ -171,6 +172,7 @@ export default function CompanySheetPanel({
           onExcel={onExcel}
           exporting={exporting}
           excelReady={excelReady}
+          unfinished={unfinished}
           onClose={() => setPreview(false)}
         />
       )}

@@ -344,7 +344,7 @@ export const TEXT = {
   sheetConfirmAllBranches: { en: "This covers every branch, not only the one on screen.", ar: "ده بيشمل كل الفروع، مش الفرع اللي قدامك بس." },
   sheetLoadFailed: { en: "The sheet could not be loaded. Reload the page.", ar: "التقفيلة ماتحمّلتش. حدّث الصفحة." },
   sheetLoading: { en: "Loading the sheet…", ar: "بنحمّل التقفيلة…" },
-  sheetToastSentLocked: { en: "That month is already sent. Mark it not sent first.", ar: "الشهر ده اتبعت. علّمه ماتبعتش الأول." },
+  sheetToastSentLocked: { en: "That month is already sent, so it is locked. The owner or an admin can change it, or mark the month not sent first.", ar: "الشهر ده اتبعت فاتقفل. المالك أو المدير يقدر يغيّره، أو علّم الشهر ماتبعتش الأول." },
   sheetToastEmpty: { en: "There is nothing on this month's sheet to send.", ar: "مفيش حاجة في تقفيلة الشهر ده تتبعت." },
   sheetToastEarlierOpen: { en: "An earlier month is not sent yet. Send it first.", ar: "فيه شهر قبله لسه ما اتبعتش. ابعته الأول." },
   sheetToastLaterSent: { en: "A later month is already sent. Open that one first.", ar: "فيه شهر بعده اتبعت. افتح الشهر ده الأول." },
@@ -363,7 +363,7 @@ export const TEXT = {
   dwClose: { en: "Close", ar: "اقفل" },
   dwHistory: { en: "History", ar: "السجل" },
   dwTapToChange: { en: "Tap to change", ar: "دوس عشان تغيّر" },
-  dwLockedHint: { en: "Sent and locked. To fix it, mark that month not sent first.", ar: "اتبعتت ومقفولة. عشان تعدّلها، علّم الشهر ده ماتبعتش الأول." },
+  dwLockedHint: { en: "Sent and locked. To move it to another month, mark that month not sent first.", ar: "اتبعتت ومقفولة. عشان تنقلها لشهر تاني، علّم الشهر ده ماتبعتش الأول." },
   dwFinished: { en: "Finished", ar: "خلص" },
   dwInProgress: { en: "In progress", ar: "لسه شغال" },
   dwFinishedOnHint: { en: "From {min} to today", ar: "من {min} لحد النهارده" },
@@ -419,6 +419,15 @@ export const TEXT = {
   pvWhyNotFinished: { en: "Not finished, and no sheet month picked", ar: "لسه مخلصش، ومحدش اختار له شهر تقفيلة" },
   pvWhyMoved: { en: "This month was already sent — it goes on the next one", ar: "الشهر ده اتبعت — هيطلع في اللي بعده" },
   pvNotOn: { en: "Not on this sheet — and why", ar: "مش في التقفيلة دي — وليه" },
+  dwSentWarn: {
+    en: "This procedure is on the {month} sheet, which was already sent to the company. If you change it, that sheet changes too: what it shows will no longer match what the company received, and the company is not told. Change it anyway?",
+    ar: "الإجراء ده في تقفيلة {month} اللي اتبعتت للشركة. لو غيّرته، التقفيلة دي هتتغيّر معاه: اللي مكتوب فيها مش هيبقى زي اللي الشركة استلمته، والشركة مش هتعرف. تغيّره برضه؟",
+  },
+  dwSentWarnTitle: { en: "Already sent to the company", ar: "اتبعتت للشركة خلاص" },
+  dwSentWarnGo: { en: "Change it anyway", ar: "غيّره برضه" },
+  dwToastNoPermission: { en: "You do not have permission to do this. Ask the clinic owner.", ar: "مالكش صلاحية تعمل ده. اسأل صاحب العيادة." },
+  dwToastOtherBranch: { en: "This procedure belongs to another branch.", ar: "الإجراء ده تبع فرع تاني." },
+  pvNotFinishedTag: { en: "not finished", ar: "لسه مخلصش" },
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;

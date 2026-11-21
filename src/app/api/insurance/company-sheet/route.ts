@@ -4,6 +4,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
+import { holdsPermission, isFullAccessRole } from "@/lib/permissions";
+import { assertRowBranchAllowed } from "@/lib/server/branchAccess";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID } from "@/lib/payers";
@@ -80,8 +82,14 @@ const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
  * - reopen { noteId }: a treatment marked finished by mistake goes back to In progress;
  * - finish { noteId }: mark an unfinished treatment finished today.
  *
- * `noteId` is the card that speaks for the treatment (the newest of its chain). A procedure on a
- * sent month is locked, and no procedure can be picked onto a sent month. Every answer is
+ * `noteId` is the card that speaks for the treatment (the newest of its chain).
+ *
+ * Who: the page's own permission (patients.edit), plus `insurance.send` to send or unsend and
+ * `insurance.edit` for everything else — both on for everyone until switched off for a person —
+ * and, for one procedure, the branch it belongs to. A procedure on a sent month is locked: only an
+ * Owner or Admin may still change its dates or state, and only with `confirmSent: true`, which the
+ * screen sends after warning that the sheet the company received will no longer match. Its month
+ * cannot be picked at all (mark the month not sent), and nothing can be picked onto a sent month. Every answer is
  * computed on the server from the clinic's own rows; the browser's lists are never trusted.
  */
 export async function POST(req: Request) {
@@ -143,6 +151,16 @@ export async function POST(req: Request) {
     const authz = await requireStaffPermission(req, clinicId, PERMISSION);
     if (!authz.ok) return authz.response;
     const actor = { uid: authz.uid, name: authz.name, role: authz.role };
+    const needs = action === "send" || action === "unsend" ? "insurance.send" : "insurance.edit";
+    if (!holdsPermission(authz.role, authz.permissions, needs)) {
+      return fail(403, `You do not have permission to do this (${needs}).`, { reason: "no_permission" });
+    }
+    /** A sent procedure: nobody but an Owner or Admin, and they only after the screen's warning. */
+    const sentGate = (month: string) => {
+      if (!isFullAccessRole(actor.role)) return fail(409, "That procedure is on a month already sent.", { reason: "sent_locked", month });
+      if (body.confirmSent !== true) return fail(409, "That procedure is on a month already sent. Confirm to change it.", { reason: "sent_confirm", month });
+      return null;
+    };
 
     // --- add-on -----------------------------------------------------------------------------
     if (!(await clinicHasFeature(clinicId, "insurance"))) {
@@ -167,8 +185,15 @@ export async function POST(req: Request) {
       if (!charge || charge.type !== "procedure" || text(charge.payerId) !== payerId || status === "deleted" || status === "cancelled") {
         return fail(404, "That procedure is not on this company's sheet.", { reason: "not_found" });
       }
-      if (inputs.sent.some((s) => s.chargeIds.includes(chargeId))) {
-        return fail(409, "That procedure is on a month already sent.", { reason: "sent_locked" });
+      // Another branch's procedure is not this person's to change.
+      const branchGate = await assertRowBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, rowBranchId: charge.branchId });
+      if (!branchGate.ok) return branchGate.response;
+      const sentOn = inputs.sent.find((s) => s.chargeIds.includes(chargeId));
+      if (sentOn) {
+        // Its month is the sent list's: picking another would move nothing. Mark the month not sent.
+        if (action === "pickMonth") return fail(409, "That procedure is on a month already sent.", { reason: "sent_locked", month: sentOn.month });
+        const refused = sentGate(sentOn.month);
+        if (refused) return refused;
       }
       const chain = treatmentChain(text(charge.clinicalNoteId), cards, children);
       const patient = text(charge.patientName) || text(charge.patientId);
@@ -271,9 +296,14 @@ export async function POST(req: Request) {
         return treatmentChain(text(c.clinicalNoteId), cards, children)?.latest.id === noteId;
       });
       if (owned.length === 0) return fail(404, "That treatment is not on this company's sheet.", { reason: "not_found" });
-      const sentIds = new Set(inputs.sent.flatMap((s) => s.chargeIds));
-      if (owned.some((c) => sentIds.has(text(c.id)))) {
-        return fail(409, "That treatment is on a month already sent.", { reason: "sent_locked" });
+      for (const c of owned) {
+        const branchGate = await assertRowBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, rowBranchId: c.branchId });
+        if (!branchGate.ok) return branchGate.response;
+      }
+      const sentOn = inputs.sent.find((s) => owned.some((c) => s.chargeIds.includes(text(c.id))));
+      if (sentOn) {
+        const refused = sentGate(sentOn.month);
+        if (refused) return refused;
       }
       const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
       let result: { procedure: string; patient: string; from: string; to: string };
@@ -287,7 +317,10 @@ export async function POST(req: Request) {
           const apptRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
           const apptSnap = apptRef ? await tx.get(apptRef) : null;
 
-          const done = String(note.status ?? "") === "Completed";
+          // A card written before treatments carried a state counts as finished on its own day
+          // (see chargeDone), so it is treated as finished here too and given the state it lacked.
+          const stateless = String(note.status ?? "").trim() === "";
+          const done = stateless || String(note.status) === "Completed";
           const was = toYmd(note.completedDate) || toYmd(note.date);
           let fields: Record<string, unknown>;
           let status: string | null = null;
@@ -297,7 +330,7 @@ export async function POST(req: Request) {
             if (!done) throw new Refused("not_done");
             if (date < toYmd(note.date)) throw new Refused("before_visit", 400);
             to = date;
-            fields = { completedDate: date };
+            fields = { completedDate: date, ...(stateless ? { status: "Completed" } : {}) };
             entry = { kind: "date", from: was, to: date };
           } else if (action === "reopen") {
             if (!done) throw new Refused("not_done");

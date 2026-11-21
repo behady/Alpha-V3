@@ -20,6 +20,22 @@ import { OVER_ALLOCATION_CODE } from "@/lib/paymentAllocation";
 import { currentClinicId } from "@/lib/db-utils";
 import type { ReceiptScan } from "@/lib/receiptScan";
 import { currentBranchId, withBranch } from "@/lib/branchScope";
+import { askConfirm, inLanguage } from "@/lib/confirmBridge";
+
+/**
+ * The warning an Owner or Admin reads before changing a treatment that is on a company sheet
+ * already sent (the server answers 409 `sheet_sent_confirm`; see lib/server/companySheetLock).
+ */
+export function sentSheetWarning(month: string): { en: string; ar: string } {
+  return {
+    en: `This treatment is on the ${month} company sheet, which was already sent. If you change it, that sheet changes too: what it shows and its total will no longer match what the company received, and the company is not told. Change it anyway?`,
+    ar: `العلاج ده في تقفيلة ${month} اللي اتبعتت للشركة. لو غيّرته، التقفيلة دي هتتغيّر معاه: اللي مكتوب فيها وإجماليها مش هيبقوا زي اللي الشركة استلمته، والشركة مش هتعرف. تغيّره برضه؟`,
+  };
+}
+export const SENT_SHEET_CONFIRM = {
+  en: { title: "Already sent to the company", confirmLabel: "Change it anyway", tone: "danger" as const },
+  ar: { title: "اتبعتت للشركة خلاص", confirmLabel: "غيّره برضه", tone: "danger" as const },
+};
 
 export class MoneyApiError extends Error {
   status: number;
@@ -103,9 +119,24 @@ async function post<T = Record<string, unknown>>(path: string, body: Record<stri
     // A route that died before writing JSON — the status is all we have to go on.
   }
 
+  // A treatment on a sent company sheet: an Owner or Admin is asked once, then the same call goes
+  // again with their yes. Staff never get here — the server answers them with a plain refusal.
+  if (response.status === 409 && payload.reason === "sheet_sent_confirm" && body.confirmSentSheet !== true) {
+    const yes = await askConfirm(sentSheetWarning(typeof payload.month === "string" ? payload.month : ""), SENT_SHEET_CONFIRM);
+    if (yes) return post<T>(path, { ...body, confirmSentSheet: true });
+    throw new MoneyApiError(inLanguage({ en: "Nothing was changed.", ar: "مفيش حاجة اتغيّرت." }), 409, "sheet_sent_cancelled");
+  }
+
   if (!response.ok || payload.ok === false) {
+    const sheetSent =
+      payload.reason === "sheet_sent"
+        ? inLanguage({
+            en: `This treatment is on the ${String(payload.month || "")} company sheet, which was already sent. Only the owner or an admin can change it.`,
+            ar: `العلاج ده في تقفيلة ${String(payload.month || "")} اللي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّره.`,
+          })
+        : null;
     const error = new MoneyApiError(
-      typeof payload.error === "string" ? payload.error : "Something went wrong. Nothing was changed.",
+      sheetSent ?? (typeof payload.error === "string" ? payload.error : "Something went wrong. Nothing was changed."),
       response.status,
       typeof payload.reason === "string" ? payload.reason : undefined,
       Array.isArray(payload.blockingPaymentIds) ? (payload.blockingPaymentIds as string[]) : undefined

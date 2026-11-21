@@ -9,7 +9,9 @@
  *   month; picking one for a procedure that is not finished asks first.
  * - Start and end dates and the status can be changed here. The start date is the procedure's real
  *   date, so the patient's file and Finance follow it.
- * - A procedure on a month already sent is locked; the route refuses it anyway.
+ * - A procedure on a month already sent is locked. An Owner or Admin can still change its dates
+ *   and status, after a warning that the sheet the company received will no longer match; its
+ *   month stays locked for everyone (mark the month not sent). The route enforces all of it.
  *
  * Every change goes through the company-sheet route; the page's live listeners redraw the lines,
  * so nothing here keeps its own copy.
@@ -19,6 +21,7 @@ import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, History, Loader2, Lock } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
+import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
 import { statementLineText } from "@/lib/insuranceStatement";
@@ -40,6 +43,8 @@ const REFUSAL: Record<string, TextKey> = {
   not_done: "dwToastChanged",
   already_done: "dwToastChanged",
   not_found: "dwToastChanged",
+  no_permission: "dwToastNoPermission",
+  branch_forbidden: "dwToastOtherBranch",
 };
 
 const amountOf = (c: SheetCharge) => Math.round((Number(c.cost) || Number(c.amount) || 0) * 100) / 100;
@@ -71,6 +76,7 @@ export default function CompanyPatientProcedures({
   const ar = language === "ar";
   const t = useMemo(() => tr(ar), [ar]);
   const { confirm, showToast } = useUI();
+  const { isAdmin } = useClinic();
   /** The procedure being saved; every control waits while one is in flight. */
   const [busy, setBusy] = useState<string | null>(null);
   /** Procedures whose history is open. */
@@ -84,6 +90,7 @@ export default function CompanyPatientProcedures({
     setBusy(chargeId);
     try {
       const refused = await call();
+      if (refused === "cancelled") return false;
       if (refused) {
         showToast(t(REFUSAL[refused] ?? "sheetToastFailed"), "error");
         return false;
@@ -143,7 +150,13 @@ export default function CompanyPatientProcedures({
     const name = statementLineText(c) || "—";
     const rowBusy = busy === id;
     const waitingOther = busy !== null && !rowBusy;
-    const canChange = !at.sent && state.noteId !== "";
+    // Sent = locked; an Owner or Admin may still change it, after the warning below.
+    const open = !at.sent || isAdmin;
+    const canChange = open && state.noteId !== "";
+    /** For a sent procedure: the warning first. Resolves false when the person backs out. */
+    const sure = async () =>
+      !at.sent ||
+      (await confirm(fill(t("dwSentWarn"), { month: monthLabel(at.month, ar) }), { title: t("dwSentWarnTitle"), confirmLabel: t("dwSentWarnGo"), tone: "danger" }));
     const storyOpen = openStory.has(id);
     const story = storyOpen ? serviceStory(c, cards, cardKids, sent) : [];
     const pill = state.done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800";
@@ -154,10 +167,10 @@ export default function CompanyPatientProcedures({
     const toggle = async () => {
       if (state.done) {
         const ok = await confirm(fill(t("dwUndoConfirm"), { service: name, patient: patientName }), { title: t("dwInProgress"), confirmLabel: t("dwInProgress") });
-        if (ok) await run(id, () => reopenTreatment(clinicId, payerId, state.noteId));
+        if (ok && (await sure())) await run(id, () => reopenTreatment(clinicId, payerId, state.noteId, at.sent));
       } else {
         const ok = await confirm(fill(t("dwFinishConfirm"), { service: name }), { title: t("dwFinished"), confirmLabel: t("dwFinished") });
-        if (ok) await run(id, () => finishTreatment(clinicId, payerId, state.noteId));
+        if (ok && (await sure())) await run(id, () => finishTreatment(clinicId, payerId, state.noteId, at.sent));
       }
     };
 
@@ -197,10 +210,10 @@ export default function CompanyPatientProcedures({
           {cell(
             t("colStart"),
             W.date,
-            at.sent ? (
+            !open ? (
               shown(state.startDate)
             ) : (
-              <Protect permission="patients.edit" fallback={shown(state.startDate)}>
+              <Protect permission="insurance.edit" fallback={shown(state.startDate)}>
                 <DoneDateField
                   key={`s|${id}|${state.startDate}`}
                   stored={state.startDate}
@@ -210,7 +223,7 @@ export default function CompanyPatientProcedures({
                   busy={rowBusy}
                   label={t("colStart")}
                   hint={t("colStart")}
-                  onCommit={(day) => run(id, () => setProcedureStartDate(clinicId, payerId, id, day))}
+                  onCommit={(day) => run(id, async () => ((await sure()) ? setProcedureStartDate(clinicId, payerId, id, day, at.sent) : "cancelled"))}
                 />
               </Protect>
             ),
@@ -224,7 +237,7 @@ export default function CompanyPatientProcedures({
             ) : !canChange ? (
               shown(state.finishDate)
             ) : (
-              <Protect permission="patients.edit" fallback={shown(state.finishDate)}>
+              <Protect permission="insurance.edit" fallback={shown(state.finishDate)}>
                 <DoneDateField
                   key={`e|${state.noteId}|${state.finishDate}`}
                   stored={state.finishDate}
@@ -234,7 +247,7 @@ export default function CompanyPatientProcedures({
                   busy={rowBusy}
                   label={t("colEnd")}
                   hint={fill(t("dwFinishedOnHint"), { min: dayLabel(state.lastVisit, ar) })}
-                  onCommit={(day) => run(id, () => setTreatmentFinishDate(clinicId, payerId, state.noteId, day))}
+                  onCommit={(day) => run(id, async () => ((await sure()) ? setTreatmentFinishDate(clinicId, payerId, state.noteId, day, at.sent) : "cancelled"))}
                 />
               </Protect>
             ),
@@ -244,7 +257,7 @@ export default function CompanyPatientProcedures({
             t("colStatus"),
             W.status,
             canChange ? (
-              <Protect permission="patients.edit" fallback={<span className={`inline-flex rounded-full border px-3 py-1 text-[12px] font-bold ${pill}`}>{label}</span>}>
+              <Protect permission="insurance.edit" fallback={<span className={`inline-flex rounded-full border px-3 py-1 text-[12px] font-bold ${pill}`}>{label}</span>}>
                 <button
                   type="button"
                   disabled={busy !== null}
@@ -276,7 +289,7 @@ export default function CompanyPatientProcedures({
                 {monthLabel(at.month, ar)}
               </span>
             ) : (
-              <Protect permission="patients.edit" fallback={<span className="text-[13px] font-bold text-ink-body">{at.month ? monthLabel(at.month, ar) : t("monthNone")}</span>}>
+              <Protect permission="insurance.edit" fallback={<span className="text-[13px] font-bold text-ink-body">{at.month ? monthLabel(at.month, ar) : t("monthNone")}</span>}>
                 <select
                   value={at.picked}
                   disabled={busy !== null}
