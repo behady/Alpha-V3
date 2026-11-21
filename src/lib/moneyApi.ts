@@ -26,10 +26,18 @@ import { askConfirm, inLanguage } from "@/lib/confirmBridge";
  * The warning an Owner or Admin reads before changing a treatment that is on a company sheet
  * already sent (the server answers 409 `sheet_sent_confirm`; see lib/server/companySheetLock).
  */
+/** "2026-11" as the words a person reads: November 2026 / نوفمبر ٢٠٢٦. */
+function monthWords(month: string, locale: string): string {
+  if (!/^\d{4}-\d{2}$/.test(month)) return month;
+  return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
+}
+
 export function sentSheetWarning(month: string): { en: string; ar: string } {
+  const en = monthWords(month, "en-US");
+  const ar = monthWords(month, "ar-EG");
   return {
-    en: `This treatment is on the ${month} company sheet, which was already sent. If you change it, that sheet changes too: what it shows and its total will no longer match what the company received, and the company is not told. Change it anyway?`,
-    ar: `العلاج ده في تقفيلة ${month} اللي اتبعتت للشركة. لو غيّرته، التقفيلة دي هتتغيّر معاه: اللي مكتوب فيها وإجماليها مش هيبقوا زي اللي الشركة استلمته، والشركة مش هتعرف. تغيّره برضه؟`,
+    en: `This treatment is on the ${en} company sheet, which was already sent. If you change it, that sheet changes too: what it shows and its total will no longer match what the company received, and the company is not told. Change it anyway?`,
+    ar: `العلاج ده في تقفيلة ${ar} اللي اتبعتت للشركة. لو غيّرته، التقفيلة دي هتتغيّر معاه: اللي مكتوب فيها وإجماليها مش هيبقوا زي اللي الشركة استلمته، والشركة مش هتعرف. تغيّره برضه؟`,
   };
 }
 export const SENT_SHEET_CONFIRM = {
@@ -131,8 +139,8 @@ async function post<T = Record<string, unknown>>(path: string, body: Record<stri
     const sheetSent =
       payload.reason === "sheet_sent"
         ? inLanguage({
-            en: `This treatment is on the ${String(payload.month || "")} company sheet, which was already sent. Only the owner or an admin can change it.`,
-            ar: `العلاج ده في تقفيلة ${String(payload.month || "")} اللي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّره.`,
+            en: `This treatment is on the ${monthWords(String(payload.month || ""), "en-US")} company sheet, which was already sent. Only the owner or an admin can change it.`,
+            ar: `العلاج ده في تقفيلة ${monthWords(String(payload.month || ""), "ar-EG")} اللي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّره.`,
           })
         : null;
     const error = new MoneyApiError(
