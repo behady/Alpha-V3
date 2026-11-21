@@ -42,6 +42,13 @@ export type TreatmentLine = {
   tooth: string;
   doctorId: string;
   doctorName: string;
+  /**
+   * Who pays when it is not the patient — an insurer or a company like GASCO. "" for private work
+   * (and for cards written before payers existed). Read off the first card: that is the one charged.
+   */
+  payerName: string;
+  /** The payer's id, "" for private work: the screen names it from the clinic's payer list. */
+  payerId: string;
   state: TreatmentState;
   /** The day this line is filed under: the finish day when done, the last visit's day otherwise. */
   date: string;
@@ -72,6 +79,18 @@ const num = (v: unknown) => {
 function stateOf(note: Row): TreatmentState | null {
   const s = text(note.status);
   return s === "Planned" || s === "Ongoing" || s === "Completed" ? s : null;
+}
+
+/** The payer's id on a card, "" when the patient pays. */
+function payerIdOf(note: Row): string {
+  const id = text(note.payerId);
+  return id === "private" ? "" : id;
+}
+
+/** The payer's name as stored on the card ("" when the patient pays); falls back to the id. */
+function payerOf(note: Row): string {
+  const id = payerIdOf(note);
+  return id ? text(note.payerName) || id : "";
 }
 
 const noteDate = (note: Row) => toYmd(note.date) || toYmd(note.createdAt);
@@ -187,6 +206,8 @@ export function buildTreatmentStatus(
       tooth: toothOf(root),
       doctorId: text(latest.doctorId) || text(root.doctorId),
       doctorName: text(latest.doctor) || text(root.doctor),
+      payerName: payerOf(root) || payerOf(latest),
+      payerId: payerIdOf(root) || payerIdOf(latest),
       state,
       date,
       price: Number(chain.reduce((sum, n) => sum + num(n.cost), 0).toFixed(2)),

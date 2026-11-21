@@ -152,4 +152,21 @@ ok(/\{addressReady \? <ReportsPage \/> : null\}/.test(reportsPage), "the Reports
 const numbersCard = readFileSync(join(REPO, "src/components/dashboard/TreatmentNumbersCard.tsx"), "utf8");
 ok(/report=treatments&preset=\$\{preset\}/.test(numbersCard), "and the home's numbers name the report and the period they were counted over");
 
+// --- who pays ---------------------------------------------------------------------------------------
+{
+  const notes = [
+    { id: "q1", patientId: "p1", procedures: ["Crown"], status: "Ongoing", date: "2026-11-04", cost: 2000, payerId: "metlife", payerName: "MetLife", claimId: "c1" },
+    { id: "q2", patientId: "p2", procedures: ["Filling"], status: "Planned", date: "2026-11-05", cost: 400, payerId: "gasco", payerName: "GASCO" },
+    { id: "q3", patientId: "p3", procedures: ["Scaling"], status: "Planned", date: "2026-11-06", cost: 300, payerId: "private", payerName: "Private" },
+    { id: "q4", patientId: "p3", procedures: ["Old"], status: "Planned", date: "2026-11-07", cost: 100 },
+    // A continuation carries no charge and no payer: the first card's payer still shows.
+    { id: "q1b", patientId: "p1", procedures: ["Crown"], status: "Ongoing", date: "2026-11-09", cost: 0, continuedFromNoteId: "q1", isContinued: true },
+  ];
+  const payer = (id: string) => buildTreatmentStatus(notes, PATIENTS, [], NOVEMBER, TODAY).lines.find((l) => l.id === id)?.payerName;
+  eq(payer("q1"), "MetLife", "an insurance approval's treatment names its insurer, even after it is continued");
+  eq(payer("q2"), "GASCO", "a company's treatment names the company");
+  eq(payer("q3"), "", "private work carries no label");
+  eq(payer("q4"), "", "nor does a card from before payers existed");
+}
+
 console.log(`treatment status: ${checks} checks passed`);

@@ -1,11 +1,14 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, Columns3, List, PhoneCall, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronDown, Columns3, List, PhoneCall, Search, ShieldCheck, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { setProcedureStatus } from "@/lib/moneyApi";
+import { onSnapshot } from "firebase/firestore";
+import { getClinicDoc } from "@/lib/db-utils";
+import { findPayer, parsePayers, type Payer } from "@/lib/payers";
 import { DataTable, Note, Num, PatientLink, Phone, fmt } from "@/components/reports/reportKit";
 import type { ReportProps } from "@/components/reports/types";
 import { dayText } from "@/lib/reportHelpers";
@@ -75,6 +78,14 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
   const [changed, setChanged] = useState<Record<string, TreatmentState>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const { showToast } = useUI();
+  // The clinic's payer list names the insurer: some approval cards stored only its id.
+  const [payers, setPayers] = useState<Payer[]>([]);
+  useEffect(() => onSnapshot(getClinicDoc("settings", "payers"), (s) => setPayers(parsePayers(s.data())), () => setPayers([])), []);
+  const payerName = (l: TreatmentLine) => {
+    if (!l.payerId) return "";
+    const p = findPayer(payers, l.payerId);
+    return (p && (isAr && p.nameAr ? p.nameAr : p.name)) || l.payerName;
+  };
   const notes = useMemo(() => {
     const raw = data.treatmentNotes || [];
     if (Object.keys(changed).length === 0) return raw;
@@ -139,6 +150,14 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
       {tooth}
     </span>
   );
+  // Insurance and company work look like private work otherwise; the owner asked to tell them apart.
+  const payerChip = (name: string) =>
+    name ? (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line bg-surface-subtle px-1.5 py-0.5 text-[10.5px] font-black text-ink-body" title={isAr ? "مين بيدفع" : "Who pays"}>
+        <ShieldCheck size={11} className="text-ink-muted" />
+        {name}
+      </span>
+    ) : null;
   const olderChip = <span className="rounded-full bg-surface-muted px-1.5 py-0.5 text-[9.5px] font-black text-ink-body">{isAr ? "قديم" : "older"}</span>;
   const nextVisit = (l: TreatmentLine) =>
     l.state === "Completed" ? (
@@ -280,6 +299,7 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
               <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] font-medium text-ink-body">
                 <span>{l.treatment}</span>
                 {l.tooth && toothChip(l.tooth)}
+                {payerChip(payerName(l))}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11.5px] text-ink-faint">
                 <span className="inline-flex items-center gap-1.5">
@@ -319,8 +339,16 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
                 <span className="inline-flex flex-wrap items-center gap-1.5 text-[13px] font-medium text-ink-body">
                   <span>{l.treatment}</span>
                   {l.tooth && toothChip(l.tooth)}
+                  {payerChip(payerName(l))}
                 </span>
               ),
+            },
+            {
+              key: "payerName",
+              label: isAr ? "مين بيدفع" : "Payer",
+              // In the Excel file only: on screen the label sits next to the treatment.
+              exportOnly: true,
+              exportValue: (l) => payerName(l) || (isAr ? "خاص" : "Private"),
             },
             { key: "doctorName", label: isAr ? "الدكتور" : "Dentist", render: (l) => <span className="text-[13px] font-medium text-ink-body">{l.doctorName || "—"}</span> },
             {
