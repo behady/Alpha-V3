@@ -82,7 +82,8 @@ export default function SuperAdminDashboard() {
     }
   }, []);
   const [loadingClinics, setLoadingClinics] = useState(true);
-  const [activeTab, setActiveTab] = useState<SuperAdminTab>("clinics");
+  // Tasks first: the console opens on what the owner has to do (owner, 2026-11-21).
+  const [activeTab, setActiveTab] = useState<SuperAdminTab>("tasks");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
 

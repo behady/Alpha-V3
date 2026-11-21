@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/LanguageContext";
 // for the browser.
 import { HELP_SECTIONS, helpTagLabel, type HelpArticle } from "@/lib/helpSections";
 import PageHeader from "@/components/dashboard/PageHeader";
+import ClinicRequests from "@/components/help/ClinicRequests";
 
 export default function HelpIndex({ articles }: { articles: { en: HelpArticle[]; ar: HelpArticle[] } }) {
   const { language, isRTL } = useLanguage();
@@ -46,6 +47,9 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 md:px-8" dir={isRTL ? "rtl" : "ltr"}>
       <PageHeader title={txt.title} subtitle={txt.sub} />
+
+      {/* Owner and admins only: a request goes to the Alpha team's task list. */}
+      <ClinicRequests />
 
       <div className="relative mb-10">
         <Search

@@ -38,6 +38,10 @@ function newRow(input: TaskInput, now: string) {
     createdAt: now,
     updatedAt: now,
     liveAt: status === "live" ? now : "",
+    source: "admin",
+    clinicId: "",
+    requestedBy: "",
+    seen: true,
   };
 }
 

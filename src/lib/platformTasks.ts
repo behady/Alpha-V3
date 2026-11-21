@@ -31,10 +31,17 @@ export interface PlatformTask {
   updatedAt: string;
   /** When the task was first marked Live; cleared if it is moved back. */
   liveAt: string;
+  /** "clinic" when a clinic owner sent it from the Help page; "admin" when typed on the console. */
+  source: "admin" | "clinic";
+  /** Set only on clinic requests: which clinic and who sent it. */
+  clinicId: string;
+  requestedBy: string;
+  /** False on a clinic request nobody on the console has opened yet. */
+  seen: boolean;
 }
 
 /** The fields a person may send. Everything else is the server's. */
-export type TaskInput = Partial<Pick<PlatformTask, "title" | "notes" | "clinic" | "status" | "priority" | "startDate" | "deadline">>;
+export type TaskInput = Partial<Pick<PlatformTask, "title" | "notes" | "clinic" | "status" | "priority" | "startDate" | "deadline" | "seen">>;
 
 export const TITLE_MAX = 200;
 export const NOTES_MAX = 2000;
@@ -81,6 +88,10 @@ export function cleanTaskInput(raw: unknown, partial: boolean): { ok: true; valu
     if (r[key] === undefined) continue;
     if (!isDayOrEmpty(r[key])) return { ok: false, error: `Bad ${key === "startDate" ? "start date" : "deadline"}` };
     out[key] = r[key] as string;
+  }
+  if (r.seen !== undefined) {
+    if (typeof r.seen !== "boolean") return { ok: false, error: "Bad seen" };
+    out.seen = r.seen;
   }
   return { ok: true, value: out };
 }
@@ -143,6 +154,10 @@ export function taskFromDoc(id: string, data: Record<string, unknown>): Platform
     createdAt: iso(data.createdAt),
     updatedAt: iso(data.updatedAt),
     liveAt: iso(data.liveAt),
+    source: data.source === "clinic" ? "clinic" : "admin",
+    clinicId: str(data.clinicId),
+    requestedBy: str(data.requestedBy),
+    seen: data.seen !== false,
   };
 }
 
@@ -164,3 +179,125 @@ export const STARTER_TASKS: TaskInput[] = [
   { title: "Notification improvement", status: "todo", notes: "To define: what should change?" },
   { title: "AXA AI scan makes mistakes", status: "todo", priority: "high", clinic: "DENT INN", notes: "Owner reports wrong readings. Collect sample papers and what was read wrong." },
 ];
+
+/* ------------------------------------------------------------------------------------------ */
+/* Clinic requests                                                                             */
+/* ------------------------------------------------------------------------------------------ */
+
+export const REQUEST_MAX = 1000;
+/** A clinic can have this many requests waiting (not Live) at once. */
+export const OPEN_REQUESTS_PER_CLINIC = 20;
+
+/** A request's text, trimmed; the first line (cut short) becomes the task's title. */
+export function requestToTask(text: unknown): { ok: true; title: string; notes: string } | { ok: false; error: string } {
+  if (typeof text !== "string") return { ok: false, error: "Write what you need" };
+  const notes = text.trim().slice(0, REQUEST_MAX);
+  if (notes.length < 3) return { ok: false, error: "Write what you need" };
+  const first = notes.split(/\r?\n/).find((l) => l.trim())!.trim();
+  const title = first.length > 90 ? `${first.slice(0, 87).trimEnd()}…` : first;
+  return { ok: true, title, notes };
+}
+
+/** What a clinic sees of its own request: never the console's notes or priority. */
+export interface ClinicRequestView {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  createdAt: string;
+  liveAt: string;
+}
+
+export function clinicView(t: PlatformTask): ClinicRequestView {
+  return { id: t.id, title: t.title, status: t.status, createdAt: t.createdAt, liveAt: t.liveAt };
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* The morning WhatsApp                                                                        */
+/* ------------------------------------------------------------------------------------------ */
+
+export interface DigestSettings {
+  enabled: boolean;
+  /** As typed, e.g. 01117775526. */
+  phone: string;
+  /** Cairo hour, 0-23, when the message goes. */
+  hour: number;
+  /** The Cairo day it last went, so the hourly job sends once a day. */
+  lastSentDay: string;
+}
+
+export const DEFAULT_DIGEST: DigestSettings = { enabled: false, phone: "", hour: 9, lastSentDay: "" };
+
+export function digestFromDoc(data: Record<string, unknown> | undefined): DigestSettings {
+  const d = data || {};
+  const hour = Number(d.hour);
+  return {
+    enabled: d.enabled === true,
+    phone: typeof d.phone === "string" ? d.phone : "",
+    hour: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : DEFAULT_DIGEST.hour,
+    lastSentDay: isDayOrEmpty(d.lastSentDay) ? (d.lastSentDay as string) : "",
+  };
+}
+
+/** The day and hour in Cairo for an instant. Egypt moves its clocks, so never a fixed offset. */
+export function cairoNow(at: Date): { day: string; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+  }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+  return { day: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) % 24 };
+}
+
+/** Is this the hour, and has today's message not gone yet? */
+export function digestDue(settings: DigestSettings, at: Date): boolean {
+  if (!settings.enabled || !settings.phone) return false;
+  const { day, hour } = cairoNow(at);
+  return hour >= settings.hour && settings.lastSentDay !== day;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const short = (day: string) => {
+  const [, m, d] = day.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}`;
+};
+
+/**
+ * The message, or null when there is nothing worth a message: no late task, nothing due in the
+ * next three days and no unread clinic request. A quiet day sends nothing.
+ */
+export function buildDigest(tasks: PlatformTask[], todayKey: string): string | null {
+  const open = tasks.filter((t) => t.status !== "live");
+  const late = open.filter((t) => isOverdue(t, todayKey)).sort((a, b) => a.deadline.localeCompare(b.deadline));
+  const today = open.filter((t) => t.deadline === todayKey);
+  const soon = open.filter((t) => t.deadline > todayKey && isDueSoon(t, todayKey)).sort((a, b) => a.deadline.localeCompare(b.deadline));
+  const fresh = tasks.filter((t) => t.source === "clinic" && !t.seen);
+  if (!late.length && !today.length && !soon.length && !fresh.length) return null;
+
+  const line = (t: PlatformTask, tail: string) => `• ${t.title}${t.clinic ? ` — ${t.clinic}` : ""}${tail}`;
+  const blocks: string[] = [`📋 *Alpha tasks — ${short(todayKey)}*`];
+  if (late.length) blocks.push([`🔴 *Late (${late.length})*`, ...late.map((t) => line(t, ` (was due ${short(t.deadline)})`))].join("\n"));
+  if (today.length) blocks.push([`🟠 *Due today (${today.length})*`, ...today.map((t) => line(t, ""))].join("\n"));
+  if (soon.length) blocks.push([`🟡 *Next 3 days (${soon.length})*`, ...soon.map((t) => line(t, ` (${short(t.deadline)})`))].join("\n"));
+  if (fresh.length) blocks.push([`📨 *New clinic requests (${fresh.length})*`, ...fresh.map((t) => `• ${t.clinic || "A clinic"}: ${t.title}`)].join("\n"));
+  const inProgress = open.filter((t) => t.status === "doing").length;
+  const built = open.filter((t) => t.status === "built").length;
+  blocks.push(`Open: ${open.length} · in progress ${inProgress} · built, not live ${built}`);
+  return blocks.join("\n\n");
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Calendar                                                                                    */
+/* ------------------------------------------------------------------------------------------ */
+
+/** The days of a month view, Saturday first (the Egyptian week), padded to whole weeks. */
+export function monthCells(year: number, month0: number): { day: string; inMonth: boolean }[] {
+  const first = new Date(Date.UTC(year, month0, 1));
+  const lead = (first.getUTCDay() + 1) % 7; // Sat=0 … Fri=6
+  const daysInMonth = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+  const total = Math.ceil((lead + daysInMonth) / 7) * 7;
+  const out: { day: string; inMonth: boolean }[] = [];
+  for (let i = 0; i < total; i++) {
+    const d = new Date(Date.UTC(year, month0, 1 - lead + i));
+    out.push({ day: d.toISOString().slice(0, 10), inMonth: d.getUTCMonth() === month0 });
+  }
+  return out;
+}
