@@ -146,6 +146,38 @@ export function inheritBranch<T extends Row>(notes: readonly T[]): T[] {
   });
 }
 
+/**
+ * A state picked on the report's dropdown and saved, shown before the page reads its data again.
+ *
+ * `from` is what the card said in the data the pick was made on. `fresh` is true for a few seconds
+ * after the save: a reload that lands in that time may have been read before the write, so the pick
+ * outlives it. After that, freshly read data is the truth and the pick is dropped with the old data.
+ */
+export type StatePick = { to: TreatmentState; from: string; fresh: boolean };
+
+/**
+ * The cards as the screen should show them: each pick laid over its card, unless the card has since
+ * become something that is neither where the pick started nor where it went — somebody else changed
+ * it, and theirs is the newer word. Finishing stamps today, reopening clears the finish day, as the
+ * server does (route `status`).
+ */
+export function applyStatePicks<T extends Row>(notes: readonly T[], picks: Readonly<Record<string, StatePick>>, today: string): readonly T[] {
+  if (Object.keys(picks).length === 0) return notes;
+  return notes.map((n) => {
+    const pick = picks[n.id];
+    const now = text(n.status);
+    if (!pick || now === pick.to || now !== pick.from) return n;
+    const { completedDate: _was, ...rest } = n as T & { completedDate?: unknown };
+    void _was;
+    return (pick.to === "Completed" ? { ...rest, status: pick.to, completedDate: today } : { ...rest, status: pick.to }) as unknown as T;
+  });
+}
+
+/** The picks a reload leaves standing: only the ones saved moments ago. */
+export function picksAfterReload(picks: Readonly<Record<string, StatePick>>): Record<string, StatePick> {
+  return Object.fromEntries(Object.entries(picks).filter(([, p]) => p.fresh));
+}
+
 export function buildTreatmentStatus(
   notes: readonly Row[],
   patients: readonly Row[],

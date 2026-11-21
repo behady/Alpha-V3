@@ -15,7 +15,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   NO_TREATMENT_FILTERS,
+  applyStatePicks,
   buildTreatmentStatus,
+  picksAfterReload,
   dentistOptions,
   filterTreatments,
   inheritBranch,
@@ -167,6 +169,22 @@ ok(/report=treatments&preset=\$\{preset\}/.test(numbersCard), "and the home's nu
   eq(payer("q2"), "GASCO", "a company's treatment names the company");
   eq(payer("q3"), "", "private work carries no label");
   eq(payer("q4"), "", "nor does a card from before payers existed");
+}
+
+// --- a state picked on the dropdown, before the page reads again ------------------------------------
+{
+  const card = (status: string, extra: Record<string, unknown> = {}) => [{ id: "k1", patientId: "p1", procedures: ["Crown"], status, date: "2026-11-04", cost: 900, ...extra }];
+  const pick = (to: "Planned" | "Ongoing" | "Completed", from: string, fresh = false) => ({ k1: { to, from, fresh } });
+  const shown = (notes: ReturnType<typeof card>, picks: ReturnType<typeof pick>) => applyStatePicks(notes, picks, TODAY)[0] as Record<string, unknown>;
+
+  eq(shown(card("Ongoing"), pick("Completed", "Ongoing")).status, "Completed", "a saved pick shows at once");
+  eq(shown(card("Ongoing"), pick("Completed", "Ongoing")).completedDate, TODAY, "finishing stamps today, as the server does");
+  ok(!("completedDate" in shown(card("Completed", { completedDate: "2026-11-05" }), pick("Ongoing", "Completed"))), "reopening clears the finish day");
+  eq(shown(card("Completed", { completedDate: "2026-11-09" }), pick("Completed", "Ongoing")).completedDate, "2026-11-09", "data that has caught up is shown as it is");
+  eq(shown(card("Planned"), pick("Completed", "Ongoing")).status, "Planned", "a card somebody else changed since shows their state, not the old pick");
+  const untouched = card("Ongoing");
+  ok(applyStatePicks(untouched, {}, TODAY) === untouched, "with no picks the page's data is passed through as it is");
+  eq(Object.keys(picksAfterReload({ a: { to: "Planned", from: "Ongoing", fresh: true }, b: { to: "Planned", from: "Ongoing", fresh: false } })), ["a"], "a reload keeps only the picks saved moments ago");
 }
 
 console.log(`treatment status: ${checks} checks passed`);

@@ -284,6 +284,24 @@ console.log("the dentist marks a service done from the clinical tab");
   check("and its service is still Completed", (await notes.doc("metlife_k2-N2").get()).data()?.status === "Completed" && (await claimOf("metlife_k2")).lineStatus[2] !== "Planned");
 }
 
+console.log("the Treatments report's dropdown changes a service's state the same way");
+{
+  await seed("metlife_k3", { lineStatus: { 2: "Planned" } });
+  const done = await clinicalUpdate("metlife_k3-N2", { action: "status", status: "Completed" });
+  check("the save is accepted", done.status === 200, done.json);
+  let c = await claimOf("metlife_k3");
+  check("the approval's service is Completed, done today", c.lineStatus[2] === "Completed" && c.lineDates[2] === TODAY, c);
+  check("its rows are dated today", same((await rowDates("metlife_k3"))[2], [TODAY, TODAY]), await rowDates("metlife_k3"));
+  const back = await clinicalUpdate("metlife_k3-N2", { action: "status", status: "Planned" });
+  c = await claimOf("metlife_k3");
+  check("back to Planned reopens the approval", back.status === 200 && same(c.lineDates, {}) && c.finishedDate === null, c);
+
+  await seed("metlife_k4", { status: "sent" });
+  const locked = await clinicalUpdate("metlife_k4-N2", { action: "status", status: "Planned" });
+  check("a sent approval is refused from the dropdown too", locked.status === 409, locked.json);
+  check("and its service is still Completed", (await notes.doc("metlife_k4-N2").get()).data()?.status === "Completed");
+}
+
 console.log("the paper is edited to fewer services");
 {
   await seed("metlife_r1", { approvalNumber: "D7000009", lineDates: { 1: "2026-10-22", 2: "2026-11-05" } });

@@ -15,7 +15,10 @@ import { dayText } from "@/lib/reportHelpers";
 import {
   NO_TREATMENT_FILTERS,
   TREATMENT_STATES,
+  applyStatePicks,
   buildTreatmentStatus,
+  picksAfterReload,
+  type StatePick,
   dentistOptions,
   filterTreatments,
   type TreatmentFilters,
@@ -48,6 +51,8 @@ type View = "list" | "board";
 const VIEW_KEY = "alpha.treatments.view";
 /** Cards drawn per board column before "Show more": a month of finished work is hundreds. */
 const BOARD_STEP = 20;
+/** How long a saved pick outlives a reload of the page's data (see StatePick). */
+const FRESH_MS = 5000;
 
 /** What the address bar asked for: the home's three numbers open this screen on one state. */
 function fromUrl(): { state: TreatmentState | ""; view: View | null } {
@@ -75,9 +80,13 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
   const canEdit = isAdmin || Boolean(user?.permissions?.includes("clinical.edit"));
   // States changed on this screen, by card id: the page's data was read once, and the change should
   // show at once without reading it all again. The server writes the same thing (route `status`).
-  const [changed, setChanged] = useState<Record<string, TreatmentState>>({});
+  // Kept with the data they were made on: once the page reads fresh data (Refresh, another period)
+  // that data is the truth, and an old pick must not paint over what somebody changed since. Only
+  // a pick saved moments ago outlives a reload — that read may have left before the write landed.
+  const [picks, setPicks] = useState<{ on: ReportProps["data"]["treatmentNotes"]; map: Record<string, StatePick> }>(() => ({ on: data.treatmentNotes, map: {} }));
+  if (picks.on !== data.treatmentNotes) setPicks({ on: data.treatmentNotes, map: picksAfterReload(picks.map) });
   const [saving, setSaving] = useState<string | null>(null);
-  const { showToast } = useUI();
+  const { showToast, confirm } = useUI();
   // The clinic's payer list names the insurer: some approval cards stored only its id.
   const [payers, setPayers] = useState<Payer[]>([]);
   useEffect(() => onSnapshot(getClinicDoc("settings", "payers"), (s) => setPayers(parsePayers(s.data())), () => setPayers([])), []);
@@ -86,27 +95,32 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
     const p = findPayer(payers, l.payerId);
     return (p && (isAr && p.nameAr ? p.nameAr : p.name)) || l.payerName;
   };
-  const notes = useMemo(() => {
-    const raw = data.treatmentNotes || [];
-    if (Object.keys(changed).length === 0) return raw;
-    return raw.map((n) => {
-      const to = changed[n.id];
-      if (!to || n.status === to) return n;
-      const { completedDate, ...rest } = n as typeof n & { completedDate?: unknown };
-      if (to !== "Completed") return { ...rest, status: to };
-      return { ...rest, status: to, completedDate: n.status === "Completed" ? completedDate : today };
-    });
-  }, [data.treatmentNotes, changed, today]);
+  const notes = useMemo(() => applyStatePicks(data.treatmentNotes || [], picks.map, today), [data.treatmentNotes, picks.map, today]);
   const status = useMemo(
     () => buildTreatmentStatus(notes, allPatients, data.appointmentsAhead || [], range, today),
     [notes, data.appointmentsAhead, allPatients, range, today],
   );
   const changeState = async (l: TreatmentLine, to: TreatmentState) => {
     if (to === l.state || saving) return;
-    setSaving(l.stateNoteId);
+    // Reopening finished work wipes the day it was finished; finishing it again stamps today, which
+    // can move it to another month (and an insurance service to another month's sheet). Ask first.
+    if (l.state === "Completed") {
+      const yes = await confirm(
+        isAr
+          ? `«${l.treatment}» لـ ${l.patientName} متسجّل إنه اتعمل. ترجّعه «${word(to)}»؟ تاريخ الانتهاء هيتمسح.`
+          : `"${l.treatment}" for ${l.patientName} is marked done. Move it back to "${word(to)}"? Its finish date will be cleared.`,
+        { title: isAr ? "ترجيع علاج خلصان" : "Reopen a finished treatment", confirmLabel: isAr ? "رجّعه" : "Reopen", cancelLabel: isAr ? "لا" : "No" },
+      );
+      if (!yes) return;
+    }
+    const id = l.stateNoteId;
+    setSaving(id);
     try {
-      await setProcedureStatus(l.stateNoteId, to);
-      setChanged((c) => ({ ...c, [l.stateNoteId]: to }));
+      await setProcedureStatus(id, to);
+      // `from` is what the data on the page says for this card NOW — a reload may have landed while
+      // the save was on its way, and a second change of the same row starts from the same data.
+      setPicks((p) => ({ ...p, map: { ...p.map, [id]: { to, from: String(p.on?.find((n) => n.id === id)?.status ?? l.state), fresh: true } } }));
+      window.setTimeout(() => setPicks((p) => (p.map[id]?.to === to ? { ...p, map: { ...p.map, [id]: { ...p.map[id], fresh: false } } } : p)), FRESH_MS);
       // Said out loud: with a tile pressed, the row leaves the list the moment it changes.
       showToast(isAr ? `اتحفظ: ${l.treatment} — ${l.patientName} ← ${word(to)}` : `Saved: ${l.treatment} — ${l.patientName} → ${word(to)}`, "success");
     } catch (e) {
