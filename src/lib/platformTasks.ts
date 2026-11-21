@@ -260,27 +260,109 @@ const short = (day: string) => {
   return `${d} ${MONTHS[m - 1]}`;
 };
 
+/** Whole days from `todayKey` to `day` (negative when it has passed). */
+function daysBetween(todayKey: string, day: string): number {
+  const ms = (k: string) => { const [y, m, d] = k.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+  return Math.round((ms(day) - ms(todayKey)) / 86_400_000);
+}
+
+/** "late 2 days" / "due today" / "due tomorrow" / "due in 3 days (24 Nov)", or "" with no deadline. */
+function dueText(t: PlatformTask, todayKey: string): string {
+  if (!t.deadline) return "";
+  const n = daysBetween(todayKey, t.deadline);
+  if (n < 0) return `⚠️ late ${-n} day${n === -1 ? "" : "s"}`;
+  if (n === 0) return "due today";
+  if (n === 1) return "due tomorrow";
+  return `due in ${n} days (${short(t.deadline)})`;
+}
+
 /**
- * The message, or null when there is nothing worth a message: no late task, nothing due in the
- * next three days and no unread clinic request. A quiet day sends nothing.
+ * How urgent an open task is, smallest first. Finishing what is started comes first, then
+ * anything late or due soon, then high priority, then the oldest. One number, so "what do I do
+ * now" has one answer.
+ */
+function urgency(t: PlatformTask, todayKey: string): number {
+  const days = t.deadline ? daysBetween(todayKey, t.deadline) : 99;
+  let score = 0;
+  if (days < 0) score -= 400;
+  else if (days <= 3) score -= 300 - days * 10;
+  if (t.status === "doing") score -= 200;
+  if (t.priority === "high") score -= 150;
+  if (t.priority === "low") score += 100;
+  return score;
+}
+
+/** The notes' first line, cut short: what the owner wrote about the task, under its name. */
+function nextStep(t: PlatformTask): string {
+  const first = t.notes.split(/\r?\n/).map((s) => s.trim()).find(Boolean) || "";
+  return first.length > 140 ? `${first.slice(0, 137).trimEnd()}…` : first;
+}
+
+/**
+ * The morning message is a plan for the day, not a count: the one to three tasks to work on
+ * now (with why and the next step), what is built and only waits for the owner's OK to go live,
+ * new clinic requests, and what else is waiting. Null only when nothing at all is open.
  */
 export function buildDigest(tasks: PlatformTask[], todayKey: string): string | null {
   const open = tasks.filter((t) => t.status !== "live");
-  const late = open.filter((t) => isOverdue(t, todayKey)).sort((a, b) => a.deadline.localeCompare(b.deadline));
-  const today = open.filter((t) => t.deadline === todayKey);
-  const soon = open.filter((t) => t.deadline > todayKey && isDueSoon(t, todayKey)).sort((a, b) => a.deadline.localeCompare(b.deadline));
   const fresh = tasks.filter((t) => t.source === "clinic" && !t.seen);
-  if (!late.length && !today.length && !soon.length && !fresh.length) return null;
+  if (!open.length && !fresh.length) return null;
 
-  const line = (t: PlatformTask, tail: string) => `• ${t.title}${t.clinic ? ` — ${t.clinic}` : ""}${tail}`;
-  const blocks: string[] = [`📋 *Alpha tasks — ${short(todayKey)}*`];
-  if (late.length) blocks.push([`🔴 *Late (${late.length})*`, ...late.map((t) => line(t, ` (was due ${short(t.deadline)})`))].join("\n"));
-  if (today.length) blocks.push([`🟠 *Due today (${today.length})*`, ...today.map((t) => line(t, ""))].join("\n"));
-  if (soon.length) blocks.push([`🟡 *Next 3 days (${soon.length})*`, ...soon.map((t) => line(t, ` (${short(t.deadline)})`))].join("\n"));
-  if (fresh.length) blocks.push([`📨 *New clinic requests (${fresh.length})*`, ...fresh.map((t) => `• ${t.clinic || "A clinic"}: ${t.title}`)].join("\n"));
-  const inProgress = open.filter((t) => t.status === "doing").length;
-  const built = open.filter((t) => t.status === "built").length;
-  blocks.push(`Open: ${open.length} · in progress ${inProgress} · built, not live ${built}`);
+  const byUrgency = (a: PlatformTask, b: PlatformTask) =>
+    urgency(a, todayKey) - urgency(b, todayKey) || a.createdAt.localeCompare(b.createdAt);
+  const workable = open.filter((t) => t.status === "todo" || t.status === "doing").sort(byUrgency);
+  const focus = workable.slice(0, 3);
+  const later = workable.slice(3);
+  const built = open.filter((t) => t.status === "built").sort(byUrgency);
+
+  const name = (t: PlatformTask) => `*${t.title}*${t.clinic ? ` — ${t.clinic}` : ""}`;
+  const why = (t: PlatformTask) =>
+    [t.status === "doing" ? "already started" : "", dueText(t, todayKey), t.priority === "high" ? "high priority" : ""]
+      .filter(Boolean).join(" · ");
+
+  const blocks: string[] = [`☀️ *Your plan for ${short(todayKey)}*`];
+
+  if (focus.length) {
+    blocks.push([
+      `👉 *Work on these today*`,
+      ...focus.map((t, i) => {
+        const lines = [`${i + 1}. ${name(t)}`];
+        const w = why(t);
+        if (w) lines.push(`   ${w}`);
+        const step = nextStep(t);
+        if (step) lines.push(`   📝 ${step}`);
+        return lines.join("\n");
+      }),
+    ].join("\n"));
+  }
+
+  if (built.length) {
+    blocks.push([
+      `🚀 *Ready — only needs your OK to go live (${built.length})*`,
+      ...built.map((t) => `• ${t.title}${t.clinic ? ` — ${t.clinic}` : ""}`),
+      `Say "push" to put them live.`,
+    ].join("\n"));
+  }
+
+  if (fresh.length) {
+    blocks.push([
+      `📨 *New requests from clinics (${fresh.length})*`,
+      ...fresh.map((t) => `• ${t.clinic || "A clinic"}: ${t.title}`),
+    ].join("\n"));
+  }
+
+  if (later.length) {
+    const shown = later.slice(0, 5);
+    blocks.push([
+      `🗂 *After that (${later.length})*`,
+      ...shown.map((t) => `• ${t.title}${t.clinic ? ` — ${t.clinic}` : ""}${t.deadline ? ` (${dueText(t, todayKey)})` : ""}`),
+      ...(later.length > shown.length ? [`…and ${later.length - shown.length} more`] : []),
+    ].join("\n"));
+  }
+
+  const noDate = workable.filter((t) => !t.deadline).length;
+  if (noDate) blocks.push(`💡 ${noDate} task${noDate === 1 ? " has" : "s have"} no deadline. Give them one on the Tasks page so this plan can order them better.`);
+
   return blocks.join("\n\n");
 }
 

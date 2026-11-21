@@ -47,7 +47,7 @@ export async function runTasksDigest(opts: { force?: boolean; at?: Date } = {}):
       await DIGEST_DOC().set({ lastSentDay: day }, { merge: true });
       return { sent: false, reason: "nothing_to_say" };
     }
-    text = "📋 *Alpha tasks*\nNothing late, nothing due in the next 3 days, no new clinic requests.";
+    text = "☀️ *Your plan*\nNothing open on the Tasks list. Enjoy the day.";
   }
 
   const config = await loadPlatformWapilotConfig();

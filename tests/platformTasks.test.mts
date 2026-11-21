@@ -122,23 +122,29 @@ test("an old row without the new fields reads as an admin task already seen", ()
   assert.equal(taskFromDoc("b", { title: "y", source: "clinic", seen: false }).seen, false);
 });
 
-test("morning message: late, today, next 3 days, new requests; a quiet day is null", () => {
+test("morning plan: names what to work on first, with why and the next step", () => {
   const today = "2026-11-21";
-  assert.equal(buildDigest([task({ deadline: "2026-12-30" }), task({ deadline: "2026-11-01", status: "live" })], today), null);
+  assert.equal(buildDigest([task({ status: "live" })], today), null);
+  const at = (i: number) => `2026-11-0${i}T00:00:00.000Z`;
   const text = buildDigest([
-    task({ id: "a", title: "AXA scan", clinic: "DENT INN", deadline: "2026-11-19" }),
-    task({ id: "b", title: "Ship GASCO", deadline: today, status: "built" }),
-    task({ id: "c", title: "Calendar", deadline: "2026-11-23", status: "doing" }),
-    task({ id: "d", title: "Print button", clinic: "Amal", source: "clinic", seen: false }),
-    task({ id: "e", title: "Old", deadline: "2026-11-01", status: "live" }),
+    task({ id: "old", title: "Old todo", createdAt: at(1) }),
+    task({ id: "late", title: "AXA scan", clinic: "DENT INN", deadline: "2026-11-19", notes: "Collect sample papers. Then compare.", createdAt: at(2) }),
+    task({ id: "doing", title: "Calendar", status: "doing", createdAt: at(3) }),
+    task({ id: "high", title: "Fix login", priority: "high", createdAt: at(4) }),
+    task({ id: "low", title: "Nice to have", priority: "low", deadline: "2026-12-30", createdAt: at(5) }),
+    task({ id: "built", title: "Ship GASCO", status: "built", createdAt: at(6) }),
+    task({ id: "req", title: "Print button", clinic: "Amal", source: "clinic", seen: false, createdAt: at(7) }),
+    task({ id: "done", title: "Finished", status: "live", createdAt: at(8) }),
   ], today)!;
-  assert.match(text, /Alpha tasks — 21 Nov/);
-  assert.match(text, /Late \(1\)\*\n• AXA scan — DENT INN \(was due 19 Nov\)/);
-  assert.match(text, /Due today \(1\)\*\n• Ship GASCO/);
-  assert.match(text, /Next 3 days \(1\)\*\n• Calendar \(23 Nov\)/);
-  assert.match(text, /New clinic requests \(1\)\*\n• Amal: Print button/);
-  assert.match(text, /Open: 4 · in progress 1 · built, not live 1/);
-  assert.doesNotMatch(text, /Old/);
+  assert.match(text, /Your plan for 21 Nov/);
+  // Late beats started beats high priority; the next step is the notes' first sentence.
+  assert.match(text, /Work on these today\*\n1\. \*AXA scan\* — DENT INN\n   ⚠️ late 2 days\n   📝 Collect sample papers\. Then compare\.\n2\. \*Calendar\*\n   already started\n3\. \*Fix login\*\n   high priority/);
+  assert.match(text, /only needs your OK to go live \(1\)\*\n• Ship GASCO\nSay "push"/);
+  assert.match(text, /New requests from clinics \(1\)\*\n• Amal: Print button/);
+  // The rest, oldest first, low priority last.
+  assert.match(text, /After that \(3\)\*\n• Old todo\n• Print button — Amal\n• Nice to have \(due in 39 days \(30 Dec\)\)/);
+  assert.doesNotMatch(text, /Finished/);
+  assert.match(text, /4 tasks have no deadline/);
 });
 
 test("Cairo clock follows Egypt's summer time", () => {
