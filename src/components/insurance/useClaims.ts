@@ -11,11 +11,15 @@
  * `parseClaim`, so a malformed one is dropped rather than rendered half-empty. The clinic id is
  * passed in, never taken from the global pointer, so a clinic switch re-subscribes.
  *
+ * By finish date a second, equally index-free question is asked: the approvals whose sheet month
+ * the clinic PICKED (`sheetMonth`) falls in the range. They join the list, and an approval finished
+ * in the range but picked onto another month leaves it — so the list is exactly the sheet.
+ *
  * Newest first by the date asked for, which is the order the desk looks for "the one I just saved".
  */
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where, type DocumentData, type QuerySnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CLAIMS_COLLECTION, isIsoDate, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 
@@ -42,24 +46,54 @@ export function useClaims(
   useEffect(() => {
     if (!key || !clinicId) return;
     const claimsRef = collection(db, "clinics", clinicId, CLAIMS_COLLECTION);
-    const q =
-      field === "approvalDate"
-        ? query(claimsRef, where("payerId", "==", payerId), where("approvalDate", ">=", from), where("approvalDate", "<=", to))
-        : query(claimsRef, where("finishedDate", ">=", from), where("finishedDate", "<=", to));
-    return onSnapshot(
-      q,
-      (s) => {
-        const claims = s.docs
-          .map((d) => parseClaim(d.id, d.data()))
-          .filter((c): c is InsuranceClaim => c !== null && c.payerId === payerId)
-          .sort(byNewest(field));
-        setSnap({ key, claims, failed: false });
-      },
-      (err) => {
-        console.error("Insurance claims subscription failed", err);
-        setSnap({ key, claims: [], failed: true });
-      },
-    );
+    const read = (s: QuerySnapshot<DocumentData>) =>
+      s.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null && c.payerId === payerId);
+    const failed = (err: unknown) => {
+      console.error("Insurance claims subscription failed", err);
+      setSnap({ key, claims: [], failed: true });
+    };
+
+    if (field === "approvalDate") {
+      return onSnapshot(
+        query(claimsRef, where("payerId", "==", payerId), where("approvalDate", ">=", from), where("approvalDate", "<=", to)),
+        (s) => setSnap({ key, claims: read(s).sort(byNewest(field)), failed: false }),
+        failed,
+      );
+    }
+
+    // By finish date: finished in the range, plus picked onto a month the range touches.
+    const fromMonth = from.slice(0, 7);
+    const toMonth = to.slice(0, 7);
+    let finished: InsuranceClaim[] | null = null;
+    let picked: InsuranceClaim[] | null = null;
+    const publish = () => {
+      if (finished === null || picked === null) return; // not until both have answered once
+      const byId = new Map<string, InsuranceClaim>();
+      for (const c of [...finished, ...picked]) byId.set(c.id, c);
+      const claims = [...byId.values()]
+        .filter((c) => !c.sheetMonth || (c.sheetMonth >= fromMonth && c.sheetMonth <= toMonth))
+        .sort(byNewest(field));
+      setSnap({ key, claims, failed: false });
+    };
+    const stops = [
+      onSnapshot(
+        query(claimsRef, where("finishedDate", ">=", from), where("finishedDate", "<=", to)),
+        (s) => {
+          finished = read(s);
+          publish();
+        },
+        failed,
+      ),
+      onSnapshot(
+        query(claimsRef, where("sheetMonth", ">=", fromMonth), where("sheetMonth", "<=", toMonth)),
+        (s) => {
+          picked = read(s);
+          publish();
+        },
+        failed,
+      ),
+    ];
+    return () => stops.forEach((stop) => stop());
   }, [key, clinicId, payerId, from, to, field]);
 
   const current = snap.key === key;

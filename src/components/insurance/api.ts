@@ -168,6 +168,8 @@ export type ClaimPatch = {
   lineStatus?: Record<number, LineStatus>;
   /** Line index -> the day that service was done (`yyyy-mm-dd`), or null to go back to the default. */
   lineDates?: Record<number, string | null>;
+  /** The month (`yyyy-mm`) of the closing sheet the whole approval goes on; null = automatic (the month it was finished). Travels alone. */
+  sheetMonth?: string | null;
   /** Delete one service the patient will not come back for (never a Completed one). Travels alone. */
   removeLine?: number;
   /** Put a deleted service back on the approval. Travels alone. */

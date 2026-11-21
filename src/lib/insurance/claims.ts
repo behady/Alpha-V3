@@ -91,6 +91,11 @@ export type InsuranceClaim = {
   /** `yyyy-mm` of every month a service on this approval was done in. Server-derived, like `finishedDate`. */
   workMonths: string[];
   /**
+   * The month (`yyyy-mm`) the clinic picked for this approval's closing sheet, or null: it then
+   * goes on the month it was finished. Only read when the page lists "by finish date".
+   */
+  sheetMonth: string | null;
+  /**
    * Discounts the clinic gave on the PATIENT'S share of a line, keyed by the line's index. The
    * insurer's approved part is never touched: the company is billed exactly what it approved. A
    * line with no entry has no discount. Capped at the line's share whenever it is read.
@@ -292,6 +297,7 @@ export function claimFromExtraction(args: {
     removedLines: {},
     finishedDate: null,
     workMonths: [],
+    sheetMonth: null,
     shareDiscounts: {},
   };
 }
@@ -352,6 +358,7 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     removedLines,
     finishedDate: isIsoDate(r.finishedDate) ? r.finishedDate : null,
     workMonths: Array.isArray(r.workMonths) ? r.workMonths.filter((m): m is string => typeof m === "string" && /^\d{4}-\d{2}$/.test(m)) : [],
+    sheetMonth: typeof r.sheetMonth === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(r.sheetMonth) ? r.sheetMonth : null,
     shareDiscounts: parseShareDiscounts(r.shareDiscounts, x.lines),
     ...(trimmed(r.branchId) ? { branchId: trimmed(r.branchId) } : {}),
   };

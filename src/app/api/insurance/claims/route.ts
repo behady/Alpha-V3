@@ -7,7 +7,8 @@ import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
-import { isFullAccessRole } from "@/lib/permissions";
+import { holdsPermission, isFullAccessRole } from "@/lib/permissions";
+import { logActivityServer } from "@/lib/server/systemLog";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings, receiptCounterDocId, receiptPrefixOrClinic } from "@/lib/receiptSettings";
@@ -72,7 +73,10 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid", "shareDiscount"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid", "shareDiscount", "sheetMonth"]);
+const SHEET_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** How far ahead an approval may be placed. */
+const SHEET_MONTHS_AHEAD = 12;
 const LINE_KEY = /^\d{1,3}$/;
 const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
@@ -361,6 +365,55 @@ async function changeLineMembership(args: { clinicId: string; claimId: string; o
   );
   if (result.created.length) await auditCharges(clinicId, result.created, actor, "insurance/claims:line-restored");
   if (op === "remove") return NextResponse.json({ ok: true, creditKept: round2(result.detached.reduce((sum, p) => sum + p.amount, 0)) });
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * Put an approval on a month's closing sheet (`month` null = back to automatic: the month it was
+ * finished). The pick only matters when the page lists "by finish date". The whole approval moves:
+ * the company's sheet has one row per approval number.
+ *
+ * Refused for an approval that is not treated yet (409 `not_treated`: nothing of it is billed)
+ * and for one already sent (409 `sent_locked`: mark it not sent first), as every other edit that
+ * would move a sent approval's month is.
+ */
+async function pickSheetMonth(args: { clinicId: string; claimId: string; month: string | null; actor: Actor }): Promise<NextResponse> {
+  const { clinicId, claimId, month, actor } = args;
+  const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+  type Outcome = { kind: "no_claim" | "unreadable" | "not_treated" | "sent_locked" | "same" } | { kind: "ok"; number: string; patient: string; was: string | null };
+  const result = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
+    const snap = await tx.get(claimRef);
+    if (!snap.exists) return { kind: "no_claim" };
+    const claim = parseClaim(claimId, snap.data());
+    if (!claim) return { kind: "unreadable" };
+    if (claim.status === "sent") return { kind: "sent_locked" };
+    if (claim.status !== "treated") return { kind: "not_treated" };
+    if ((claim.sheetMonth ?? null) === month) return { kind: "same" };
+    tx.update(claimRef, {
+      sheetMonth: month === null ? FieldValue.delete() : month,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+    });
+    return { kind: "ok", number: claim.approvalNumber, patient: claim.patientName, was: claim.sheetMonth ?? null };
+  });
+  if (result.kind === "no_claim") return fail(404, "That claim was not found.");
+  if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
+  if (result.kind === "not_treated") {
+    return fail(409, "Mark this approval treated first: nothing of it is billed yet. / علّم الموافقة اتعالجت الأول: لسه مفيش حاجة منها بتتحاسب.", { reason: "not_treated" });
+  }
+  if (result.kind === "sent_locked") {
+    return fail(409, "This approval was already sent to the company. Mark it not sent first. / دي اتبعتت للشركة. علّمها ماتبعتتش الأول.", { reason: "sent_locked" });
+  }
+  if (result.kind === "ok") {
+    void logActivityServer({
+      clinicId,
+      user: actor,
+      action: "Approval Sheet Month Picked",
+      details: `Approval ${result.number} (${result.patient}): ${result.was ?? "automatic"} -> ${month ?? "automatic"}`,
+      severity: "LOW",
+      module: "finance",
+    });
+  }
   return NextResponse.json({ ok: true });
 }
 
@@ -944,6 +997,31 @@ export async function PATCH(req: Request) {
       return await changeLineMembership({ clinicId, claimId, op, index, actor: { uid: authz.uid, name: authz.name, role: authz.role }, branchId: body.branchId });
     }
 
+    // The month of the closing sheet the approval goes on: its own transaction, never mixed.
+    if ("sheetMonth" in patch) {
+      if (keys.length !== 1) return fail(400, "Pick the sheet month on its own, not with another change.");
+      const month = patch.sheetMonth;
+      if (month !== null) {
+        const now = ymdInTimeZone(clinicTimeZone()).slice(0, 7);
+        const [y, m] = now.split("-").map(Number);
+        const ahead = new Date(Date.UTC(y, m - 1 + SHEET_MONTHS_AHEAD, 1));
+        const last = `${ahead.getUTCFullYear()}-${String(ahead.getUTCMonth() + 1).padStart(2, "0")}`;
+        if (typeof month !== "string" || !SHEET_MONTH.test(month) || month > last) {
+          return fail(400, `sheetMonth must be yyyy-mm, no later than ${last}, or null.`, { reason: "bad_month" });
+        }
+      }
+      const authz = await requireStaffPermission(req, clinicId, PERMISSION);
+      if (!authz.ok) return authz.response;
+      // On for everyone until switched off for a person (config/permissionsCatalog).
+      if (!holdsPermission(authz.role, authz.permissions, "insurance.edit")) {
+        return fail(403, "You do not have permission to do this (insurance.edit).", { reason: "no_permission" });
+      }
+      if (!(await clinicHasFeature(clinicId, "insurance"))) {
+        return fail(403, "Insurance is not part of this clinic's subscription.", { reason: "feature_locked" });
+      }
+      return await pickSheetMonth({ clinicId, claimId, month, actor: { uid: authz.uid, name: authz.name, role: authz.role } });
+    }
+
     // A discount on the patient's share of one service: its own transaction, never mixed.
     if ("shareDiscount" in patch) {
       if (keys.length !== 1) return fail(400, "Discount the patient's share on its own, not with another change.");
@@ -1094,6 +1172,14 @@ export async function PATCH(req: Request) {
       }
       return preData;
     };
+    // Marking an approval sent, or taking that back, is its own permission: on for everyone until
+    // it is switched off for a person (config/permissionsCatalog), so nobody loses it on the update.
+    if (status !== undefined && !holdsPermission(authz.role, authz.permissions, "insurance.send")) {
+      const wasSent = status === "sent" ? false : parseClaim(claimId, await loadPre())?.status === "sent";
+      if (status === "sent" || wasSent) {
+        return fail(403, "You do not have permission to do this (insurance.send).", { reason: "no_permission" });
+      }
+    }
     let writesMoney = paying;
     if (!writesMoney && (status !== undefined || rawLines !== undefined || rawMetlife !== undefined || newPatientId)) {
       const pre = parseClaim(claimId, await loadPre());
@@ -1334,7 +1420,7 @@ export async function PATCH(req: Request) {
       const removedLines = rawLines !== undefined ? onLines(claim.removedLines) : claim.removedLines;
       if (JSON.stringify(lineDates) !== JSON.stringify(claim.lineDates)) update.lineDates = lineDates;
       if (JSON.stringify(removedLines) !== JSON.stringify(claim.removedLines)) update.removedLines = removedLines;
-      const after: BillingClaim = { status: status ?? claim.status, lines, lineStatus, lineDates, removedLines, treatedDate: datesAfter.treatedDate, approvalDate: approvalAfter };
+      const after: BillingClaim = { status: status ?? claim.status, lines, lineStatus, lineDates, removedLines, treatedDate: datesAfter.treatedDate, approvalDate: approvalAfter, sheetMonth: claim.sheetMonth };
       // Already sent to the company: it stays on the month's sheet it went out on (owner, 2026-11-11).
       if (movesSentMonth(claim, after)) return { kind: "sent_locked" };
       Object.assign(update, billingFields(after));

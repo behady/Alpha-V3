@@ -56,6 +56,27 @@ it. `defaultOn` permissions are held with nothing stored; switching one off stor
 `listHoldsPermission` is the one test (Protect, requireStaffPermission, holdsPermission). No user
 document is written by the update.
 
+## Approval insurers (MetLife / NextCare / AXA) — built 2026-11-21
+
+Owner's answers: the whole approval moves together; the "By approval date / By finish date" switch
+stays; patient → approvals → services; the action buttons stay on each approval.
+
+- **List:** patients (grouped by `patientId`), each opens in place to his approval cards; a card
+  shows number, status, dates, approved total, its services (dentist, status, amount, done date)
+  and the same actions as before (`ClaimsTable.tsx`).
+- **Sheet month:** a claim field `sheetMonth` (`yyyy-mm` or absent = automatic, the month it was
+  finished). Shown and honoured only **by finish date**; by approval date nothing changes.
+  `claimSheetMonth` / `inSheetRange` in `billingMonth.ts` are the one rule the list, the counts
+  beside each insurer and all three statements read.
+- **Server:** `PATCH /api/insurance/claims` key `sheetMonth` travels alone; refused when the
+  approval is not treated (`not_treated`), sent (`sent_locked`) or the month is not one
+  (`bad_month`). Needs `insurance.edit`; marking sent / not sent needs `insurance.send` (both
+  default on). An unfinished approval may be placed after a warning.
+- **Listening:** by finish date `useClaims` and the page's counts ask two index-free questions
+  (finished in range, picked into range) and drop an approval picked onto another month.
+- **Pop-up:** `ClaimsSheetPreview.tsx` — will be sent / already sent / not on this sheet and why,
+  read from the statement the Excel is written from.
+
 ## Not built
 
-The same screen for MetLife / NextCare / AXA approvals.
+The GASCO tutorial film still shows the old switch. A production build was not run locally.

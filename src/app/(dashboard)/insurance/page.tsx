@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, where, type DocumentData, type QuerySnapshot } from "firebase/firestore";
 import { getDownloadURL, ref } from "firebase/storage";
 import { ArrowUpRight, FileClock, Loader2, ShieldCheck } from "lucide-react";
 import FeatureGate from "@/components/FeatureGate";
@@ -115,18 +115,49 @@ function InsurancePage() {
   const countsKey = clinicId && range.from && range.to && range.from <= range.to ? `${clinicId}|${dateField}|${range.from}|${range.to}` : "";
   useEffect(() => {
     if (!countsKey || !clinicId) return;
-    return onSnapshot(
-      query(collection(db, "clinics", clinicId, CLAIMS_COLLECTION), where(dateField, ">=", range.from), where(dateField, "<=", range.to)),
-      (snap) => {
-        const byPayer: Record<string, number> = {};
-        snap.docs.forEach((d) => {
-          const id = d.get("payerId");
-          if (typeof id === "string") byPayer[id] = (byPayer[id] ?? 0) + 1;
-        });
-        setRangeCounts({ key: countsKey, byPayer });
-      },
-      () => setRangeCounts({ key: countsKey, byPayer: {} }),
-    );
+    const claimsRef = collection(db, "clinics", clinicId, CLAIMS_COLLECTION);
+    const fromMonth = range.from.slice(0, 7);
+    const toMonth = range.to.slice(0, 7);
+    // By finish date an approval follows the sheet month picked for it, exactly as the list does.
+    const byMonth = dateField === "finishedDate";
+    type Row = { payerId: unknown; sheetMonth: unknown };
+    let dated: Map<string, Row> | null = null;
+    let picked: Map<string, Row> | null = byMonth ? null : new Map();
+    const rows = (snap: QuerySnapshot<DocumentData>) => new Map(snap.docs.map((d) => [d.id, { payerId: d.get("payerId"), sheetMonth: d.get("sheetMonth") }]));
+    const publish = () => {
+      if (dated === null || picked === null) return;
+      const byPayer: Record<string, number> = {};
+      new Map([...dated, ...picked]).forEach(({ payerId: id, sheetMonth }) => {
+        if (typeof id !== "string") return;
+        if (byMonth && typeof sheetMonth === "string" && sheetMonth && (sheetMonth < fromMonth || sheetMonth > toMonth)) return;
+        byPayer[id] = (byPayer[id] ?? 0) + 1;
+      });
+      setRangeCounts({ key: countsKey, byPayer });
+    };
+    const failed = () => setRangeCounts({ key: countsKey, byPayer: {} });
+    const stops = [
+      onSnapshot(
+        query(claimsRef, where(dateField, ">=", range.from), where(dateField, "<=", range.to)),
+        (snap) => {
+          dated = rows(snap);
+          publish();
+        },
+        failed,
+      ),
+    ];
+    if (byMonth) {
+      stops.push(
+        onSnapshot(
+          query(claimsRef, where("sheetMonth", ">=", fromMonth), where("sheetMonth", "<=", toMonth)),
+          (snap) => {
+            picked = rows(snap);
+            publish();
+          },
+          failed,
+        ),
+      );
+    }
+    return () => stops.forEach((stop) => stop());
   }, [countsKey, clinicId, range.from, range.to, dateField]);
   const counts = rangeCounts.key === countsKey ? rangeCounts.byPayer : {};
   const [pickedPayer, setPickedPayer] = useState("");
@@ -604,7 +635,7 @@ function InsurancePage() {
                 {t("claimsTitle")} · {t(dateMode === "finish" ? "dateModeFinish" : "dateModeApproval")} · {range.from} → {range.to}
               </p>
               {claimsFailed && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("claimsFailed")}</p>}
-              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} onEdit={(c) => void openEdit(c)} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} />
+              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} onEdit={(c) => void openEdit(c)} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} mode={dateMode} from={range.from} to={range.to} />
             </section>
             </>
             )}

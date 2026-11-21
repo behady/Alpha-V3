@@ -428,6 +428,23 @@ export const TEXT = {
   dwToastNoPermission: { en: "You do not have permission to do this. Ask the clinic owner.", ar: "مالكش صلاحية تعمل ده. اسأل صاحب العيادة." },
   dwToastOtherBranch: { en: "This procedure belongs to another branch.", ar: "الإجراء ده تبع فرع تاني." },
   pvNotFinishedTag: { en: "not finished", ar: "لسه مخلصش" },
+  // --- approvals: patient -> approvals -> services, and the sheet pop-up ---------------------
+  apListHint: { en: "Tap a patient to see his approvals and their services.", ar: "دوس على المريض عشان تشوف موافقاته وخدماتها." },
+  apOneApproval: { en: "{n} approval", ar: "موافقة واحدة" },
+  apManyApprovals: { en: "{n} approvals", ar: "{n} موافقات" },
+  apService: { en: "Service", ar: "الخدمة" },
+  apDoneOn: { en: "Done on", ar: "اتعملت يوم" },
+  apDeleted: { en: "Deleted", ar: "اتمسحت" },
+  apMonthNotTreated: { en: "Mark it treated first", ar: "علّمها اتعالجت الأول" },
+  apMonthSentHint: { en: "Sent and locked. To move it to another month, mark it not sent first.", ar: "اتبعتت ومقفولة. عشان تنقلها لشهر تاني، علّمها ماتبعتتش الأول." },
+  apMonthWarn: { en: "Approval {number} is not finished yet. Put the whole approval on the {month} sheet anyway? Its unfinished services go to the company too.", ar: "الموافقة {number} لسه مخلصتش. تحطها كلها في تقفيلة {month} برضه؟ الخدمات اللي مخلصتش هتتبعت للشركة معاها." },
+  apPreviewSent: { en: "Already sent", ar: "اتبعتت خلاص" },
+  apWhyNotTreated: { en: "Not marked treated yet — nothing of it is billed", ar: "لسه ما اتعلّمتش اتعالجت — مفيش حاجة منها بتتحاسب" },
+  apWhyNotFinished: { en: "A service is still open — it goes on the month it is finished", ar: "فيه خدمة لسه مفتوحة — هتطلع في الشهر اللي تخلص فيه" },
+  apWhyOtherMonth: { en: "On the {month} sheet", ar: "في تقفيلة {month}" },
+  apWhyCancelled: { en: "Cancelled", ar: "ملغية" },
+  apWhyOutside: { en: "Outside these dates", ar: "برّه التواريخ دي" },
+  apPreviewApprovals: { en: "{n} approvals", ar: "{n} موافقة" },
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;
