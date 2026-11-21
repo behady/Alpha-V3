@@ -445,6 +445,16 @@ export const TEXT = {
   apWhyCancelled: { en: "Cancelled", ar: "ملغية" },
   apWhyOutside: { en: "Outside these dates", ar: "برّه التواريخ دي" },
   apPreviewApprovals: { en: "{n} approvals", ar: "{n} موافقة" },
+  // --- approvals: the teeth of a service, typed on the Insurance page ---------------------------
+  colTeeth: { en: "Teeth", ar: "الأسنان" },
+  apTeethPlaceholder: { en: "e.g. 44, 46", ar: "مثلاً 44، 46" },
+  apTeethNone: { en: "none", ar: "بدون" },
+  apTeethPerVisit: { en: "Billed per visit: the sheet prints no tooth for it", ar: "بتتحاسب بالزيارة: التقفيلة مش بتكتب لها رقم سنة" },
+  apTeethBad: { en: "{tooth} is not a tooth number. Write numbers like 44, 46 (11–48, or 51–85 for milk teeth).", ar: "{tooth} مش رقم سنة. اكتب أرقام زي 44، 46 (11–48، أو 51–85 للأسنان اللبنية)." },
+  apTeethWarnTitle: { en: "Change the teeth?", ar: "تغيّر الأسنان؟" },
+  apTeethWarn: { en: "{service}: change the teeth from {was} to {now}? The monthly sheet, the patient's file and the charge will all show the new teeth. The price does not change.", ar: "{service}: تغيّر الأسنان من {was} إلى {now}؟ التقفيلة وملف المريض والحساب هيظهروا بالأسنان الجديدة. السعر مش بيتغير." },
+  apTeethWarnGo: { en: "Change the teeth", ar: "غيّر الأسنان" },
+  apTeethSaved: { en: "Teeth saved — the sheet and the patient's file follow", ar: "الأسنان اتحفظت — التقفيلة وملف المريض اتحدثوا" },
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;

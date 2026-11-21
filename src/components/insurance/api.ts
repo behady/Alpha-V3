@@ -170,6 +170,8 @@ export type ClaimPatch = {
   lineDates?: Record<number, string | null>;
   /** The month (`yyyy-mm`) of the closing sheet the whole approval goes on; null = automatic (the month it was finished). Travels alone. */
   sheetMonth?: string | null;
+  /** Line index -> that service's teeth (FDI codes; empty = none). One line at a time. Travels alone. */
+  lineTeeth?: Record<number, string[]>;
   /** Delete one service the patient will not come back for (never a Completed one). Travels alone. */
   removeLine?: number;
   /** Put a deleted service back on the approval. Travels alone. */

@@ -34,6 +34,9 @@ import { cairoToday, type ClaimPatch } from "./api";
 import { fill, monthLabel } from "./sheetFormat";
 import { STATE_KEY, tr, type TextKey } from "./text";
 import LineDoneControls from "./LineDoneControls";
+import LineTeethField from "./LineTeethField";
+import { isFdiTooth, isVisitService } from "@/lib/insurance/nextcare";
+import { sheetTeethOf } from "@/lib/insuranceStatementNextcare";
 import { useOpenShares } from "./useOpenShares";
 
 const STATUS: Record<ClaimStatus, { key: TextKey; pill: string }> = {
@@ -305,7 +308,58 @@ export default function ClaimsTable({
     );
   };
 
-  /** One service of an approval: what it is, who did it, the day it was done (editable), its state, its amount. */
+  // --- one service's teeth ------------------------------------------------------------------------
+  /** NextCare's and AXA's sheets print each service's teeth; MetLife's paper and sheet name none. */
+  const hasTeeth = (c: InsuranceClaim) => c.insurer !== "metlife";
+  /** The teeth a service goes to the company with: its own, else the ones the paper's conditions give it. */
+  const teethOf = (c: InsuranceClaim, i: number): string[] => sheetTeethOf(c)[i] ?? [];
+
+  /** Typed over by hand: checked, warned about when numbers already there are replaced, then saved everywhere at once. */
+  const saveTeeth = async (c: InsuranceClaim, i: number, typed: string) => {
+    const teeth: string[] = [];
+    for (const code of typed.split(/[^0-9A-Za-z]+/).filter(Boolean)) {
+      if (!isFdiTooth(code)) {
+        showToast(fill(t("apTeethBad"), { tooth: code }), "error");
+        return;
+      }
+      if (!teeth.includes(code)) teeth.push(code);
+    }
+    const was = teethOf(c, i);
+    if (was.join(",") === teeth.join(",")) return;
+    if (was.length > 0) {
+      const question = fill(t("apTeethWarn"), {
+        service: c.lines[i].description || c.lines[i].code,
+        was: was.join(", "),
+        now: teeth.join(", ") || t("apTeethNone"),
+      });
+      if (!(await confirm(question, { title: t("apTeethWarnTitle"), confirmLabel: t("apTeethWarnGo") }))) return;
+    }
+    if (!(await sentOk(c))) return;
+    await run(c, async () => {
+      if (await onPatch(c, { lineTeeth: { [i]: teeth } })) showToast(t("apTeethSaved"), "success");
+    });
+  };
+
+  const teethControl = (c: InsuranceClaim, i: number, gone: boolean) => {
+    const teeth = teethOf(c, i);
+    const plain = <bdi dir="ltr" className="font-figure text-[13px] font-bold tabular-nums text-ink-body">{teeth.join(", ") || "—"}</bdi>;
+    if (gone) return plain;
+    // The exam is per visit: NextCare's and AXA's sheets never print a tooth for it.
+    if (isVisitService(c.lines[i])) {
+      return (
+        <span className="text-[13px] font-bold text-ink-faint" title={t("apTeethPerVisit")}>
+          —
+        </span>
+      );
+    }
+    return (
+      <Protect permission="insurance.edit" fallback={plain}>
+        <LineTeethField teeth={teeth} disabled={busyId === c.id} label={t("colTeeth")} placeholder={t("apTeethPlaceholder")} onCommit={(typed) => saveTeeth(c, i, typed)} />
+      </Protect>
+    );
+  };
+
+  /** One service of an approval: what it is, its teeth (editable), who did it, its state, its amount, the day it was done (editable). */
   const serviceLine = (c: InsuranceClaim, i: number) => {
     const line = c.lines[i];
     const gone = isLineRemoved(c, i);
@@ -323,6 +377,12 @@ export default function ClaimsTable({
           </div>
           {dentist && <p className="mt-0.5 text-[12px] text-ink-muted lg:hidden">{dentist}</p>}
         </div>
+        {hasTeeth(c) && (
+          <div className="flex items-center justify-between gap-3 lg:block lg:w-28 lg:text-center">
+            <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted lg:hidden">{t("colTeeth")}</span>
+            {teethControl(c, i, gone)}
+          </div>
+        )}
         <span className="min-w-0 truncate text-[13px] text-ink-body max-lg:hidden lg:w-28">{dentist || "—"}</span>
         <div className="flex items-center justify-between gap-3 lg:block lg:w-28">
           <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted lg:hidden">{t("colStatus")}</span>
@@ -408,6 +468,7 @@ export default function ClaimsTable({
           <div className="mt-3 border-t border-line">
             <div className="hidden items-center gap-4 border-b border-line bg-surface-subtle px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-ink-muted lg:flex">
               <span className="min-w-0 flex-1">{t("apService")}</span>
+              {hasTeeth(c) && <span className="lg:w-28 lg:text-center">{t("colTeeth")}</span>}
               <span className="lg:w-28">{t("colDentist")}</span>
               <span className="lg:w-28">{t("colStatus")}</span>
               <span className="lg:w-20 lg:text-end">{t("colApproved")}</span>
