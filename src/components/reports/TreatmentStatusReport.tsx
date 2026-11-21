@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, Columns3, List, PhoneCall, Search, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import { useUI } from "@/context/UIContext";
 import { setProcedureStatus } from "@/lib/moneyApi";
 import { DataTable, Note, Num, PatientLink, Phone, fmt } from "@/components/reports/reportKit";
 import type { ReportProps } from "@/components/reports/types";
@@ -73,7 +74,7 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
   // show at once without reading it all again. The server writes the same thing (route `status`).
   const [changed, setChanged] = useState<Record<string, TreatmentState>>({});
   const [saving, setSaving] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState("");
+  const { showToast } = useUI();
   const notes = useMemo(() => {
     const raw = data.treatmentNotes || [];
     if (Object.keys(changed).length === 0) return raw;
@@ -92,12 +93,13 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
   const changeState = async (l: TreatmentLine, to: TreatmentState) => {
     if (to === l.state || saving) return;
     setSaving(l.stateNoteId);
-    setSaveError("");
     try {
       await setProcedureStatus(l.stateNoteId, to);
       setChanged((c) => ({ ...c, [l.stateNoteId]: to }));
+      // Said out loud: with a tile pressed, the row leaves the list the moment it changes.
+      showToast(isAr ? `اتحفظ: ${l.treatment} — ${l.patientName} ← ${word(to)}` : `Saved: ${l.treatment} — ${l.patientName} → ${word(to)}`, "success");
     } catch (e) {
-      setSaveError(e instanceof Error && e.message ? e.message : isAr ? "متحفظش. جرّب تاني." : "Not saved. Try again.");
+      showToast(e instanceof Error && e.message ? e.message : isAr ? "متحفظش. جرّب تاني." : "Not saved. Try again.", "error");
     } finally {
       setSaving(null);
     }
@@ -262,15 +264,6 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
         </div>
       </div>
 
-      {saveError && (
-        <div role="alert" className="flex items-start justify-between gap-3 rounded-2xl border border-danger/40 bg-surface px-4 py-3 text-[12.5px] font-bold text-danger">
-          <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError("")} aria-label={isAr ? "اقفل" : "Close"} className="shrink-0 text-ink-faint hover:text-ink">
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
       {/* --- the board: one column per state ---------------------------------------------------- */}
       {view === "board" && (
         <Board
@@ -348,7 +341,7 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
                       disabled={Boolean(saving)}
                       onChange={(e) => changeState(l, e.target.value as TreatmentState)}
                       aria-label={isAr ? `حالة ${l.treatment} — ${l.patientName}` : `State of ${l.treatment} — ${l.patientName}`}
-                      className="cursor-pointer appearance-none bg-transparent py-1 pe-6 ps-2.5 text-[11.5px] font-black text-inherit outline-none disabled:cursor-wait"
+                      className="min-h-11 cursor-pointer appearance-none bg-transparent pe-8 ps-3.5 text-[11.5px] font-black text-inherit outline-none disabled:cursor-wait md:min-h-0 md:py-1 md:pe-6 md:ps-2.5"
                     >
                       {TREATMENT_STATES.map((s) => (
                         <option key={s} value={s} className="bg-surface text-ink">
@@ -356,7 +349,7 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
                         </option>
                       ))}
                     </select>
-                    <ChevronDown size={12} className="pointer-events-none absolute end-2" />
+                    <ChevronDown size={14} className="pointer-events-none absolute end-3 md:end-2" />
                   </span>
                 );
               },
