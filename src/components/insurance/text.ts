@@ -401,7 +401,7 @@ export const TEXT = {
   colStatus: { en: "Status", ar: "الحالة" },
   colPrice: { en: "Price", ar: "السعر" },
   colMonth: { en: "Sheet month", ar: "شهر التقفيلة" },
-  monthAuto: { en: "Automatic: {month}", ar: "تلقائي: {month}" },
+  monthAuto: { en: "Auto: {month}", ar: "تلقائي: {month}" },
   monthNone: { en: "Not on a sheet yet", ar: "لسه مش في تقفيلة" },
   monthSentTag: { en: "{month} (sent)", ar: "{month} (اتبعتت)" },
   dwMonthWarn: { en: "\"{service}\" is not finished yet. Put it on the {month} sheet anyway?", ar: "\"{service}\" لسه مخلصتش. تحطها في تقفيلة {month} برضه؟" },

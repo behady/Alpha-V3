@@ -87,7 +87,7 @@ export default function CompanySheetPanel({
   };
 
   return (
-    <section className="rounded-3xl border border-line bg-surface p-4 xl:p-6">
+    <section className="rounded-3xl border border-line bg-surface p-3 sm:p-4 xl:p-6">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="font-display text-base font-extrabold text-ink">{payerName}</h3>

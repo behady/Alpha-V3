@@ -119,10 +119,17 @@ export default function CompanyPatientProcedures({
     }
   };
 
-  /** A cell: its label sits above it on a phone, and in the heading row on a wide screen. */
+  /** A cell: on a phone a row of its own, label on one side and value on the other; on a wide screen a column under the heading row. */
   const cell = (label: string, width: string, body: React.ReactNode) => (
+    <div className={`flex min-w-0 items-center justify-between gap-3 lg:block ${width}`}>
+      <p className="shrink-0 text-[11px] font-black uppercase tracking-wider text-ink-muted lg:hidden">{label}</p>
+      {body}
+    </div>
+  );
+  /** A cell whose label sits above it on a phone: for a value too wide to share a row with its label. */
+  const stacked = (label: string, width: string, body: React.ReactNode) => (
     <div className={`min-w-0 ${width}`}>
-      <p className="mb-1 text-[10px] font-black uppercase tracking-wider text-ink-muted lg:hidden">{label}</p>
+      <p className="mb-1 text-[11px] font-black uppercase tracking-wider text-ink-muted lg:hidden">{label}</p>
       {body}
     </div>
   );
@@ -173,12 +180,19 @@ export default function CompanyPatientProcedures({
 
     return (
       <Fragment key={id}>
-        <li className={`grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5 lg:flex lg:items-center lg:gap-4 ${at.sent ? "bg-surface-subtle" : ""}`}>
-          <div className="col-span-2 min-w-0 lg:flex-1">
-            <p className={`text-[14px] font-bold ${at.sent ? "text-ink-body" : "text-ink"}`}>{name}</p>
+        <li className={`flex flex-col gap-2.5 px-4 py-3.5 lg:flex-row lg:items-center lg:gap-4 ${at.sent ? "bg-surface-subtle" : ""}`}>
+          {/* On a phone the name carries the price beside it and the dentist under it. */}
+          <div className="min-w-0 lg:flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <p className={`min-w-0 text-[14px] font-bold leading-snug ${at.sent ? "text-ink-body" : "text-ink"}`}>{name}</p>
+              <span className="shrink-0 font-figure text-[15px] font-black text-ink lg:hidden">{money(amountOf(c), ar)}</span>
+            </div>
+            {state.dentist && <p className="mt-0.5 text-[12px] text-ink-muted lg:hidden">{state.dentist}</p>}
           </div>
 
-          {cell(t("colDentist"), W.dentist, <span className="block truncate text-[13px] text-ink-body">{state.dentist || "—"}</span>)}
+          <div className={`min-w-0 max-lg:hidden ${W.dentist}`}>
+            <span className="block truncate text-[13px] text-ink-body">{state.dentist || "—"}</span>
+          </div>
 
           {cell(
             t("colStart"),
@@ -247,11 +261,15 @@ export default function CompanyPatientProcedures({
             ),
           )}
 
-          {cell(t("colPrice"), W.price, <span className="font-figure text-[15px] font-black text-ink">{money(amountOf(c), ar)}</span>)}
+          <div className={`max-lg:hidden ${W.price}`}>
+            <span className="font-figure text-[15px] font-black text-ink">{money(amountOf(c), ar)}</span>
+          </div>
 
-          {cell(
+          {/* On a phone the month and the history button share the last row. */}
+          <div className="flex items-end gap-2 lg:contents">
+          {stacked(
             t("colMonth"),
-            `col-span-2 ${W.month}`,
+            `flex-1 lg:flex-none ${W.month}`,
             at.sent ? (
               <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-ink-body" title={t("dwLockedHint")}>
                 <Lock size={13} aria-hidden="true" />
@@ -264,7 +282,7 @@ export default function CompanyPatientProcedures({
                   disabled={busy !== null}
                   onChange={(e) => void pickMonth(e.target.value)}
                   aria-label={t("colMonth")}
-                  className={`h-9 w-full rounded-lg border bg-surface px-2 text-[13px] font-bold outline-none focus:border-ink disabled:opacity-60 ${
+                  className={`h-9 w-full min-w-0 rounded-lg border bg-surface px-2 text-[13px] font-bold outline-none focus:border-ink disabled:opacity-60 ${
                     at.month ? "border-line-strong text-ink" : "border-amber-300 text-amber-800"
                   }`}
                 >
@@ -279,7 +297,7 @@ export default function CompanyPatientProcedures({
             ),
           )}
 
-          <div className={`col-span-2 flex items-center justify-end gap-2 ${W.history}`}>
+          <div className={`flex shrink-0 items-center justify-end gap-2 ${W.history}`}>
             {rowBusy && <Loader2 size={14} className="animate-spin text-ink-muted" />}
             <button
               type="button"
@@ -298,6 +316,7 @@ export default function CompanyPatientProcedures({
             >
               <History size={15} aria-hidden="true" />
             </button>
+          </div>
           </div>
         </li>
         {storyOpen && (
