@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Columns3, List, PhoneCall, Search, X } from "lucide-react";
+import { ChevronDown, Columns3, List, PhoneCall, Search, X } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
+import { setProcedureStatus } from "@/lib/moneyApi";
 import { DataTable, Note, Num, PatientLink, Phone, fmt } from "@/components/reports/reportKit";
 import type { ReportProps } from "@/components/reports/types";
 import { dayText } from "@/lib/reportHelpers";
@@ -29,9 +32,10 @@ import {
  * everything. They always describe the period on screen and never move with the filters below,
  * so a figure read out loud means the same thing whoever is looking.
  *
- * The same rows can be read two ways — a list, or a board with one column per state. The board
- * only looks: a treatment's state is changed on its card in the patient's file, where its price
- * and its dentist are, not by dragging it here.
+ * The same rows can be read two ways — a list, or a board with one column per state. In the list
+ * the state is a dropdown: picking another one saves it to the treatment's card (state only — its
+ * price and dentist stay as they are), so the patient's file, the visit and the home numbers all
+ * read the new state. The board only looks.
  *
  * Every rule about which month a treatment belongs to is in lib/reports/treatmentStatus.
  */
@@ -62,10 +66,42 @@ function rememberedView(): View {
 }
 
 export default function TreatmentStatusReport({ data, allPatients, range, today, isAr }: ReportProps) {
+  const { user } = useAuth();
+  const { isAdmin } = useClinic();
+  const canEdit = isAdmin || Boolean(user?.permissions?.includes("clinical.edit"));
+  // States changed on this screen, by card id: the page's data was read once, and the change should
+  // show at once without reading it all again. The server writes the same thing (route `status`).
+  const [changed, setChanged] = useState<Record<string, TreatmentState>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState("");
+  const notes = useMemo(() => {
+    const raw = data.treatmentNotes || [];
+    if (Object.keys(changed).length === 0) return raw;
+    return raw.map((n) => {
+      const to = changed[n.id];
+      if (!to || n.status === to) return n;
+      const { completedDate, ...rest } = n as typeof n & { completedDate?: unknown };
+      if (to !== "Completed") return { ...rest, status: to };
+      return { ...rest, status: to, completedDate: n.status === "Completed" ? completedDate : today };
+    });
+  }, [data.treatmentNotes, changed, today]);
   const status = useMemo(
-    () => buildTreatmentStatus(data.treatmentNotes || [], allPatients, data.appointmentsAhead || [], range, today),
-    [data.treatmentNotes, data.appointmentsAhead, allPatients, range, today],
+    () => buildTreatmentStatus(notes, allPatients, data.appointmentsAhead || [], range, today),
+    [notes, data.appointmentsAhead, allPatients, range, today],
   );
+  const changeState = async (l: TreatmentLine, to: TreatmentState) => {
+    if (to === l.state || saving) return;
+    setSaving(l.stateNoteId);
+    setSaveError("");
+    try {
+      await setProcedureStatus(l.stateNoteId, to);
+      setChanged((c) => ({ ...c, [l.stateNoteId]: to }));
+    } catch (e) {
+      setSaveError(e instanceof Error && e.message ? e.message : isAr ? "متحفظش. جرّب تاني." : "Not saved. Try again.");
+    } finally {
+      setSaving(null);
+    }
+  };
   const [filters, setFilters] = useState<TreatmentFilters>(() => ({ ...NO_TREATMENT_FILTERS, state: fromUrl().state }));
   const set = (patch: Partial<TreatmentFilters>) => setFilters((f) => ({ ...f, ...patch }));
   const [view, setViewState] = useState<View>(() => fromUrl().view || (typeof window === "undefined" ? "list" : rememberedView()));
@@ -226,6 +262,15 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
         </div>
       </div>
 
+      {saveError && (
+        <div role="alert" className="flex items-start justify-between gap-3 rounded-2xl border border-danger/40 bg-surface px-4 py-3 text-[12.5px] font-bold text-danger">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError("")} aria-label={isAr ? "اقفل" : "Close"} className="shrink-0 text-ink-faint hover:text-ink">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* --- the board: one column per state ---------------------------------------------------- */}
       {view === "board" && (
         <Board
@@ -289,15 +334,32 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
               key: "state",
               label: isAr ? "الحالة" : "State",
               exportValue: (l) => word(l.state),
-              render: (l) => (
-                <span
-                  className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-black ${
-                    l.state === "Ongoing" ? "bg-ink-strong text-white" : l.state === "Planned" ? "bg-surface-muted text-ink" : "border border-line text-ink-muted"
-                  }`}
-                >
-                  {word(l.state)}
-                </span>
-              ),
+              render: (l) => {
+                const look =
+                  l.state === "Ongoing" ? "bg-ink-strong text-white border-ink-strong" : l.state === "Planned" ? "bg-surface-muted text-ink border-surface-muted" : "border-line text-ink-muted bg-surface";
+                if (!canEdit) {
+                  return <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px] font-black ${look}`}>{word(l.state)}</span>;
+                }
+                const busy = saving === l.stateNoteId;
+                return (
+                  <span className={`relative inline-flex items-center rounded-full border transition-opacity ${look} ${busy ? "opacity-50" : ""}`}>
+                    <select
+                      value={l.state}
+                      disabled={Boolean(saving)}
+                      onChange={(e) => changeState(l, e.target.value as TreatmentState)}
+                      aria-label={isAr ? `حالة ${l.treatment} — ${l.patientName}` : `State of ${l.treatment} — ${l.patientName}`}
+                      className="cursor-pointer appearance-none bg-transparent py-1 pe-6 ps-2.5 text-[11.5px] font-black text-inherit outline-none disabled:cursor-wait"
+                    >
+                      {TREATMENT_STATES.map((s) => (
+                        <option key={s} value={s} className="bg-surface text-ink">
+                          {word(s)}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={12} className="pointer-events-none absolute end-2" />
+                  </span>
+                );
+              },
             },
             {
               key: "date",
@@ -322,8 +384,8 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
 
       <Note>
         {isAr
-          ? "«اتعمل» بيتحسب في الشهر اللي العلاج خلص فيه، حتى لو بدأ في شهر قبله. «مخطط» و«جاري» هما اللي لسه مفتوحين النهارده. العلاج اللي اتكمّل في زيارة تانية بيتحسب مرة واحدة. حالة العلاج بتتغير من كارت العلاج في ملف المريض."
-          : "Done counts in the month the treatment was finished, even if it began earlier. Planned and In progress are what is still open today. A treatment continued into a later visit counts once. A treatment's state is changed on its card in the patient's file."}
+          ? "«اتعمل» بيتحسب في الشهر اللي العلاج خلص فيه، حتى لو بدأ في شهر قبله. «مخطط» و«جاري» هما اللي لسه مفتوحين النهارده. العلاج اللي اتكمّل في زيارة تانية بيتحسب مرة واحدة. غيّر الحالة من القائمة هنا أو من كارت العلاج في ملف المريض، والاتنين بيتحفظوا في نفس المكان."
+          : "Done counts in the month the treatment was finished, even if it began earlier. Planned and In progress are what is still open today. A treatment continued into a later visit counts once. Change a state from the list here or on the treatment's card in the patient's file — both save to the same place."}
       </Note>
     </div>
   );

@@ -33,6 +33,8 @@ type Row = Record<string, unknown> & { id: string };
 export type TreatmentLine = {
   /** The first card of the treatment. */
   id: string;
+  /** The card whose state the line shows — the newest in the chain. Changing the state changes this one. */
+  stateNoteId: string;
   patientId: string;
   patientName: string;
   phone: string;
@@ -177,6 +179,7 @@ export function buildTreatmentStatus(
     const patient = patientById.get(patientId);
     lines.push({
       id: rootId,
+      stateNoteId: latest.id,
       patientId,
       patientName: text(patient?.name) || text(root.patientName) || "—",
       phone: text(patient?.phone),

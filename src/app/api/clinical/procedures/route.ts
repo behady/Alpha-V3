@@ -1174,10 +1174,95 @@ async function procedurePhotos(args: { clinicId: string; actor: Actor; body: Rec
 }
 
 // ---------------------------------------------------------------------------------------------
+// status
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Change where a treatment stands — Planned, In progress, Done — and nothing else.
+ *
+ * The Treatments report changes a row's state from a dropdown. A full `update` would re-price the
+ * card from whatever the screen sent, and the report holds no price list, discount or payer to send,
+ * so this touches only the state: the note, its finish stamp, and the visit's `services[]` mirror.
+ * The charge carries no state and is left alone. An insurance approval's card goes through the
+ * approval's own path, which moves its line state and billing month the same way the file does.
+ */
+async function setProcedureStatus(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+  const noteId = String(body.noteId || "").trim();
+  if (!noteId) return bad("Which treatment?");
+  const status = String(body.status || "");
+  if (!isLineStatus(status)) return bad("A treatment is Planned, Ongoing or Completed.");
+
+  const current = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
+  if (!current.exists) throw new Error("NOT_FOUND");
+  const gate = await assertRowBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role,
+    rowBranchId: await linkedChargeBranch(clinicId, noteId, current.data()),
+  });
+  if (!gate.ok) return gate.response;
+  if (isApprovalRow(current.data())) {
+    return await updateApprovalNote({ clinicId, actor, body: { noteId, status }, noteId, before: current.data() || {} });
+  }
+
+  const result = await adminDb().runTransaction(async (txn) => {
+    const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
+    const snap = await txn.get(noteRef);
+    if (!snap.exists) throw new Error("NOT_FOUND");
+    const before = snap.data() || {};
+    if (isApprovalRow(before)) throw new Error("APPROVAL_NOTE");
+    if (String(before.status || "") === status) return { before, changed: false };
+
+    const appointmentId = typeof before.appointmentId === "string" ? before.appointmentId : null;
+    const appointmentRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
+    const appointmentSnap = appointmentRef ? await txn.get(appointmentRef) : null;
+
+    // The same finish stamp an edit in the patient's file writes (see finishStamp).
+    const today = ymdInTimeZone(clinicTimeZone());
+    const date = typeof before.date === "string" ? before.date : today;
+    const stamp: Record<string, unknown> =
+      status !== "Completed"
+        ? before.completedDate !== undefined ? { completedDate: FieldValue.delete() } : {}
+        : String(before.status) === "Completed" ? {} : { completedDate: date > today ? date : today };
+
+    txn.update(noteRef, {
+      status,
+      ...stamp,
+      updatedByUid: actor.uid,
+      updatedByName: actor.name,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    if (appointmentRef && appointmentSnap?.exists) {
+      const services = appointmentSnap.data()?.services;
+      if (Array.isArray(services) && services.some((s) => s && s.clinicalNoteId === noteId)) {
+        txn.update(appointmentRef, {
+          services: services.map((s) => (s && s.clinicalNoteId === noteId ? { ...s, status } : s)),
+        });
+      }
+    }
+    return { before, changed: true };
+  });
+
+  if (result.changed) {
+    await recordMoneyChange({
+      entry: {
+        clinicId, action: "update", collection: "clinical_notes", documentId: noteId,
+        before: { status: result.before.status ?? null }, after: { status },
+        actor, via: "clinical/procedures:status",
+      },
+      action: "Procedure Updated",
+      details: `state ${status} on ${String(result.before.procedure || "treatment")}`,
+    });
+  }
+  return NextResponse.json({ ok: true, noteId, status });
+}
+
+// ---------------------------------------------------------------------------------------------
 
 const PERMISSION_BY_ACTION: Record<string, string> = {
   create: "clinical.edit",
   update: "clinical.edit",
+  status: "clinical.edit",
   move: "clinical.edit",
   continue: "clinical.edit",
   photos: "clinical.edit",
@@ -1215,6 +1300,8 @@ export async function POST(request: Request) {
         return await createProcedure({ clinicId, actor, body });
       case "update":
         return await updateProcedure({ clinicId, actor, body });
+      case "status":
+        return await setProcedureStatus({ clinicId, actor, body });
       case "delete":
         return await deleteProcedure({ clinicId, actor, body });
       case "move":

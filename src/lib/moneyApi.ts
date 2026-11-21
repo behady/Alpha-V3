@@ -349,6 +349,11 @@ export function updateApprovalProcedure(
   return post("/api/clinical/procedures", { action: "update", noteId, ...args });
 }
 
+/** Change only where a treatment stands; its price, dentist and charge are not touched. */
+export function setProcedureStatus(noteId: string, status: "Planned" | "Ongoing" | "Completed") {
+  return post<{ noteId: string; status: string }>("/api/clinical/procedures", { action: "status", noteId, status });
+}
+
 export function deleteProcedure(noteId: string, clinicId?: string | null) {
   return post<{ deleted: Array<{ collection: string; id: string }> }>("/api/clinical/procedures", {
     action: "delete",
