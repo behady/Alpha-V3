@@ -5,7 +5,7 @@
 // not a name, whether it was typed or spoken.
 import assert from "node:assert/strict";
 import { nameFromReply } from "../src/lib/bot/nameGuard";
-import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
+import { decide, type BotContext } from "../src/lib/bot/decide";
 import { joinsMediaBurst } from "../src/lib/bot/burstGuard";
 
 // Names, as people actually send them.
@@ -43,27 +43,22 @@ assert.equal(nameFromReply("3"), null);
 assert.equal(nameFromReply("x"), null);
 assert.equal(nameFromReply("محمد احمد علي حسن ابراهيم سيد عبد الله محمود"), null, "too long to be a name");
 
-// The decider: in AI mode a sentence at the name step goes to the model and the step is kept.
+// The decider: a sentence at the name step goes to the brain and the step is kept.
 const aiCtx: BotContext = {
   clinicName: "Alpha Dental",
   patientName: "",
   hoursText: "السبت: 10:00 - 22:00",
   addressText: "مدينة نصر",
   canOfferBooking: true,
-  aiFirst: true,
   aiAvailable: true,
 };
-const spoken = decideBotReply({ state: "booking_name", text: "ازي حضرتك أنا من بلبيس من الشرقية", ctx: aiCtx });
+const spoken = decide({ state: "booking_name", text: "ازي حضرتك أنا من بلبيس من الشرقية", ctx: aiCtx });
 assert.equal(spoken.action?.type, "ai", "a sentence is talk, not a name");
 assert.equal(spoken.next, "booking_name", "and the name is still owed");
 
-const named = decideBotReply({ state: "booking_name", text: "اسمي محمد أحمد", ctx: aiCtx });
+const named = decide({ state: "booking_name", text: "اسمي محمد أحمد", ctx: aiCtx });
 assert.equal(named.action?.type, "register");
 assert.equal((named.action as { name: string }).name, "محمد أحمد");
-
-// Without the AI the question is simply asked again — never a patient called "ازي حضرتك".
-const plain = decideBotReply({ state: "booking_name", text: "ازي حضرتك أنا من بلبيس من الشرقية", ctx: { ...aiCtx, aiFirst: false, aiAvailable: false } });
-assert.equal(plain.reason, "ask_name_again");
 
 // A second voice note is a second message, not the second photo of an album.
 assert.equal(joinsMediaBurst("audio"), false, "every voice note is read");

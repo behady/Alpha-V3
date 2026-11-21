@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
   const authz = await requireAdminUser(request, clinicId);
   if (!authz.ok) return authz.response;
-  if (!(await clinicHasFeature(clinicId, "whatsappPro").catch(() => false))) {
+  if (!(await clinicHasFeature(clinicId, "whatsappBot").catch(() => false))) {
     return NextResponse.json({ ok: false, error: NOT_ON }, { status: 403 });
   }
   const apiKey = (process.env.GEMINI_PRO_API_KEY || "").trim();

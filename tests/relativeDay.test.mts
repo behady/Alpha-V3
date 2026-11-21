@@ -129,7 +129,7 @@ run("the word helper, across a month and a year boundary", () => {
   assert.equal(fixRelativeDayWords("النهارده الجمعة 1/1", "2026-12-31"), "بكره الجمعة 1/1");
 });
 
-run("wiring: respond.ts checks the reply before the times are read from it; aiReply passes today", () => {
+run("wiring: respond.ts checks the reply before the times are read from it; the brain is told today", () => {
   const src = readFileSync(new URL("../src/lib/bot/respond.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const names = src.indexOf("if (settings.hideDoctorNames && profile?.doctors.length");
   const fix = src.indexOf("const dayFixed = fixRelativeDayWords(ai.text, clinicNow().dateKey);");
@@ -141,6 +141,6 @@ run("wiring: respond.ts checks the reply before the times are read from it; aiRe
   const block = src.slice(fix - 200, fix + 500);
   assert.ok(block.includes('ai.kind === "answer" || ai.kind === "handoff"'), "either kind of reply, either brain");
   assert.ok(/if \(!args\.dryRun\) \{\s*void adminClinicCollection\(clinicId, "ai_debug"\)\s*\.add\(\{ kind: "relative_day_fixed"/.test(block), "no debug write from the playground");
-  const ai = readFileSync(new URL("../src/lib/bot/aiReply.ts", import.meta.url), "utf8");
-  assert.ok(ai.includes("todayKey: clinicNow().dateKey,"), "the standard brain's prompt is told today");
+  const ctx = readFileSync(new URL("../src/lib/botPro/proContext.ts", import.meta.url), "utf8");
+  assert.ok(ctx.includes("const todayKey = clinicNow().dateKey;"), "the brain's context carries the clinic's today");
 });

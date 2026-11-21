@@ -15,7 +15,7 @@ import {
   briefLines,
   briefFilled,
   factsFilled,
-  stepsForMode,
+  autoReplySteps,
   sanitizeDraft,
   isEmptyDraft,
   serviceNamesOnly,
@@ -66,15 +66,9 @@ test("counts", () => {
   assert.equal(briefFilled(undefined, undefined).total, 6);
 });
 
-test("stepsForMode", () => {
-  assert.equal(stepsForMode("off").length, 0);
-  const ai = stepsForMode("ai");
-  assert.deepEqual(ai.map((s) => s.id), ["clinic", "brief", "behaviour", "test", "replies"]);
-  assert.deepEqual(ai.filter((s) => s.optional).map((s) => s.id), ["replies"]);
-  assert.ok(!stepsForMode("bot").some((s) => s.id === "brief"));
-  assert.deepEqual(stepsForMode("bot").map((s) => s.id), ["clinic", "replies", "behaviour", "test"]);
-  assert.deepEqual(stepsForMode("both").map((s) => s.id), ["clinic", "replies", "brief", "behaviour", "test"]);
-  assert.ok(stepsForMode("both").every((s) => !s.optional));
+test("autoReplySteps: one list for the one assistant, nothing optional, no fixed-replies step", () => {
+  assert.deepEqual(autoReplySteps().map((s) => s.id), ["clinic", "brief", "behaviour", "test"]);
+  assert.ok(autoReplySteps().every((s) => !s.optional));
 });
 
 test("sanitizeDraft keeps known keys only", () => {

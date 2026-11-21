@@ -98,12 +98,13 @@ test("respond.ts reorders the model's answer only when a price was asked", () =>
   const guard = src.indexOf("if ([act.question, ...unanswered].some(asksPrice)) ai.text = priceBeforeQuestions(ai.text);");
   assert.ok(guard > 0, "the guard is there");
   assert.ok(guard > src.indexOf("const cleaned = stripDoctorNames(ai.text"), "after the hidden-names backstop");
-  assert.ok(guard < src.indexOf("brainUsed = brainReply.brainUsed;"), "before anything is built from the text");
+  assert.ok(guard < src.indexOf('if (proReply.kind === "answer" && proReply.slotsShown) slotOffer = proReply.slotsShown;'), "before anything is built from the text");
 });
 
-test("both brains are told how to mark a break", () => {
-  for (const f of ["src/lib/bot/botPrompt.ts", "src/lib/botPro/proPrompt.ts"]) {
-    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
-    assert.ok(src.includes("حط سطر فيه --- لوحده بين كل رسالة والتانية"), `${f} has the rule`);
-  }
+test("the brain is told how to mark a break (the shared voice, imported by the Pro rulebook)", () => {
+  const voice = readFileSync(new URL("../src/lib/bot/botPrompt.ts", import.meta.url), "utf8");
+  assert.ok(voice.includes("حط سطر فيه --- لوحده بين كل رسالة والتانية"), "botPrompt.ts has the rule");
+  const pro = readFileSync(new URL("../src/lib/botPro/proPrompt.ts", import.meta.url), "utf8");
+  assert.ok(/import \{[^}]*SALES_VOICE[^}]*\} from "@\/lib\/bot\/botPrompt"/.test(pro), "proPrompt.ts imports SALES_VOICE");
+  assert.ok(pro.includes("const VOICE = SALES_VOICE;"));
 });

@@ -1,5 +1,5 @@
 /**
- * The four Pro AI onboarding routes: admin-only, behind the whatsappPro add-on, on the Pro key
+ * The four Pro AI onboarding routes: admin-only, behind the whatsappBot add-on, on the Pro key
  * only, never charging credits. Source assertions (like botProWiring) plus the pure helpers that
  * shape what the screen sees.
  *
@@ -34,11 +34,11 @@ await test("all four route files exist", () => {
   for (const p of Object.values(ROUTES)) assert.ok(existsSync(new URL(`../${p}`, import.meta.url)), `${p} exists`);
 });
 
-await test("every route is admin-only, behind whatsappPro, nodejs and never cached", () => {
+await test("every route is admin-only, behind whatsappBot, nodejs and never cached", () => {
   for (const p of Object.values(ROUTES)) {
     const c = code(p);
     assert.ok(c.includes("requireAdminUser("), `${p}: requireAdminUser`);
-    assert.match(c, /clinicHasFeature\(\s*clinicId\s*,\s*"whatsappPro"\s*\)/, `${p}: clinicHasFeature(clinicId, "whatsappPro")`);
+    assert.match(c, /clinicHasFeature\(\s*clinicId\s*,\s*"whatsappBot"\s*\)/, `${p}: clinicHasFeature(clinicId, "whatsappBot")`);
     assert.ok(c.includes("Pro AI is not switched on for this clinic."), `${p}: the 403 message`);
     assert.match(c, /export const runtime = "nodejs"/, `${p}: nodejs runtime`);
     assert.match(c, /export const dynamic = "force-dynamic"/, `${p}: force-dynamic`);
@@ -221,19 +221,18 @@ await test("versionRows: passed and break count, tolerant of a missing test", ()
   ]);
 });
 
-await test("the screen: Teach Pro your clinic opens only inside the proInPlan branch", () => {
+await test("the screen: Teach the assistant your clinic is offered to every clinic with the bot in its plan", () => {
   const SETTINGS = "src/components/settings/WhatsAppSettings.tsx";
   const c = code(SETTINGS);
   assert.match(c, /import ProSetup from "@\/components\/whatsapp\/ProSetup"/, "WhatsAppSettings imports ProSetup");
   assert.equal(c.split("<ProSetup").length - 1, 1, "ProSetup is mounted exactly once");
-  const branch = c.indexOf('autoReplyMode === "ai" && proInPlan');
-  assert.ok(branch > 0, "the proInPlan branch exists");
+  const branch = c.indexOf("{botInPlan && (");
+  assert.ok(branch > 0, "the bot-in-plan branch exists");
   const mount = c.indexOf("<ProSetup");
-  assert.ok(mount > branch, "ProSetup comes after the proInPlan check");
-  // Nothing between the check and the mount closes the branch: the mount sits inside the same block.
-  assert.ok(c.indexOf("<AutoReplySteps") > mount, "ProSetup sits above the steps, in the picker block that proInPlan guards");
-  assert.ok(c.slice(branch, mount).split("proInPlan").length === 2, "no second proInPlan check between the branch and the mount");
-  assert.ok(c.includes("Teach Pro your clinic") && source(SETTINGS).includes("علّم Pro عيادتك") , "the button label in both languages");
+  assert.ok(mount > branch, "ProSetup comes after the plan check");
+  assert.ok(c.indexOf("<AutoReplySteps") > mount, "ProSetup sits above the steps");
+  assert.ok(!c.includes("proInPlan") && !c.includes("whatsappPro"), "no Pro add-on gate remains: the brain is every clinic's");
+  assert.ok(c.includes("Teach the assistant your clinic") && source(SETTINGS).includes("علّم المساعد عيادتك"), "the button label in both languages");
   assert.match(c, /<ProSetup[\s\S]*?clinicId=\{clinicId \?\? ""\}/, "ProSetup receives the clinic id");
 });
 

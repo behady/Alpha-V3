@@ -4,12 +4,10 @@ import { adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { playgroundChatId } from "@/lib/bot/conversation";
 import { recordThreadMessage } from "@/lib/bot/thread";
-import { clinicHasFeature } from "@/lib/clinicFeatures";
-import { playgroundOutcome } from "@/lib/botPro/brain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// A Pro turn may run its full 25 s and then fall back to the standard brain's own 25 s.
+// The brain may run its full 25 s; the pacing and a second bubble add a few more.
 export const maxDuration = 120;
 
 /**
@@ -29,7 +27,7 @@ function fakePhone(uid: string): string {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; text?: string; reset?: boolean; brain?: "pro"; proLayer?: "draft" };
+  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; text?: string; reset?: boolean; proLayer?: "draft" };
   // Authorised against the clinic it will act on, not whichever one the account defaults to.
   const authz = await requireStaffUser(request, typeof body.clinicId === "string" ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
@@ -50,10 +48,9 @@ export async function POST(request: Request) {
 
     // Into the private thread first, so sales mode sees its own history the way it would live.
     await recordThreadMessage(clinicId, chatId, { direction: "in", author: "patient", text, channel: "meta" }).catch(() => {});
-    // "Try it with Pro": only for a clinic the whatsappPro add-on is unlocked for.
-    const tryPro = body.brain === "pro" && (await clinicHasFeature(clinicId, "whatsappPro").catch(() => false));
-    const out = await respondToPatientMessage({ clinicId, chatId, phone: fakePhone(authz.uid), text, dryRun: true, ...(tryPro ? { brainOverride: "pro" as const } : {}), ...(tryPro && body.proLayer === "draft" ? { proLayer: "draft" as const } : {}) });
-    return NextResponse.json({ ok: true, ...playgroundOutcome(out, tryPro) });
+    // "Use the draft layer": rehearse the rules the onboarding chat has drafted but not published.
+    const out = await respondToPatientMessage({ clinicId, chatId, phone: fakePhone(authz.uid), text, dryRun: true, ...(body.proLayer === "draft" ? { proLayer: "draft" as const } : {}) });
+    return NextResponse.json({ ok: true, ...out });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "failed" }, { status: 500 });
   }

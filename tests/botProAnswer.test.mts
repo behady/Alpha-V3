@@ -119,10 +119,10 @@ function args(over: Partial<ProArgs> = {}): ProArgs {
 const lastText = (contents: unknown[]) => JSON.stringify(contents[contents.length - 1]);
 const slotKey = (day: string, time: string, doctor: string) => `${day}|${time}|${doctor}`;
 
-await test("find_slots then book_slot s1 books the shown key and returns what was shown", async () => {
+await test("find_slots then book_slot slotA books the shown key and returns what was shown", async () => {
   const model = fakeModel([
     call("find_slots", { from: TODAY, to: TODAY }),
-    reply({ action: "book_slot", reply: `تمام، ${label(TODAY, "05:00 PM", "")}`, slotId: "s1" }),
+    reply({ action: "book_slot", reply: `تمام، ${label(TODAY, "05:00 PM", "")}`, slotId: "slotA" }),
   ]);
   const sink = fakeSink();
   const r = await answerWithPro(args(), { model, context: makeContext(), sink });
@@ -138,7 +138,7 @@ await test("find_slots then book_slot s1 books the shown key and returns what wa
   assert.deepEqual(sink.rows[0].toolsCalled, ["find_slots", "reply"]);
   // The tool result went back to the model as a function response.
   assert.match(lastText(model.calls[1]), /functionResponse/);
-  assert.match(lastText(model.calls[1]), /"s1"/);
+  assert.match(lastText(model.calls[1]), /"slotA"/);
 });
 
 await test("book_slot with a slotId that was never shown opens the lists instead", async () => {
@@ -200,8 +200,8 @@ await test("already booked (a family member's visit) + book_slot twice without e
   const p = person({ family: [{ id: "p1", name: "Mona" }, { id: "p2", name: "Omar" }], upcoming: [appt({ patientId: "p2" })] });
   const model = fakeModel([
     call("find_slots", { from: TODAY, to: TODAY }),
-    reply({ action: "book_slot", reply: "تمام", slotId: "s1" }),
-    reply({ action: "book_slot", reply: "تمام برضه", slotId: "s1" }),
+    reply({ action: "book_slot", reply: "تمام", slotId: "slotA" }),
+    reply({ action: "book_slot", reply: "تمام برضه", slotId: "slotA" }),
   ]);
   const r = await answerWithPro(args(), { model, context: makeContext({ person: p }), sink: fakeSink() });
   assert.equal(r.kind, "answer");
@@ -217,8 +217,8 @@ await test("already booked by phone only (no patient id, nobody on file) still c
   const p = person({ patientId: null, family: [], writerKnown: false, upcoming: [appt({ patientId: undefined })] });
   const model = fakeModel([
     call("find_slots", { from: TODAY, to: TODAY }),
-    reply({ action: "book_slot", reply: "تمام", slotId: "s1" }),
-    reply({ action: "book_slot", reply: "تمام", slotId: "s1" }),
+    reply({ action: "book_slot", reply: "تمام", slotId: "slotA" }),
+    reply({ action: "book_slot", reply: "تمام", slotId: "slotA" }),
   ]);
   const r = await answerWithPro(args(), { model, context: makeContext({ person: p }), sink: fakeSink() });
   assert.equal(r.kind, "answer");
@@ -230,7 +230,7 @@ await test("already booked + extraAppointment: true books", async () => {
   const p = person({ upcoming: [appt()] });
   const model = fakeModel([
     call("find_slots", { from: TODAY, to: TODAY }),
-    reply({ action: "book_slot", reply: "تمام", slotId: "s1", extraAppointment: true }),
+    reply({ action: "book_slot", reply: "تمام", slotId: "slotA", extraAppointment: true }),
   ]);
   const r = await answerWithPro(args(), { model, context: makeContext({ person: p }), sink: fakeSink() });
   assert.equal(r.kind, "answer");
@@ -243,7 +243,7 @@ await test("re-check finds a new appointment: one more corrective round", async 
   const ctx = makeContext({ reloadPerson: async () => fresh });
   const model = fakeModel([
     call("find_slots", { from: TODAY, to: TODAY }),
-    reply({ action: "book_slot", reply: "تمام", slotId: "s1" }),
+    reply({ action: "book_slot", reply: "تمام", slotId: "slotA" }),
     reply({ action: "answer", reply: "حضرتك محجوز بالفعل" }),
   ]);
   const r = await answerWithPro(args(), { model, context: ctx, sink: fakeSink() });
@@ -296,19 +296,19 @@ await test("charge: false and record: false write nothing", async () => {
   assert.deepEqual(sink.rows, []);
 });
 
-await test("previous offer: 'الأول' with slotId s1 books the earlier key; past keys dropped; numbering continues", async () => {
+await test("previous offer: 'الأول' with slotId slotA books the earlier key; past keys dropped; numbering continues", async () => {
   const prev = slotKey(addDays(TODAY, 1), "06:00 PM", "");
   const stale = slotKey(addDays(TODAY, -2), "05:00 PM", "");
-  const model = fakeModel([reply({ action: "book_slot", reply: "تمام", slotId: "s1" })]);
+  const model = fakeModel([reply({ action: "book_slot", reply: "تمام", slotId: "slotA" })]);
   const r = await answerWithPro(args({ question: "الأول", previousSlotKeys: [stale, prev] }), { model, context: makeContext(), sink: fakeSink() });
   assert.equal(r.kind, "answer");
   if (r.kind !== "answer") return;
   assert.equal(r.bookSlot, prev);
   // The turn layer listed it under the previous-offers heading, with its absolute day label.
-  assert.ok(model.systems[0].includes(`s1 → ${label(addDays(TODAY, 1), "06:00 PM", "")}`));
+  assert.ok(model.systems[0].includes(`slotA → ${label(addDays(TODAY, 1), "06:00 PM", "")}`));
   assert.ok(!model.systems[0].includes(arabicDayLabel(addDays(TODAY, -2)) + " الساعة"));
 
-  const model2 = fakeModel([call("find_slots", { from: TODAY, to: TODAY }), reply({ action: "book_slot", reply: "تمام", slotId: "s2" })]);
+  const model2 = fakeModel([call("find_slots", { from: TODAY, to: TODAY }), reply({ action: "book_slot", reply: "تمام", slotId: "slotB" })]);
   const r2 = await answerWithPro(args({ previousSlotKeys: [prev] }), { model: model2, context: makeContext(), sink: fakeSink() });
   if (r2.kind !== "answer") assert.fail("expected an answer");
   assert.equal(r2.bookSlot, slotKey(TODAY, "05:00 PM", ""));

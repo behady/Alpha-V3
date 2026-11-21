@@ -18,7 +18,7 @@ import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { briefLines } from "@/lib/bot/brief";
 import { factLines } from "@/lib/bot/botPrompt";
 import type { AiPatientContext } from "@/lib/bot/botPrompt";
-import type { AiThreadLine } from "@/lib/bot/aiReply";
+import type { AiThreadLine } from "@/lib/bot/aiTypes";
 import { expectFromKind } from "@/lib/bot/testCases";
 import { allowedNumbers, checkReply } from "./checks";
 import { answerWithPro, proMoneySources, type ProModel, type ProReplyResult } from "./answerWithPro";

@@ -45,7 +45,6 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
      * switched on per clinic from the superadmin panel, and then only used when the clinic also
      * picks it in its WhatsApp settings.
      */
-    whatsappPro: boolean;
     /**
      * Marketing add-on, level 1 (Text & Strategy). False on every tier on purpose: it is sold as
      * a separate add-on, switched on per clinic via the feature overrides in the superadmin panel.
@@ -108,7 +107,6 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiXray: true,
       aiOrtho: true,
       aiReceipts: false,
-      whatsappPro: false,
       marketingText: true,
       marketingDesign: true,
       whatsappBot: true,
@@ -137,7 +135,6 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiXray: false,
       aiOrtho: false,
       aiReceipts: false,
-      whatsappPro: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -167,7 +164,6 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiXray: true,
       aiOrtho: true,
       aiReceipts: false,
-      whatsappPro: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -197,7 +193,6 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiXray: true,
       aiOrtho: true,
       aiReceipts: false,
-      whatsappPro: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: true,

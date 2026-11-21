@@ -20,7 +20,7 @@
 import { FunctionCallingMode, GoogleGenerativeAI, type Content, type GenerativeModel, type Part } from "@google/generative-ai";
 import { createUsageMeter, type AiUsageMeter } from "@/lib/aiCreditLog";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { AI_DEFAULT_ACK, type AiReplyResult, type AiThreadLine } from "@/lib/bot/aiReply";
+import { AI_DEFAULT_ACK, type AiReplyResult, type AiThreadLine } from "@/lib/bot/aiTypes";
 import { briefLines, serviceNamesOnly } from "@/lib/bot/brief";
 import { factLines, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { dossierLines } from "@/lib/bot/patientDossier";
@@ -29,7 +29,7 @@ import { allowedNumbers, checkReply, type Violation } from "./checks";
 import type { ProAppointment } from "./person";
 import { proClinicLayer, proRulebook, proTurnLayer } from "./proPrompt";
 import { firestoreProSink, loadProContext, PRO_CREDITS_PER_REPLY, PRO_THREAD_LINES, type ProArgs, type ProContext, type ProSink } from "./proContext";
-import { normalizeForMatch, PRO_TOOL_DECLARATIONS, runTool, type ToolEnv } from "./tools";
+import { normalizeForMatch, PRO_TOOL_DECLARATIONS, runTool, slotIdFor, type ToolEnv } from "./tools";
 
 export { PRO_CREDITS_PER_REPLY };
 export type { ProArgs };
@@ -136,7 +136,7 @@ export function realDoctor(wanted: unknown, doctors: string[]): string {
   return matches.length === 1 ? matches[0] : "";
 }
 
-/** The last turn's offer as s1..sn, past days dropped, labels re-rendered as absolute dates. */
+/** The last turn's offer as slotA.., past days dropped, labels re-rendered as absolute dates. */
 function seedPrevious(keys: string[] | undefined, ctx: ProContext, shown: ToolEnv["shown"]): Array<{ id: string; label: string }> {
   const out: Array<{ id: string; label: string }> = [];
   for (const key of keys ?? []) {
@@ -144,7 +144,7 @@ function seedPrevious(keys: string[] | undefined, ctx: ProContext, shown: ToolEn
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !time.trim() || day < ctx.todayKey) continue;
     if (shown.size >= MAX_SHOWN) break;
     if ([...shown.values()].some((s) => s.key === key)) continue;
-    const id = `s${shown.size + 1}`;
+    const id = slotIdFor(shown.size);
     const label = ctx.dayLabel(day, time, doctor);
     shown.set(id, { key, label });
     out.push({ id, label });
@@ -251,6 +251,9 @@ async function runTurn(
     // Owner switches; absent (not undefined) when off, so the input is Plan 1's.
     ...(args.branchesText?.trim() ? { branchesText: args.branchesText } : {}),
     ...(hideDoctors ? { hideDoctorNames: true } : {}),
+    // Offer patient whose offer covers the check-up (respond.ts): its ordinary fee stays out of
+    // the prompt. The number guard still reads the clinic's raw list (proMoneySources).
+    ...(args.checkupInOffer === true ? { checkupInOffer: true } : {}),
     // "No prices on WhatsApp": the names stay, the figures leave the prompt and the number guard.
     priceLines: consult ? serviceNamesOnly(ctx.priceLines) : ctx.priceLines,
     brief: args.brief,

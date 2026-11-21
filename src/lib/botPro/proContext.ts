@@ -11,11 +11,10 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { logAiCreditUsage, type AiTokenUsage } from "@/lib/aiCreditLog";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { isUnlocked } from "@/lib/featureCatalog";
 import { clinicNow, computeAvailableSlots, isClinicClosedOn, loadPublicClinicProfile, type PublicClinicProfile } from "@/lib/publicBooking";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
-import type { answerWithAi, AiThreadLine } from "@/lib/bot/aiReply";
+import type { AiArgs, AiThreadLine } from "@/lib/bot/aiTypes";
 import { conversationKey } from "@/lib/bot/conversation";
 import { dossierLines, loadPatientDossier } from "@/lib/bot/patientDossier";
 import { loadProPerson, type ProPerson } from "./person";
@@ -23,13 +22,17 @@ import { sanitizeLayer, type ClinicLayer } from "./layer";
 import { layerRef, onboardingStateRef, readState } from "./onboarding/store";
 import type { ToolEnv } from "./tools";
 
-/** Placeholder until the pilot measures what a Pro turn really costs (spec §12). */
-export const PRO_CREDITS_PER_REPLY = 3;
+/**
+ * One credit per reply — the retired standard brain's price, so no clinic's bill changed on the day
+ * it became the only brain (owner, 2026-11-07). The token log measures the real cost; the price is
+ * reviewed after a month.
+ */
+export const PRO_CREDITS_PER_REPLY = 1;
 
 /** How much of the thread the Pro brain reads: more than the standard brain's 16. */
 export const PRO_THREAD_LINES = 40;
 
-export type ProArgs = Parameters<typeof answerWithAi>[0] & {
+export type ProArgs = AiArgs & {
   chatId: string;
   phone?: string;
   conversationPatientId?: string;
@@ -87,7 +90,6 @@ async function gateOf(clinicId: string): Promise<string | undefined> {
   const snap = await db.collection("clinics").doc(clinicId).get();
   if (!snap.exists) return "no_clinic";
   const clinic = { id: snap.id, ...snap.data() } as Clinic;
-  if (!isUnlocked(clinic, "whatsappPro")) return "plan_pro";
   if (!hasFeature(clinic, "aiChat")) return "plan";
   const monthKey = new Date().toISOString().slice(0, 7);
   const usage = await db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey).get();

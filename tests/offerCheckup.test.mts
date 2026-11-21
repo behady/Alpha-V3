@@ -184,11 +184,11 @@ run("the prompt texts carry no figure (so they can never be a stray number or a 
   assert.ok(CHECKUP_IN_OFFER_RULE.startsWith("- "));
 });
 
-run("wiring: respond.ts gates once, covers both brains after the name check, the price list and the close", () => {
+run("wiring: respond.ts gates once, after the brain and the name check; the brain's prompt gets the flag", () => {
   const src = readFileSync(new URL("../src/lib/bot/respond.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const gate = src.indexOf("const checkupInOffer = Boolean(ctx.ad && offersActive && checkupIsInAdOffer({ adText: adSubjectText(ctx.ad), offersText: offersActive }));");
   const adSet = src.indexOf("ctx.ad = args.ad ?? conversation.ad;");
-  const pick = src.indexOf("const brainReply = await pickReply(");
+  const pick = src.indexOf("const proReply: ProReplyResult = await answerWithPro({");
   const names = src.indexOf("if (settings.hideDoctorNames && profile?.doctors.length");
   const strip = src.indexOf("const cleaned = stripCheckupFee(ai.text, checkupFees(ctx.facts?.consultation, prices, offersActive));");
   const priceFirst = src.indexOf("ai.text = priceBeforeQuestions(ai.text);");
@@ -198,11 +198,8 @@ run("wiring: respond.ts gates once, covers both brains after the name check, the
   assert.ok(block.includes('if (checkupInOffer && (ai.kind === "answer" || ai.kind === "handoff") && ai.text && namesCheckup(ai.text))'));
   assert.ok(/if \(!args\.dryRun\) \{\s*void adminClinicCollection\(clinicId, "ai_debug"\)\s*\.add\(\{ kind: "checkup_fee_stripped"/.test(block), "no debug write from the playground");
   assert.ok(src.includes("...(checkupInOffer ? { checkupInOffer: true } : {}),"), "the prompt flag rides the AI arguments only when on");
-  assert.ok(src.includes("if (!name || price <= 0 || (checkupInOffer && isPlainCheckup(name))) return \"\";"), "the rule-based price list");
-  assert.ok(src.includes('facts: checkupInOffer ? { ...ctx.facts, consultation: "" } : ctx.facts'), "the rule-based closing line");
   // The booking card keeps its own, looser rule (7c335a0b).
   assert.ok(src.includes("ctx.facts?.consultation?.trim() && !(ctx.ad && offersActive)"));
-  const ai = readFileSync(new URL("../src/lib/bot/aiReply.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  assert.ok(ai.includes("...(args.checkupInOffer === true ? { checkupInOffer: true } : {}),"), "the standard brain's prompt gets the flag");
-  assert.ok(/args\.brief\?\.prices === "consult" \? "" : promptInput\.priceLines,\s*factLines\(facts\),/.test(ai), "the number guard still reads the raw list and facts");
+  const pro = readFileSync(new URL("../src/lib/botPro/answerWithPro.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  assert.ok(pro.includes("...(args.checkupInOffer === true ? { checkupInOffer: true } : {}),"), "the brain's prompt gets the flag");
 });

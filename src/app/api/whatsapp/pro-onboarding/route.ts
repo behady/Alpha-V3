@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  *                             a save or a rescan), and a second undo puts it back
  *       -> { ok, draft, dropped, hasPreviousDraft }   or 409 { ok: false, error: "nothing_to_undo" }
  *
- * Admin of that clinic only, and only when the whatsappPro add-on is on. No model call here, so
+ * Admin of that clinic only, and only when the whatsappBot add-on is on. No model call here, so
  * the Pro key is not needed.
  */
 
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
   const authz = await requireAdminUser(request, clinicId);
   if (!authz.ok) return authz.response;
-  if (!(await clinicHasFeature(clinicId, "whatsappPro").catch(() => false))) {
+  if (!(await clinicHasFeature(clinicId, "whatsappBot").catch(() => false))) {
     return NextResponse.json({ ok: false, error: NOT_ON }, { status: 403 });
   }
 
@@ -58,7 +58,7 @@ export async function PUT(request: Request) {
 
   const authz = await requireAdminUser(request, clinicId);
   if (!authz.ok) return authz.response;
-  if (!(await clinicHasFeature(clinicId, "whatsappPro").catch(() => false))) {
+  if (!(await clinicHasFeature(clinicId, "whatsappBot").catch(() => false))) {
     return NextResponse.json({ ok: false, error: NOT_ON }, { status: 403 });
   }
   if (body.undo === true) {
