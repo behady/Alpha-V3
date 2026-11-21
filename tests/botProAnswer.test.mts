@@ -277,8 +277,8 @@ await test("plain text instead of a tool call: unavailable no_reply_tool", async
 
 await test("a model that never answers hits the deadline: unavailable ai_timeout", async () => {
   let n = 0;
-  // The first reading is the turn's start; every later one is 10 ms before the 25 s deadline.
-  const now = () => (n++ === 0 ? 1_000 : 1_000 + 24_990);
+  // The first reading is the turn's start; every later one is 10 ms before the 35 s deadline.
+  const now = () => (n++ === 0 ? 1_000 : 1_000 + 34_990);
   const t0 = Date.now();
   const sink = fakeSink();
   const r = await answerWithPro(args(), { model: fakeModel(["hang"]), context: makeContext(), sink, now });
@@ -422,7 +422,7 @@ await test("a hand-off text failing only the script rule keeps its text", async 
 
 await test("deadline already passed: the model is never called", async () => {
   let n = 0;
-  const now = () => (n++ === 0 ? 0 : 30_000);
+  const now = () => (n++ === 0 ? 0 : 40_000); // past the 35 s deadline
   const model = fakeModel([reply({ action: "answer", reply: "تمام" })]);
   const r = await answerWithPro(args(), { model, context: makeContext(), sink: fakeSink(), now });
   assert.deepEqual(r, { kind: "unavailable", reason: "ai_timeout" });
