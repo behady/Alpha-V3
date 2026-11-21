@@ -16,6 +16,7 @@ const WORDS = {
     language: "العربية",
     backToApp: "Back to the app",
 
+    groupWork: "Work",
     groupClients: "Clients",
     groupMoney: "Money",
     groupGrowth: "Growth",
@@ -30,6 +31,7 @@ const WORDS = {
     navMigrate: "Data import",
     navAudit: "Data audit",
     navTour: "Guided tour",
+    navTasks: "Tasks",
 
     eyebrow: "Platform · live",
     clinicsTitle: "Clinics",
@@ -195,6 +197,7 @@ const WORDS = {
     language: "English",
     backToApp: "العودة للتطبيق",
 
+    groupWork: "الشغل",
     groupClients: "العملاء",
     groupMoney: "المال",
     groupGrowth: "النمو",
@@ -209,6 +212,7 @@ const WORDS = {
     navMigrate: "استيراد البيانات",
     navAudit: "مراجعة البيانات",
     navTour: "الجولة التعريفية",
+    navTasks: "المهام",
 
     eyebrow: "المنصة · مباشر",
     clinicsTitle: "العيادات",
