@@ -1,5 +1,5 @@
 /**
- * The company (GASCO) monthly sheet's route: the patient drawer's finish-date actions and the sent
+ * The company (GASCO) monthly sheet's route: one procedure's month, dates and state, and the sent
  * lock, against the Firestore emulator.
  *
  *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx tests/companySheetRoute.test.mts
@@ -85,6 +85,8 @@ async function post(body: Json, token: string | null = as): Promise<{ status: nu
   return { status: res.status, json: (await res.json()) as Json };
 }
 const note = async (id: string) => ((await clinic.collection("clinical_notes").doc(id).get()).data() ?? {}) as Json;
+const picked = async () => ((await clinic.collection("settings").doc("company_sheet_gasco").get()).data()?.months ?? {}) as Json;
+const ledger = async (id: string) => ((await clinic.collection("ledger").doc(id).get()).data() ?? {}) as Json;
 const sentDoc = () => clinic.collection("settings").doc("company_sheet_gasco_2026-11").get();
 
 await db.recursiveDelete(clinic);
@@ -150,6 +152,54 @@ console.log("the drawer: finish date, undo, mark finished");
   await clinic.collection("clinical_notes").doc("N9").delete();
 }
 
+console.log("the month picker");
+{
+  let r = await post({ action: "pickMonth", chargeId: "L2a", month: "2026-12" });
+  check("picking a month is accepted", r.status === 200 && r.json.ok === true, r);
+  check("and stored under the procedure", (await picked()).L2a === "2026-12", await picked());
+  check("the procedure's history keeps the move", (await note("N2a")).finishLog?.some((e: Json) => e.kind === "month" && e.to === "2026-12" && e.byName === "Dr Tester"), (await note("N2a")).finishLog);
+  r = await post({ action: "pickMonth", chargeId: "L2b", month: "2026-11" });
+  check("an unfinished procedure can be placed (the screen warns first)", r.status === 200 && (await picked()).L2b === "2026-11", r);
+  r = await post({ action: "pickMonth", chargeId: "L2b", month: null });
+  check("null puts it back to automatic", r.status === 200 && !("L2b" in (await picked())), [r, await picked()]);
+  r = await post({ action: "pickMonth", chargeId: "L2a", month: null });
+  check("and again for the finished one", r.status === 200 && !("L2a" in (await picked())), await picked());
+  check("a month before the sheet began is refused", (await post({ action: "pickMonth", chargeId: "L1", month: "2026-10" })).json.reason === "bad_month");
+  check("a month that is not a month is refused", (await post({ action: "pickMonth", chargeId: "L1", month: "2026-13" })).json.reason === "bad_month");
+  check("a month years ahead is refused", (await post({ action: "pickMonth", chargeId: "L1", month: "2999-01" })).json.reason === "bad_month");
+  r = await post({ action: "pickMonth", chargeId: "nope", month: "2026-12" });
+  check("a charge that is not this company's is not_found", r.status === 404 && r.json.reason === "not_found", r);
+}
+
+console.log("the start date");
+{
+  let r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04" });
+  check("changing the start date is accepted", r.status === 200, r);
+  check("the charge moved", (await ledger("L1")).date === "2026-11-04", (await ledger("L1")).date);
+  const n = await note("N1");
+  check("the treatment card moved with it", n.date === "2026-11-04", n.date);
+  check("its end date did not", n.completedDate === "2026-11-05", n.completedDate);
+  check("and the history says so", n.finishLog?.some((e: Json) => e.kind === "start" && e.from === "2026-11-03" && e.to === "2026-11-04"), n.finishLog);
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-06" });
+  check("a start after the end date is refused", r.status === 400 && r.json.reason === "after_finish", r);
+  check("a start before the sheet began is refused", (await post({ action: "startDate", chargeId: "L1", date: "2026-10-30" })).json.reason === "before_start");
+  check("a start after today is refused", (await post({ action: "startDate", chargeId: "L1", date: "2999-01-01" })).json.reason === "future_date");
+  check("nothing moved on the refusals", (await ledger("L1")).date === "2026-11-04");
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-03" });
+  check("and it can be set back", r.status === 200 && (await ledger("L1")).date === "2026-11-03" && (await note("N1")).date === "2026-11-03", r);
+  const audit = await clinic.collection("ledger_audit").get();
+  check("a ledger date change leaves an audit row", audit.size >= 1, audit.size);
+
+  // A card finished before the finish stamp existed reads its end from its own date: moving the start keeps that day.
+  await charge("L8", "p8", "N8", 100);
+  await clinic.collection("clinical_notes").doc("N8").set({ patientId: "p8", date: "2026-11-03", status: "Completed", procedure: "Filling" });
+  r = await post({ action: "startDate", chargeId: "L8", date: "2026-11-02" });
+  const n8 = await note("N8");
+  check("an old finished card keeps its end date when its start moves", r.status === 200 && n8.date === "2026-11-02" && n8.completedDate === "2026-11-03", n8);
+  await clinic.collection("ledger").doc("L8").delete();
+  await clinic.collection("clinical_notes").doc("N8").delete();
+}
+
 console.log("a long chain of continuation cards");
 {
   // Eight cards, each continuing the one before; only the newest is Completed. The server must follow
@@ -169,6 +219,11 @@ console.log("a long chain of continuation cards");
   check("the newest of 8 chained cards is the one the drawer acts on", r.status === 200, r);
   r = await post({ action: "finishDate", noteId: "K0", date: "2026-11-11" });
   check("an older card of the chain is not_found", r.status === 404 && r.json.reason === "not_found", r);
+  r = await post({ action: "startDate", chargeId: "L3", date: "2026-11-05" });
+  check("the start cannot pass the next visit", r.status === 400 && r.json.reason === "after_visit", r);
+  r = await post({ action: "startDate", chargeId: "L3", date: "2026-11-02" });
+  check("an earlier start moves the first card only", r.status === 200 && (await note("K0")).date === "2026-11-02" && (await note("K1")).date === "2026-11-04", r);
+  check("and the history sits on the newest card", (await note("K7")).finishLog?.some((e: Json) => e.kind === "start"), (await note("K7")).finishLog);
   await clinic.collection("ledger").doc("L3").delete();
   for (let i = 0; i < 8; i++) await clinic.collection("clinical_notes").doc(`K${i}`).delete();
 }
@@ -197,8 +252,8 @@ console.log("sending the month");
   let r = await post({ action: "send" });
   check("send is accepted", r.status === 200, r);
   const d = (await sentDoc()).data() as Json;
-  check("the server stored its own list: only p1's charge", JSON.stringify(d?.chargeIds) === JSON.stringify(["L1"]), d?.chargeIds);
-  check("with the case count and total", d?.cases === 1 && d?.total === 500 && d?.payerId === "gasco" && d?.month === "2026-11", d);
+  check("the server stored its own list: every finished procedure, not the unfinished one", JSON.stringify([...(d?.chargeIds ?? [])].sort()) === JSON.stringify(["L1", "L2a"]), d?.chargeIds);
+  check("with the case count and total", d?.cases === 2 && d?.total === 800 && d?.payerId === "gasco" && d?.month === "2026-11", d);
   check("and who sent it", d?.sentBy === UID && d?.sentByName === "Dr Tester" && !!d?.sentAt, d);
   r = await post({ action: "send" });
   check("a second send is already_sent", r.status === 409 && r.json.reason === "already_sent", r);
@@ -208,10 +263,14 @@ console.log("sending the month");
   check("and cannot be undone either", r.status === 409 && r.json.reason === "sent_locked", r);
   const after = await note("N1");
   check("nothing was written by the refusals", after.completedDate === "2026-11-05" && after.status === "Completed", after);
-  r = await post({ action: "finishDate", noteId: "N2a", date: "2026-11-06" });
-  check("a finish day inside the sent month is refused", r.status === 409 && r.json.reason === "month_sent", r);
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04" });
+  check("nor its start date moved", r.status === 409 && r.json.reason === "sent_locked", r);
+  r = await post({ action: "pickMonth", chargeId: "L1", month: "2026-12" });
+  check("nor its month picked", r.status === 409 && r.json.reason === "sent_locked", r);
+  r = await post({ action: "pickMonth", chargeId: "L2b", month: "2026-11" });
+  check("no procedure can be picked onto the sent month", r.status === 409 && r.json.reason === "month_sent", r);
   const logs = await clinic.collection("system_logs").get();
-  check("each success left an activity row", logs.size >= 6, logs.size);
+  check("each success left an activity row", logs.size >= 10, logs.size);
 }
 
 console.log("taking it back");

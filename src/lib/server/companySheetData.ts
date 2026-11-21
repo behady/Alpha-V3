@@ -3,9 +3,17 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { toYmd } from "@/lib/reports/patientStats";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { COMPANY_SHEET_START, sentDocId, type SentMonth, type SheetCard, type SheetCharge, type SheetInputs } from "@/lib/insurance/companySheet";
+import { COMPANY_SHEET_START, monthsDocId, sentDocId, type SentMonth, type SheetCard, type SheetCharge, type SheetInputs } from "@/lib/insurance/companySheet";
 
-export { sentDocId };
+export { monthsDocId, sentDocId };
+
+/** The picked months as stored: charge id -> yyyy-mm; anything else is dropped. */
+export function parsePickedMonths(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (typeof v === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) out[k] = v;
+  return out;
+}
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const MAX_ROUNDS = 20; // safety cap, same as the hop limit in chargeDone
@@ -58,6 +66,10 @@ export async function loadCompanySheetInputs(clinicId: string, payerId: string):
     frontier = found;
   }
 
+  // The months picked by hand, one per procedure.
+  const monthsSnap = await adminClinicDoc(clinicId, "settings", monthsDocId(payerId)).get();
+  const months = parsePickedMonths(monthsSnap.data()?.months);
+
   // Sent months: every settings document of this company's sent range, by document id.
   const sentSnap = await adminClinicCollection(clinicId, "settings")
     .where(FieldPath.documentId(), ">=", sentDocId(payerId, "0000-00"))
@@ -78,5 +90,5 @@ export async function loadCompanySheetInputs(clinicId: string, payerId: string):
     sent.push(s);
   }
 
-  return { charges, cards: [...cards.values()], sent };
+  return { charges, cards: [...cards.values()], months, sent };
 }

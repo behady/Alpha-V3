@@ -29,7 +29,6 @@ const REFUSAL: Record<string, TextKey> = {
 
 const WHY: Record<HeldReason, TextKey> = {
   not_finished: "pvWhyNotFinished",
-  finished_late: "pvWhyLate",
   moved: "pvWhyMoved",
 };
 

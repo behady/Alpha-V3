@@ -11,11 +11,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { documentId, onSnapshot, query, where, type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
-import { getClinicCollection } from "@/lib/db-utils";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { toYmd } from "@/lib/reports/patientStats";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import {
   COMPANY_SHEET_START,
+  monthsDocId,
   sentDocId,
   type SentMonth,
   type SheetCard,
@@ -69,6 +70,7 @@ export function useCompanySheet(
   const [cardsFor, setCardsFor] = useState<string | null>(null);
   const [extra, setExtra] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
   // Each answer carries the scope it was read for, so a clinic or company switch shows "not loaded" with no reset in an effect.
+  const [monthsAt, setMonthsAt] = useState<{ key: string; months: Readonly<Record<string, string>> } | null>(null);
   const [sentAt, setSentAt] = useState<{ key: string; sent: readonly SentMonth[] } | null>(null);
   const [failedAt, setFailedAt] = useState<string | null>(null);
 
@@ -83,10 +85,20 @@ export function useCompanySheet(
   );
   const scopeKey = `${clinicId ?? ""}|${payerId}`;
 
-  // Sent months.
+  // Picked months and sent months.
   useEffect(() => {
     if (!clinicId) return;
     const stops = [
+      onSnapshot(
+        getClinicDoc("settings", monthsDocId(payerId)),
+        (snap) => {
+          const raw = (snap.data()?.months ?? {}) as Record<string, unknown>;
+          const next: Record<string, string> = {};
+          for (const [k, v] of Object.entries(raw)) if (typeof v === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) next[k] = v;
+          setMonthsAt({ key: scopeKey, months: next });
+        },
+        () => setFailedAt(scopeKey),
+      ),
       onSnapshot(
         query(
           getClinicCollection("settings"),
@@ -147,13 +159,14 @@ export function useCompanySheet(
     // `extra` is read for its ids only when it belongs to this key; growing it re-subscribes with the larger set.
   }, [clinicId, scopeKey, noteKey, extra]);
 
+  const months = monthsAt?.key === scopeKey ? monthsAt.months : null;
   const sent = sentAt?.key === scopeKey ? sentAt.sent : null;
   const failed = failedAt === scopeKey;
   const cardsRead = noteKey === "" || cardsFor === `${scopeKey}|${noteKey}`;
-  const ready = sheetCharges !== null && noteKey !== null && cardsRead && sent !== null;
+  const ready = sheetCharges !== null && noteKey !== null && cardsRead && months !== null && sent !== null;
   const inputs = useMemo<SheetInputs | null>(
-    () => (ready && charges && sent ? { charges, cards: noteKey === "" ? [] : [...cards.values()], sent } : null),
-    [ready, charges, cards, noteKey, sent],
+    () => (ready && charges && months && sent ? { charges, cards: noteKey === "" ? [] : [...cards.values()], months, sent } : null),
+    [ready, charges, cards, noteKey, months, sent],
   );
   return { inputs, failed };
 }

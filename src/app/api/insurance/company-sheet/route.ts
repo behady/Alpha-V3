@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
+import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
@@ -10,11 +11,12 @@ import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { toYmd } from "@/lib/reports/patientStats";
 import { reportServerError } from "@/lib/server/reportError";
 import { logActivityServer } from "@/lib/server/systemLog";
-import { loadCompanySheetInputs, sentDocId } from "@/lib/server/companySheetData";
+import { loadCompanySheetInputs, monthsDocId, sentDocId } from "@/lib/server/companySheetData";
 import {
   buildCompanySheets,
   cardChildren,
   COMPANY_SHEET_START,
+  nextMonth,
   sendRefusal,
   sheetChargeIds,
   treatmentChain,
@@ -28,9 +30,14 @@ const PERMISSION = "patients.edit";
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
-type Action = "send" | "unsend" | "finishDate" | "reopen" | "finish";
-const ACTIONS: readonly Action[] = ["send", "unsend", "finishDate", "reopen", "finish"];
+type Action = "send" | "unsend" | "finishDate" | "reopen" | "finish" | "startDate" | "pickMonth";
+const ACTIONS: readonly Action[] = ["send", "unsend", "finishDate", "reopen", "finish", "startDate", "pickMonth"];
+/** On the treatment's speaking card. */
 const TREATMENT_ACTIONS: readonly Action[] = ["finishDate", "reopen", "finish"];
+/** On one procedure's charge. */
+const CHARGE_ACTIONS: readonly Action[] = ["startDate", "pickMonth"];
+/** How far ahead a procedure may be placed. */
+const MONTHS_AHEAD = 12;
 
 function fail(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -60,19 +67,22 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 /**
- * A contract company's (GASCO's) monthly sheet: the sent lock on a whole month, and the three
- * things the patient drawer can do to one treatment's finish — the day that decides which
- * month's sheet it goes on.
+ * A contract company's (GASCO's) monthly sheet: the sent lock on a whole month, and what the
+ * Insurance page can do to one procedure — its month, its dates and its state.
  *
- * Body: { clinicId, action, payerId, month?, noteId?, date? }
+ * Body: { clinicId, action, payerId, month?, noteId?, chargeId?, date? }
  * - send / unsend { month }: freeze a month's list, or open it again;
- * - finishDate { noteId, date }: change the day a finished treatment was finished;
+ * - pickMonth { chargeId, month | null }: put one procedure on a month's sheet (null = automatic:
+ *   the month it finished). An unfinished procedure may be placed; the screen warns first;
+ * - startDate { chargeId, date }: change the day the procedure started — its charge and its first
+ *   treatment card, so the patient's file and Finance follow;
+ * - finishDate { noteId, date }: change the day a finished treatment was finished (its end date);
  * - reopen { noteId }: a treatment marked finished by mistake goes back to In progress;
  * - finish { noteId }: mark an unfinished treatment finished today.
  *
- * `noteId` is the card that speaks for the treatment (the newest of its chain). A treatment whose
- * charge is on a sent month is locked; a finish day inside a sent month is refused. Every answer
- * is computed on the server from the clinic's own rows; the browser's lists are never trusted.
+ * `noteId` is the card that speaks for the treatment (the newest of its chain). A procedure on a
+ * sent month is locked, and no procedure can be picked onto a sent month. Every answer is
+ * computed on the server from the clinic's own rows; the browser's lists are never trusted.
  */
 export async function POST(req: Request) {
   try {
@@ -96,10 +106,27 @@ export async function POST(req: Request) {
     const currentMonth = today.slice(0, 7);
 
     const onTreatment = TREATMENT_ACTIONS.includes(action);
+    const onCharge = CHARGE_ACTIONS.includes(action);
     const month = typeof body.month === "string" ? body.month : "";
     let noteId = "";
+    let chargeId = "";
     let date = "";
-    if (onTreatment) {
+    if (onCharge) {
+      chargeId = segment(body.chargeId);
+      if (!chargeId) return fail(400, "chargeId is required.");
+      if (action === "startDate") {
+        date = typeof body.date === "string" ? body.date : "";
+        if (!DAY.test(date)) return fail(400, "date must be yyyy-mm-dd.", { reason: "bad_date" });
+        if (date > today) return fail(400, "A start date cannot be after today.", { reason: "future_date" });
+        if (date < `${COMPANY_SHEET_START}-01`) return fail(400, "A start date cannot be before the sheet began.", { reason: "before_start" });
+      } else if (body.month !== null) {
+        let last = currentMonth;
+        for (let i = 0; i < MONTHS_AHEAD; i++) last = nextMonth(last);
+        if (!MONTH.test(month) || month < COMPANY_SHEET_START || month > last) {
+          return fail(400, `month must be yyyy-mm between ${COMPANY_SHEET_START} and ${last}, or null.`, { reason: "bad_month" });
+        }
+      }
+    } else if (onTreatment) {
       noteId = segment(body.noteId);
       if (!noteId) return fail(400, "noteId is required.");
       if (action === "finishDate") {
@@ -132,6 +159,108 @@ export async function POST(req: Request) {
     // --- the sheets, as the server sees them now --------------------------------------------
     const inputs = await loadCompanySheetInputs(clinicId, payerId);
 
+    if (onCharge) {
+      const cards = new Map(inputs.cards.map((c) => [c.id, c]));
+      const children = cardChildren(inputs.cards);
+      const charge = inputs.charges.find((c) => text(c.id) === chargeId);
+      const status = text(charge?.status).toLowerCase();
+      if (!charge || charge.type !== "procedure" || text(charge.payerId) !== payerId || status === "deleted" || status === "cancelled") {
+        return fail(404, "That procedure is not on this company's sheet.", { reason: "not_found" });
+      }
+      if (inputs.sent.some((s) => s.chargeIds.includes(chargeId))) {
+        return fail(409, "That procedure is on a month already sent.", { reason: "sent_locked" });
+      }
+      const chain = treatmentChain(text(charge.clinicalNoteId), cards, children);
+      const patient = text(charge.patientName) || text(charge.patientId);
+      const procedure = text(charge.description) || "procedure";
+      const stamp = { day: today, at: new Date().toISOString(), byUid: actor.uid, byName: actor.name || "" };
+
+      if (action === "pickMonth") {
+        const picked = body.month === null ? null : month;
+        if (picked && inputs.sent.some((s) => s.month === picked)) {
+          return fail(409, "That month is already sent.", { reason: "month_sent" });
+        }
+        const was = text(inputs.months[chargeId]);
+        if ((picked ?? "") === was) return NextResponse.json({ ok: true });
+        await adminClinicDoc(clinicId, "settings", monthsDocId(payerId)).set(
+          { months: { [chargeId]: picked === null ? FieldValue.delete() : picked }, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid },
+          { merge: true },
+        );
+        // The procedure's own history keeps the move too (a procedure with no card has none).
+        if (chain) {
+          await adminClinicDoc(clinicId, "clinical_notes", chain.latest.id)
+            .update({ finishLog: FieldValue.arrayUnion({ ...stamp, kind: "month", from: was, to: picked ?? "" }) })
+            .catch(() => {});
+        }
+        void logActivityServer({
+          clinicId,
+          user: actor,
+          action: "Sheet Month Picked",
+          details: `${payer.name}: ${patient} — ${procedure}, ${was || "automatic"} -> ${picked ?? "automatic"}`,
+          severity: "LOW",
+          module: "finance",
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // startDate: the charge and the treatment's first card move together.
+      const ledgerRef = adminClinicDoc(clinicId, "ledger", chargeId);
+      const firstId = chain ? chain.chain[0].id : "";
+      const firstRef = firstId ? adminClinicDoc(clinicId, "clinical_notes", firstId) : null;
+      const latestRef = chain && chain.latest.id !== firstId ? adminClinicDoc(clinicId, "clinical_notes", chain.latest.id) : null;
+      let moved: { from: string; before: Record<string, unknown> } | null;
+      try {
+        moved = await adminDb().runTransaction(async (tx) => {
+          const ledgerSnap = await tx.get(ledgerRef);
+          if (!ledgerSnap.exists) throw new Refused("not_found", 404);
+          const row = ledgerSnap.data() ?? {};
+          if (isApprovalRow(row)) throw new Refused("approval");
+          const firstSnap = firstRef ? await tx.get(firstRef) : null;
+          const first = firstSnap?.exists ? (firstSnap.data() ?? {}) : null;
+          if (first && isApprovalRow(first)) throw new Refused("approval");
+          const from = toYmd(row.date);
+          if (from === date) return null;
+
+          // The start cannot pass the next visit, nor the day it was finished.
+          const nextVisit = chain && chain.chain.length > 1 ? toYmd(chain.chain[1].date) : "";
+          if (nextVisit && date > nextVisit) throw new Refused("after_visit", 400);
+          const one = chain && chain.chain.length === 1 ? first : null;
+          const oneDone = one !== null && String(one.status ?? "") === "Completed";
+          const finished = oneDone ? toYmd(one.completedDate) || toYmd(one.date) : "";
+          if (finished && date > finished) throw new Refused("after_finish", 400);
+
+          tx.update(ledgerRef, { date, updatedAt: FieldValue.serverTimestamp() });
+          if (firstRef && first) {
+            tx.update(firstRef, {
+              date,
+              // A card finished before the finish stamp existed reads its finish from its own date: keep that day.
+              ...(oneDone && !toYmd(one?.completedDate) ? { completedDate: finished } : {}),
+              ...(latestRef ? {} : { finishLog: FieldValue.arrayUnion({ ...stamp, kind: "start", from, to: date }) }),
+              updatedByUid: actor.uid,
+              updatedByName: actor.name || "",
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          }
+          if (latestRef) tx.update(latestRef, { finishLog: FieldValue.arrayUnion({ ...stamp, kind: "start", from, to: date }) });
+          return { from, before: { date: row.date } };
+        });
+      } catch (err) {
+        if (err instanceof Refused) return fail(err.status, "That change is not allowed.", { reason: err.reason });
+        throw err;
+      }
+      if (moved) {
+        await recordMoneyChange({
+          entry: {
+            clinicId, action: "update", collection: "ledger", documentId: chargeId,
+            before: moved.before, after: { date }, actor, via: "insurance/company-sheet:startDate",
+          },
+          action: "Procedure Start Date Changed",
+          details: `${payer.name}: ${patient} — ${procedure}, ${moved.from} -> ${date}`,
+        });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     if (onTreatment) {
       // The company's live charges whose treatment this card speaks for.
       const cards = new Map(inputs.cards.map((c) => [c.id, c]));
@@ -146,8 +275,6 @@ export async function POST(req: Request) {
       if (owned.some((c) => sentIds.has(text(c.id)))) {
         return fail(409, "That treatment is on a month already sent.", { reason: "sent_locked" });
       }
-      const sentMonths = new Set(inputs.sent.map((s) => s.month));
-
       const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
       let result: { procedure: string; patient: string; from: string; to: string };
       try {
@@ -169,7 +296,6 @@ export async function POST(req: Request) {
           if (action === "finishDate") {
             if (!done) throw new Refused("not_done");
             if (date < toYmd(note.date)) throw new Refused("before_visit", 400);
-            if (sentMonths.has(date.slice(0, 7))) throw new Refused("month_sent");
             to = date;
             fields = { completedDate: date };
             entry = { kind: "date", from: was, to: date };
@@ -180,7 +306,6 @@ export async function POST(req: Request) {
             entry = { kind: "reopened", from: was, to: "" };
           } else {
             if (done) throw new Refused("already_done");
-            if (sentMonths.has(currentMonth)) throw new Refused("month_sent");
             status = "Completed";
             to = today;
             fields = { status, completedDate: today };

@@ -1,18 +1,18 @@
 /**
- * Which month a contract company's (GASCO's) monthly sheet lists each patient on.
+ * Which month a contract company's (GASCO's) monthly sheet lists each procedure on.
  *
- * The company is billed for a patient once his treatment is FINISHED, not visit by visit:
+ * From November 2026 the company is billed procedure by procedure, each on ONE month's sheet:
  *
- * - from November 2026 each month's sheet lists a patient whose work is all Done, with everything
- *   that was waiting on him (old finished visits and new ones together);
- * - a patient with any treatment still Planned or Ongoing is held: he carries to the next month
- *   with his work waiting;
- * - a patient who finished AFTER the month ended is held as "finished late" and printed in the
- *   month he finished — so his work goes on the sheet of the month his LAST service was finished.
- *   To move him, the clinic changes that finish date (there is no per-patient switch any more);
- * - once printed, the waiting list is empty: a patient who comes back prints only his new work.
+ * - a finished procedure goes on the month it was finished (its end date);
+ * - the clinic can move any procedure to another month with the month picker (`months`), and can
+ *   even place one that is not finished yet (the screen warns first);
+ * - an unfinished procedure nobody placed is on no sheet;
+ * - a sent month is frozen: it prints exactly the list stored when it was sent, and a procedure
+ *   that would land on it afterwards goes on the next month that is not sent.
  *
- * Pure: no Firebase, no React. Charges before the start month never enter the walk.
+ * A patient is listed on a month once, with the procedures of his that are on it.
+ *
+ * Pure: no Firebase, no React. Charges before the start month are never placed.
  */
 import { monthsBetween } from "@/lib/insurance/billingMonth";
 import {
@@ -39,14 +39,30 @@ export type SheetCard = {
   finishLog?: unknown;
 };
 export type SentMonth = { month: string; chargeIds: string[]; sentAt?: string; sentByName?: string };
-/** not_finished: some work is not done; finished_late: finished after the month ended; moved: the month was already sent. */
-export type HeldReason = "not_finished" | "finished_late" | "moved";
+/** Why a procedure is not on a month's sheet. not_finished: not done and no month picked; moved: its month was already sent. */
+export type HeldReason = "not_finished" | "moved";
 export type SheetPatient = { patientId: string; patientName: string; charges: SheetCharge[]; value: number };
 export type HeldPatient = SheetPatient & { reason: HeldReason };
 export type MonthSheet = { month: string; printed: SheetPatient[]; held: HeldPatient[]; sent: SentMonth | null };
+/** Where one procedure stands. `month`: the sheet it is on ("" = none); `auto`: where it goes with no pick ("" = nowhere). */
+export type Placement = {
+  month: string;
+  auto: string;
+  /** The month picked by hand, or "". */
+  picked: string;
+  /** It is on a sent month's stored list: locked. */
+  sent: boolean;
+  /** Its month was already sent without it, so it rolled on to `month`. */
+  moved: boolean;
+  done: boolean;
+  /** The end date (done only). */
+  finishDate: string;
+};
 export type SheetInputs = {
   charges: readonly SheetCharge[];
   cards: readonly SheetCard[];
+  /** The month picked by hand for a procedure: charge id -> yyyy-mm. */
+  months: Readonly<Record<string, string>>;
   sent: readonly SentMonth[];
 };
 
@@ -54,8 +70,17 @@ const text = (v: unknown) => (typeof v === "string" ? v.trim() : v == null ? "" 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const amountOf = (c: SheetCharge) => round2(Number(c.cost) || Number(c.amount) || 0);
 
-/** Document id of each month's sent document, in `settings`. */
+/** Document ids in `settings`: the company's picked months, and each month's sent list. */
+export const monthsDocId = (payerId: string) => `company_sheet_${payerId}`;
 export const sentDocId = (payerId: string, month: string) => `company_sheet_${payerId}_${month}`;
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** The month after `month` (yyyy-mm). */
+export function nextMonth(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+}
 
 /** Cards by the card they continue. */
 export function cardChildren(cards: readonly SheetCard[]): Map<string, SheetCard[]> {
@@ -140,97 +165,100 @@ const isLiveCharge = (c: SheetCharge, payerId: string) => {
 /** A live charge dated from the start month on: the only ones that enter the walk. */
 const inScope = (c: SheetCharge, payerId: string) => isLiveCharge(c, payerId) && toYmd(c.date) >= `${COMPANY_SHEET_START}-01`;
 
+/**
+ * Where every procedure of the company stands, by charge id. Only live charges dated from the
+ * start month on are placed.
+ */
+export function placeCharges(inputs: SheetInputs & { payerId: string }): Map<string, Placement> {
+  const cards = new Map(inputs.cards.map((c) => [c.id, c]));
+  const children = cardChildren(inputs.cards);
+  const sentMonths = new Set(inputs.sent.map((s) => s.month));
+  const sentOf = new Map<string, string>();
+  for (const s of inputs.sent) for (const id of s.chargeIds) sentOf.set(id, s.month);
+
+  const out = new Map<string, Placement>();
+  for (const charge of inputs.charges) {
+    if (!inScope(charge, inputs.payerId) || !text(charge.patientId)) continue;
+    const id = text(charge.id);
+    const state = chargeDone(charge, cards, children);
+    const first = `${COMPANY_SHEET_START}`;
+    const finishedIn = state.done && state.date ? state.date.slice(0, 7) : "";
+    const auto = finishedIn ? (finishedIn < first ? first : finishedIn) : "";
+    const raw = text(inputs.months[id]);
+    const picked = MONTH_RE.test(raw) && raw >= first ? raw : "";
+    const base = { auto, picked, done: state.done, finishDate: state.done ? state.date : "" };
+
+    // On a sent list: that month, whatever happened to it since.
+    const sentMonth = sentOf.get(id);
+    if (sentMonth) {
+      out.set(id, { ...base, month: sentMonth, sent: true, moved: false });
+      continue;
+    }
+    // A sent month takes nothing new: roll on to the next month that is not sent.
+    const want = picked || auto;
+    let month = want;
+    for (let hops = 0; month && sentMonths.has(month) && hops < 240; hops++) month = nextMonth(month);
+    out.set(id, { ...base, month, sent: false, moved: month !== want });
+  }
+  return out;
+}
+
 /** One MonthSheet per month from COMPANY_SHEET_START to `through` (yyyy-mm), inclusive; [] when `through` is earlier. */
 export function buildCompanySheets(inputs: SheetInputs & { payerId: string; through: string }): MonthSheet[] {
   const months = monthsBetween(`${COMPANY_SHEET_START}-01`, `${inputs.through}-01`);
   if (months.length === 0) return [];
 
-  const cards = new Map(inputs.cards.map((c) => [c.id, c]));
-  const children = cardChildren(inputs.cards);
+  const placed = placeCharges(inputs);
+  const sentByMonth = new Map(inputs.sent.map((s) => [s.month, s]));
+  const sentMonths = new Set(sentByMonth.keys());
 
-  // A charge in any sent list belongs to that sent month only, wherever it is dated now.
-  const sentIds = new Set<string>();
-  const sentByMonth = new Map<string, SentMonth>();
-  for (const s of inputs.sent) {
-    sentByMonth.set(s.month, s);
-    for (const id of s.chargeIds) sentIds.add(id);
-  }
-  const chargeById = new Map(inputs.charges.map((c) => [text(c.id), c]));
-
-  // Each patient's charges by month.
-  const byPatient = new Map<string, { name: string; byMonth: Map<string, SheetCharge[]> }>();
-  for (const charge of inputs.charges) {
-    if (sentIds.has(text(charge.id))) continue;
-    if (!inScope(charge, inputs.payerId)) continue;
+  type Bucket = Map<string, { name: string; charges: SheetCharge[] }>;
+  const add = (bucket: Bucket, charge: SheetCharge) => {
     const patientId = text(charge.patientId);
-    if (!patientId) continue;
-    const month = toYmd(charge.date).slice(0, 7);
-    let p = byPatient.get(patientId);
-    if (!p) byPatient.set(patientId, (p = { name: text(charge.patientName), byMonth: new Map() }));
-    const list = p.byMonth.get(month);
-    if (list) list.push(charge);
-    else p.byMonth.set(month, [charge]);
+    const entry = bucket.get(patientId);
+    if (entry) entry.charges.push(charge);
+    else bucket.set(patientId, { name: text(charge.patientName), charges: [charge] });
+  };
+  const printedBy = new Map<string, Bucket>();
+  const movedBy = new Map<string, Bucket>();
+  const waiting: SheetCharge[] = [];
+  const bucketOf = (map: Map<string, Bucket>, month: string) => {
+    let b = map.get(month);
+    if (!b) map.set(month, (b = new Map()));
+    return b;
+  };
+  for (const charge of inputs.charges) {
+    const at = placed.get(text(charge.id));
+    if (!at) continue; // not this company's live charge, or dated before the sheet began
+    if (!at.month) waiting.push(charge);
+    else add(bucketOf(printedBy, at.month), charge);
+    // It wanted a month that was already sent: that month says so.
+    if (at.moved) add(bucketOf(movedBy, at.picked || at.auto), charge);
   }
 
-  const waiting = new Map<string, SheetCharge[]>();
   const firstDate = (p: SheetPatient) => p.charges.reduce((m, c) => (toYmd(c.date) < m ? toYmd(c.date) : m), "9999-99-99");
   const order = (a: SheetPatient, b: SheetPatient) =>
     firstDate(a).localeCompare(firstDate(b)) || a.patientName.localeCompare(b.patientName);
+  const rows = (bucket: Bucket | undefined): SheetPatient[] =>
+    [...(bucket ?? new Map())].map(([patientId, e]) => ({
+      patientId,
+      patientName: e.name,
+      charges: e.charges,
+      value: round2(e.charges.reduce((sum: number, c: SheetCharge) => sum + amountOf(c), 0)),
+    }));
 
   return months.map((month) => {
-    const printed: SheetPatient[] = [];
-    const held: HeldPatient[] = [];
     const sent = sentByMonth.get(month) ?? null;
-
-    // A sent month prints only its stored list, minus charges since deleted / cancelled / no longer this payer's.
-    if (sent) {
-      const listed = new Map<string, { name: string; charges: SheetCharge[] }>();
-      for (const id of sent.chargeIds) {
-        const c = chargeById.get(id);
-        if (!c) continue;
-        if (!isLiveCharge(c, inputs.payerId)) continue;
-        const patientId = text(c.patientId);
-        if (!patientId) continue;
-        const entry = listed.get(patientId);
-        if (entry) entry.charges.push(c);
-        else listed.set(patientId, { name: text(c.patientName), charges: [c] });
-      }
-      for (const [patientId, e] of listed) {
-        printed.push({
-          patientId,
-          patientName: e.name,
-          charges: e.charges,
-          value: round2(e.charges.reduce((s, c) => s + amountOf(c), 0)),
-        });
-      }
+    const printed = rows(printedBy.get(month)).sort(order);
+    const held: HeldPatient[] = [];
+    if (sentMonths.has(month)) {
+      for (const p of rows(movedBy.get(month))) held.push({ ...p, reason: "moved" });
+    } else {
+      // Not finished and not placed: on no sheet, shown from the month the procedure started.
+      const bucket: Bucket = new Map();
+      for (const c of waiting) if (toYmd(c.date).slice(0, 7) <= month) add(bucket, c);
+      for (const p of rows(bucket)) held.push({ ...p, reason: "not_finished" });
     }
-
-    for (const [patientId, p] of byPatient) {
-      const list = [...(waiting.get(patientId) ?? []), ...(p.byMonth.get(month) ?? [])];
-      if (list.length === 0) continue;
-      const states = list.map((c) => chargeDone(c, cards, children));
-      const row: SheetPatient = {
-        patientId,
-        patientName: p.name,
-        charges: list,
-        value: round2(list.reduce((s, c) => s + amountOf(c), 0)),
-      };
-
-      let reason: HeldReason | null = null;
-      if (states.some((s) => !s.done)) reason = "not_finished";
-      else if (states.some((s) => s.date > `${month}-31`)) reason = "finished_late";
-      // a sent month takes no new patients
-      else if (sent) reason = "moved";
-
-      if (reason) {
-        held.push({ ...row, reason });
-        waiting.set(patientId, list);
-      } else {
-        printed.push(row);
-        waiting.delete(patientId);
-      }
-    }
-    printed.sort(order);
     held.sort(order);
     return { month, printed, held, sent };
   });

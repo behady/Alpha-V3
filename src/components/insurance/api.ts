@@ -279,6 +279,16 @@ async function companySheetCall(body: Record<string, unknown>): Promise<string |
   }
 }
 
+/** Put one procedure on a month of the company sheet; null = back to automatic. */
+export function setProcedureSheetMonth(clinicId: string, payerId: string, chargeId: string, month: string | null): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "pickMonth", payerId, chargeId, month });
+}
+
+/** Change the day a procedure started: its charge and its first treatment card. */
+export function setProcedureStartDate(clinicId: string, payerId: string, chargeId: string, date: string): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "startDate", payerId, chargeId, date });
+}
+
 /** Change the day a finished treatment was finished (`noteId`: the card that speaks for it). */
 export function setTreatmentFinishDate(clinicId: string, payerId: string, noteId: string, date: string): Promise<string | null> {
   return companySheetCall({ clinicId, action: "finishDate", payerId, noteId, date });

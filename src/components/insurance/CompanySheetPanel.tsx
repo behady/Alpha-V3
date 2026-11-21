@@ -4,22 +4,22 @@
  * A contract company's (GASCO's) monthly sheet on the Insurance page, one patient per line.
  *
  * Each patient carries one label against the dates picked above: on this sheet, sent with a month,
- * waiting (work not finished), or goes on a later month. Tapping him opens his drawer — every
- * service, its finish date and its story (`CompanyPatientDrawer`). "What goes on this sheet?"
- * opens the month-by-month list with Mark as sent and the Excel (`CompanySheetPreview`).
+ * waiting (a procedure on no sheet yet), or goes on a later month. Tapping him opens his procedures
+ * right under his name (`CompanyPatientProcedures`): each with its dates, status and the month of
+ * the sheet it goes on. "What goes on this sheet?" opens the month-by-month list with Mark as sent
+ * and the Excel (`CompanySheetPreview`).
  *
- * There is no per-patient switch: a patient's work goes on the month his last service finished,
- * and the finish date is what the clinic changes to move him. The lists come ready-made from the
- * walk the Excel report uses, so what is shown here is exactly what the report prints.
+ * Every list comes from the same placement the Excel report is built from, so what is shown here
+ * is exactly what the report prints.
  */
 
 import { useMemo, useState } from "react";
-import { ChevronRight, Eye } from "lucide-react";
+import { ChevronDown, Eye } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { statementLineText } from "@/lib/insuranceStatement";
-import { cardChildren, COMPANY_SHEET_START, type MonthSheet, type SheetInputs } from "@/lib/insurance/companySheet";
-import { patientGroups, patientStandings, type PatientRow } from "@/lib/insurance/sheetPatients";
-import CompanyPatientDrawer from "./CompanyPatientDrawer";
+import { cardChildren, COMPANY_SHEET_START, placeCharges, type MonthSheet, type SheetCharge, type SheetInputs } from "@/lib/insurance/companySheet";
+import { patientRows, type PatientRow } from "@/lib/insurance/sheetPatients";
+import CompanyPatientProcedures from "./CompanyPatientProcedures";
 import CompanySheetPreview from "./CompanySheetPreview";
 import { fill, money, monthShort } from "./sheetFormat";
 import { tr } from "./text";
@@ -33,6 +33,7 @@ export default function CompanySheetPanel({
   payerId,
   payerName,
   range,
+  charges,
   walked,
   allBranchWalked,
   inputs,
@@ -46,9 +47,11 @@ export default function CompanySheetPanel({
   payerName: string;
   /** The dates picked on the page (yyyy-mm-dd). */
   range: { start: string; end: string };
+  /** The company's live charges for the branch on screen. */
+  charges: readonly SheetCharge[];
   /** Every month from the start through today or the end of the dates, whichever is later — for the branch on screen. */
   walked: MonthSheet[];
-  /** The same walk for every branch (Mark as sent freezes the whole company month). */
+  /** The same months for every branch (Mark as sent freezes the whole company month). */
   allBranchWalked: MonthSheet[];
   inputs: SheetInputs;
   /** A single branch is on screen, so the lists are not the whole company. */
@@ -66,13 +69,13 @@ export default function CompanySheetPanel({
 
   const from = (range.start > `${COMPANY_SHEET_START}-01` ? range.start : `${COMPANY_SHEET_START}-01`).slice(0, 7);
   const to = range.end.slice(0, 7);
-  const rows = useMemo(() => (to >= from ? patientStandings(walked, from, to) : []), [walked, from, to]);
+  const placed = useMemo(() => placeCharges({ ...inputs, payerId }), [inputs, payerId]);
+  const rows = useMemo(() => (to >= from ? patientRows(charges, placed, from, to) : []), [charges, placed, from, to]);
   const earlier = rows.filter((r) => r.standing.kind === "earlier");
   const visible = showAll ? rows : rows.filter((r) => r.standing.kind !== "earlier");
 
   const cards = useMemo(() => new Map(inputs.cards.map((c) => [c.id, c])), [inputs.cards]);
-  const children = useMemo(() => cardChildren(inputs.cards), [inputs.cards]);
-  const open = openId ? rows.find((r) => r.patientId === openId) ?? null : null;
+  const cardKids = useMemo(() => cardChildren(inputs.cards), [inputs.cards]);
   const months = walked.filter((s) => s.month >= from && s.month <= to);
 
   const chip = (r: PatientRow): { label: string; tone: string } => {
@@ -110,12 +113,14 @@ export default function CompanySheetPanel({
             {visible.map((r) => {
               const c = chip(r);
               const quiet = r.standing.kind !== "on_sheet" || r.standing.sent;
+              const open = openId === r.patientId;
               return (
                 <li key={r.patientId}>
                   <button
                     type="button"
-                    onClick={() => setOpenId(r.patientId)}
-                    className="flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors hover:bg-surface-subtle"
+                    onClick={() => setOpenId(open ? null : r.patientId)}
+                    aria-expanded={open}
+                    className={`flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors hover:bg-surface-subtle ${open ? "bg-surface-subtle" : ""}`}
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block text-[14.5px] font-bold text-ink">{r.patientName || "—"}</span>
@@ -123,8 +128,21 @@ export default function CompanySheetPanel({
                     </span>
                     <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap ${c.tone}`}>{c.label}</span>
                     <span className={`w-16 shrink-0 text-end font-figure text-[15px] font-black max-sm:hidden ${quiet ? "text-ink-muted" : "text-ink"}`}>{money(r.value, ar)}</span>
-                    <ChevronRight size={16} className="shrink-0 text-ink-muted rtl:rotate-180" aria-hidden="true" />
+                    <ChevronDown size={16} className={`shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
                   </button>
+                  {open && (
+                    <CompanyPatientProcedures
+                      clinicId={clinicId}
+                      payerId={payerId}
+                      patientId={r.patientId}
+                      patientName={r.patientName}
+                      charges={r.all}
+                      placed={placed}
+                      cards={cards}
+                      cardKids={cardKids}
+                      sent={inputs.sent}
+                    />
+                  )}
                 </li>
               );
             })}
@@ -141,18 +159,6 @@ export default function CompanySheetPanel({
         </button>
       )}
 
-      {open && (
-        <CompanyPatientDrawer
-          clinicId={clinicId}
-          payerId={payerId}
-          row={open}
-          groups={patientGroups(walked, open.patientId)}
-          cards={cards}
-          cardKids={children}
-          sent={inputs.sent}
-          onClose={() => setOpenId(null)}
-        />
-      )}
       {preview && (
         <CompanySheetPreview
           clinicId={clinicId}

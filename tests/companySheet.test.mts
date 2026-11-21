@@ -1,12 +1,15 @@
-// Which month a contract company's sheet lists each patient on: the month he FINISHED.
+// Which month a contract company's sheet lists each PROCEDURE on: the month it finished, or the
+// month the clinic picked for it.
 //
 //   npm run test:company-sheet
 import assert from "node:assert/strict";
 import { buildInsuranceStatement } from "../src/lib/insuranceStatement";
 import {
   buildCompanySheets,
-  companyStatement,
   cardChildren,
+  companyStatement,
+  nextMonth,
+  placeCharges,
   scopeSheets,
   sendRefusal,
   sheetChargeIds,
@@ -16,7 +19,7 @@ import {
   type SheetCard,
   type SheetCharge,
 } from "../src/lib/insurance/companySheet";
-import { nextMonth, parseFinishLog, patientGroups, patientStandings, serviceState, serviceStory } from "../src/lib/insurance/sheetPatients";
+import { parseFinishLog, patientRows, pickerMonths, serviceState, serviceStory } from "../src/lib/insurance/sheetPatients";
 
 let passed = 0;
 let failed = 0;
@@ -49,8 +52,9 @@ const card = (id: string, status: string, date: string, completedDate?: string, 
   continuedFromNoteId,
 });
 
-function run(charges: SheetCharge[], cards: SheetCard[], through = "2026-12") {
-  const sheets = buildCompanySheets({ charges, cards, sent: [], payerId: "gasco", through });
+type Months = Record<string, string>;
+function run(charges: SheetCharge[], cards: SheetCard[], months: Months = {}, sent: SentMonth[] = [], through = "2026-12") {
+  const sheets = buildCompanySheets({ charges, cards, months, sent, payerId: "gasco", through });
   return (month: string) => {
     const s = sheets.find((x) => x.month === month);
     assert.ok(s, `sheet for ${month}`);
@@ -58,39 +62,55 @@ function run(charges: SheetCharge[], cards: SheetCard[], through = "2026-12") {
   };
 }
 const ids = (xs: { charges: SheetCharge[] }) => xs.charges.map((c) => c.id);
+const printedIds = (s: MonthSheet) => s.printed.flatMap(ids);
+const heldIds = (s: MonthSheet) => s.held.flatMap(ids);
 
-check("finished patient prints in his month", () => {
+check("a finished procedure prints on the month it finished", () => {
   const sheet = run([charge("c1", "p1", "2026-11-05", "n1")], [card("n1", "Completed", "2026-11-05", "2026-11-05")]);
   assert.deepEqual(sheet("2026-11").printed.map((p) => p.patientId), ["p1"]);
   assert.deepEqual(sheet("2026-11").held, []);
   assert.equal(sheet("2026-11").sent, null);
+  assert.deepEqual(sheet("2026-12").printed, []);
 });
 
 const twoCharges = [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-06", "n2")];
 
-check("unfinished is held and carries old and new work together", () => {
+check("each procedure alone: the finished one prints, the unfinished one is on no sheet", () => {
   const sheet = run(twoCharges, [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Ongoing", "2026-11-06")]);
-  assert.deepEqual(sheet("2026-11").printed, []);
+  assert.deepEqual(printedIds(sheet("2026-11")), ["c1"]);
+  assert.equal(sheet("2026-11").printed[0].value, 100);
   assert.equal(sheet("2026-11").held[0].reason, "not_finished");
-  assert.deepEqual(ids(sheet("2026-11").held[0]), ["c1", "c2"]);
-  assert.deepEqual(ids(sheet("2026-12").held[0]), ["c1", "c2"]);
+  assert.deepEqual(heldIds(sheet("2026-11")), ["c2"]);
+  assert.deepEqual(printedIds(sheet("2026-12")), []);
+  assert.deepEqual(heldIds(sheet("2026-12")), ["c2"]);
 });
 
-const lateCards = [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-06", "2026-12-03")];
-
-check("finished after the month: held late, printed next month with everything", () => {
-  const sheet = run(twoCharges, lateCards);
-  assert.equal(sheet("2026-11").held[0].reason, "finished_late");
-  assert.deepEqual(ids(sheet("2026-12").printed[0]), ["c1", "c2"]);
-  assert.equal(sheet("2026-12").printed[0].value, 200);
+check("started in November, finished in December: only that procedure goes on December", () => {
+  const sheet = run(twoCharges, [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-06", "2026-12-03")]);
+  assert.deepEqual(printedIds(sheet("2026-11")), ["c1"]);
+  assert.deepEqual(printedIds(sheet("2026-12")), ["c2"]);
+  assert.deepEqual(sheet("2026-11").held, []);
 });
 
-check("the last finish date decides: moving it into December moves the whole visit", () => {
-  const nov = run(twoCharges, [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-06", "2026-11-09")]);
-  assert.deepEqual(ids(nov("2026-11").printed[0]), ["c1", "c2"]);
-  const dec = run(twoCharges, [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-06", "2026-12-02")]);
-  assert.deepEqual(dec("2026-11").printed, []);
-  assert.deepEqual(ids(dec("2026-12").printed[0]), ["c1", "c2"]);
+check("the month picker moves one procedure and leaves the other", () => {
+  const cards = [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-06", "2026-11-06")];
+  const sheet = run(twoCharges, cards, { c2: "2026-12" });
+  assert.deepEqual(printedIds(sheet("2026-11")), ["c1"]);
+  assert.deepEqual(printedIds(sheet("2026-12")), ["c2"]);
+});
+
+check("the picker can place a procedure that is not finished", () => {
+  const sheet = run([charge("c1", "p1", "2026-11-05", "n1")], [card("n1", "Ongoing", "2026-11-05")], { c1: "2026-11" });
+  assert.deepEqual(printedIds(sheet("2026-11")), ["c1"]);
+  assert.deepEqual(sheet("2026-11").held, []);
+});
+
+check("a picked month that is not a month, or before the start, is ignored", () => {
+  const cards = [card("n1", "Completed", "2026-11-05", "2026-11-05")];
+  for (const bad of ["2026-13", "soon", "2026-10"]) {
+    const sheet = run([charge("c1", "p1", "2026-11-05", "n1")], cards, { c1: bad });
+    assert.deepEqual(printedIds(sheet("2026-11")), ["c1"], bad);
+  }
 });
 
 check("returning patient: only the new work", () => {
@@ -98,8 +118,8 @@ check("returning patient: only the new work", () => {
     [charge("c1", "p1", "2026-11-05", "n1"), charge("c3", "p1", "2026-12-10", "n3")],
     [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n3", "Completed", "2026-12-10", "2026-12-10")],
   );
-  assert.deepEqual(ids(sheet("2026-11").printed[0]), ["c1"]);
-  assert.deepEqual(ids(sheet("2026-12").printed[0]), ["c3"]);
+  assert.deepEqual(printedIds(sheet("2026-11")), ["c1"]);
+  assert.deepEqual(printedIds(sheet("2026-12")), ["c3"]);
 });
 
 check("the continuation decides", () => {
@@ -123,7 +143,7 @@ check("no card, deleted card, card with no status all count as done on the charg
     [charge("c1", "p1", "2026-11-05"), charge("c2", "p1", "2026-11-05", "gone"), charge("c3", "p1", "2026-11-05", "n3")],
     [card("n3", "", "2026-11-05")],
   );
-  assert.deepEqual(ids(sheet("2026-11").printed[0]), ["c1", "c2", "c3"]);
+  assert.deepEqual(printedIds(sheet("2026-11")), ["c1", "c2", "c3"]);
 });
 
 check("start month and filters", () => {
@@ -145,7 +165,7 @@ check("start month and filters", () => {
 });
 
 check("through before the start gives no sheets", () => {
-  assert.deepEqual(buildCompanySheets({ charges: [], cards: [], sent: [], payerId: "gasco", through: "2026-10" }), []);
+  assert.deepEqual(buildCompanySheets({ charges: [], cards: [], months: {}, sent: [], payerId: "gasco", through: "2026-10" }), []);
 });
 
 check("order: earliest charge date, then name; value rounds to 2 places", () => {
@@ -159,37 +179,41 @@ check("order: earliest charge date, then name; value rounds to 2 places", () => 
 });
 
 // ---- the sent lock ----
-const sentRun = (
-  charges: SheetCharge[],
-  cards: SheetCard[],
-  sent: SentMonth[],
-) => buildCompanySheets({ charges, cards, sent, payerId: "gasco", through: "2026-12" });
+const sentRun = (charges: SheetCharge[], cards: SheetCard[], sent: SentMonth[], months: Months = {}) =>
+  buildCompanySheets({ charges, cards, months, sent, payerId: "gasco", through: "2026-12" });
 const sheetOf = (sheets: MonthSheet[], m: string) => sheets.find((s) => s.month === m) as MonthSheet;
 const sentNov: SentMonth = { month: "2026-11", chargeIds: ["c1"] };
 const doneN1 = card("n1", "Completed", "2026-11-05", "2026-11-05");
 
 check("sent month is frozen against a reopened treatment", () => {
   const sheets = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [card("n1", "Ongoing", "2026-11-05")], [sentNov]);
-  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-11")), ["c1"]);
   assert.notEqual(sheetOf(sheets, "2026-11").sent, null);
-  assert.ok(!sheetOf(sheets, "2026-12").printed.some((p) => p.patientId === "p1"));
-  assert.ok(!sheetOf(sheets, "2026-12").held.some((p) => p.patientId === "p1"));
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-12")), []);
+  assert.deepEqual(heldIds(sheetOf(sheets, "2026-12")), []);
 });
 
-check("back-dated charge waits for the next month", () => {
+check("sent month is frozen against the month picker", () => {
+  const sheets = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [doneN1], [sentNov], { c1: "2026-12" });
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-11")), ["c1"]);
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-12")), []);
+});
+
+check("a procedure finished into a sent month goes on the next open month, and the sent month says so", () => {
   const sheets = sentRun(
     [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-20", "n2")],
     [doneN1, card("n2", "Completed", "2026-11-20", "2026-11-20")],
     [sentNov],
   );
-  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
-  assert.deepEqual(sheetOf(sheets, "2026-11").held.flatMap(ids), ["c2"]);
-  assert.deepEqual(sheetOf(sheets, "2026-12").printed.flatMap(ids), ["c2"]);
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-11")), ["c1"]);
+  assert.deepEqual(heldIds(sheetOf(sheets, "2026-11")), ["c2"]);
+  assert.equal(sheetOf(sheets, "2026-11").held[0].reason, "moved");
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-12")), ["c2"]);
 });
 
 check("moved charge stays on its sent month", () => {
   const sheets = sentRun([charge("c1", "p1", "2026-12-02", "n1")], [doneN1], [sentNov]);
-  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-11")), ["c1"]);
   assert.deepEqual(sheetOf(sheets, "2026-12").printed, []);
 });
 
@@ -199,17 +223,17 @@ check("deleted charge drops off a sent month", () => {
     [doneN1],
     [{ month: "2026-11", chargeIds: ["c1", "c2"] }],
   );
-  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+  assert.deepEqual(printedIds(sheetOf(sheets, "2026-11")), ["c1"]);
 });
 
-check("sent month outside the walked range still keeps its charges off the waiting lists", () => {
+check("sent month outside the walked range still keeps its charges off the other sheets", () => {
   const sheets = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [doneN1], [{ month: "2027-03", chargeIds: ["c1"] }]);
   assert.deepEqual(sheetOf(sheets, "2026-11").printed, []);
   assert.deepEqual(sheetOf(sheets, "2026-12").printed, []);
 });
 
 check("sendRefusal", () => {
-  const open = sentRun([charge("c1", "p1", "2026-11-05", "n1"), charge("c9", "p9", "2026-12-05", "n1")], [doneN1], []);
+  const open = sentRun([charge("c1", "p1", "2026-11-05", "n1"), charge("c9", "p9", "2026-12-05", "n9")], [doneN1, card("n9", "Completed", "2026-12-05", "2026-12-05")], []);
   assert.equal(sendRefusal(open, "2026-12"), "earlier_open");
   assert.equal(sendRefusal(open, "2026-11"), null);
   const empty = sentRun([], [], []);
@@ -239,17 +263,28 @@ check("sheetChargeIds lists every printed charge", () => {
   assert.deepEqual(sheetChargeIds(sheetOf(sheets, "2026-11")), ["c1", "c2", "c3"]);
 });
 
+// ---- placeCharges ----
+check("placement says where a procedure goes and why", () => {
+  const charges = [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-06", "n2"), charge("c3", "p1", "2026-11-20", "n3")];
+  const cards = [doneN1, card("n2", "Ongoing", "2026-11-06"), card("n3", "Completed", "2026-11-20", "2026-11-21")];
+  const placed = placeCharges({ charges, cards, months: { c3: "2027-01" }, sent: [sentNov], payerId: "gasco" });
+  assert.deepEqual(placed.get("c1"), { month: "2026-11", auto: "2026-11", picked: "", sent: true, moved: false, done: true, finishDate: "2026-11-05" });
+  assert.deepEqual(placed.get("c2"), { month: "", auto: "", picked: "", sent: false, moved: false, done: false, finishDate: "" });
+  assert.deepEqual(placed.get("c3"), { month: "2027-01", auto: "2026-11", picked: "2027-01", sent: false, moved: false, done: true, finishDate: "2026-11-21" });
+});
+
+check("nextMonth rolls the year", () => {
+  assert.equal(nextMonth("2026-12"), "2027-01");
+  assert.equal(nextMonth("2026-09"), "2026-10");
+});
+
 // ---- companyStatement -------------------------------------------------------------------------
 const doneAll = [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-12", "2026-11-12")];
-function stmt(
-  charges: SheetCharge[],
-  cards: SheetCard[],
-  range: { start: string; end: string },
-  keep?: (c: SheetCharge) => boolean,
-) {
+function stmt(charges: SheetCharge[], cards: SheetCard[], range: { start: string; end: string }, keep?: (c: SheetCharge) => boolean) {
   return companyStatement({
     charges,
     cards,
+    months: {},
     sent: [],
     payerId: "gasco",
     payerName: "GASCO",
@@ -324,19 +359,18 @@ check("statement: a range across the start is legacy first, then November", () =
   assert.equal(statement.month, "2026-10");
 });
 
-check("statement: the branch filter applies after the walk", () => {
+check("statement: the branch filter keeps only that branch's procedures", () => {
   const { statement, sheets } = stmt(
     [charge("c1", "p1", "2026-11-05", "n1", { branchId: "A" }), charge("c2", "p1", "2026-11-06", "n2", { branchId: "B" })],
     [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Ongoing", "2026-11-06")],
     { start: "2026-11-01", end: "2026-11-30" },
     (c) => c.branchId === "A",
   );
-  assert.deepEqual(statement.cases, []);
-  assert.equal(sheets[0].held.length, 1);
-  assert.deepEqual(ids(sheets[0].held[0]), ["c1"]);
+  assert.deepEqual(statement.cases.map((c) => c.lines.map((l) => l.rowId)), [["c1"]]);
+  assert.deepEqual(sheets[0].held, []);
 });
 
-check("statement: held prints nothing", () => {
+check("statement: an unfinished procedure prints nothing", () => {
   const { statement } = stmt(
     [charge("c1", "p1", "2026-11-05", "n1")],
     [card("n1", "Ongoing", "2026-11-05")],
@@ -366,6 +400,7 @@ check("scopeSheets drops a held patient left with no charges", () => {
   const sheets = buildCompanySheets({
     charges: [charge("c1", "p1", "2026-11-05", "n1", { branchId: "B" })],
     cards: [card("n1", "Ongoing", "2026-11-05")],
+    months: {},
     sent: [],
     payerId: "gasco",
     through: "2026-11",
@@ -375,80 +410,58 @@ check("scopeSheets drops a held patient left with no charges", () => {
   assert.equal(sheets[0].held.length, 1);
 });
 
-// ---- the drawer's view: standings, groups, story ----------------------------------------------
-const youssef = [charge("y0", "youssef", "2026-11-03", "ny0"), charge("y1", "youssef", "2026-12-01", "ny1")];
-const youssefCards = [card("ny0", "Completed", "2026-11-03", "2026-11-03"), card("ny1", "Completed", "2026-12-01", "2026-12-01")];
-const nov: SentMonth = { month: "2026-11", chargeIds: ["y0"], sentAt: "2026-12-02", sentByName: "Sara" };
-
-check("standings: returning patient, old month sent — only the new work, on December", () => {
-  const sheets = buildCompanySheets({ charges: youssef, cards: youssefCards, sent: [nov], payerId: "gasco", through: "2026-12" });
-  const onNov = patientStandings(sheets, "2026-11", "2026-11")[0];
-  assert.deepEqual(onNov.standing, { kind: "on_sheet", month: "2026-11", sent: true });
-  assert.deepEqual(ids(onNov), ["y0"]);
-  const onDec = patientStandings(sheets, "2026-12", "2026-12")[0];
-  assert.deepEqual(onDec.standing, { kind: "on_sheet", month: "2026-12", sent: false });
-  assert.deepEqual(ids(onDec), ["y1"]);
-  assert.equal(onDec.value, 100);
-});
-
-check("standings: waiting, later, earlier", () => {
+// ---- the patient list, each procedure's line, the history --------------------------------------
+check("patient rows: on this sheet, sent, waiting, later, earlier", () => {
   const charges = [
-    charge("a", "ahmed", "2026-11-04", "na"),
-    charge("b", "ahmed", "2026-11-04", "nb"),
-    charge("h", "hoda", "2026-11-10", "nh"),
     charge("s", "samar", "2026-11-05", "ns"),
+    charge("a1", "ahmed", "2026-11-04", "na1"),
+    charge("a2", "ahmed", "2026-11-04", "na2"),
+    charge("h", "hoda", "2026-11-10", "nh"),
+    charge("w", "wael", "2026-11-12", "nw"),
+    charge("y", "youssef", "2026-11-03", "ny"),
   ];
   const cards = [
-    card("na", "Completed", "2026-11-04", "2026-11-04"),
-    card("nb", "Ongoing", "2026-11-04"),
-    card("nh", "Completed", "2026-11-10", "2026-12-03"),
     card("ns", "Completed", "2026-11-05", "2026-11-05"),
+    card("na1", "Completed", "2026-11-04", "2026-11-04"),
+    card("na2", "Ongoing", "2026-11-04"),
+    card("nh", "Completed", "2026-11-10", "2026-12-03"),
+    card("nw", "Ongoing", "2026-11-12"),
+    card("ny", "Completed", "2026-11-03", "2026-11-03"),
   ];
-  const sheets = buildCompanySheets({ charges, cards, sent: [], payerId: "gasco", through: "2026-12" });
-  const rows = patientStandings(sheets, "2026-11", "2026-11");
-  const by = new Map(rows.map((r) => [r.patientId, r]));
-  assert.deepEqual(by.get("samar")?.standing, { kind: "on_sheet", month: "2026-11", sent: false });
-  assert.deepEqual(by.get("ahmed")?.standing, { kind: "waiting" });
-  assert.equal(by.get("ahmed")?.value, 200);
-  assert.deepEqual(by.get("hoda")?.standing, { kind: "later", month: "2026-12" });
-  assert.deepEqual(rows.map((r) => r.patientId), ["samar", "ahmed", "hoda"]);
-  const dec = new Map(patientStandings(sheets, "2026-12", "2026-12").map((r) => [r.patientId, r.standing]));
-  assert.deepEqual(dec.get("samar"), { kind: "earlier", month: "2026-11" });
+  const inputs = { charges, cards, months: {}, sent: [{ month: "2026-11", chargeIds: ["y"] }], payerId: "gasco" };
+  // November is sent with only Youssef on it, so the others finished in November roll on to December.
+  const placed = placeCharges(inputs);
+  const dec = new Map(patientRows(charges, placed, "2026-12", "2026-12").map((r) => [r.patientId, r]));
+  assert.deepEqual(dec.get("samar")?.standing, { kind: "on_sheet", month: "2026-12", sent: false });
+  assert.deepEqual(dec.get("ahmed")?.standing, { kind: "on_sheet", month: "2026-12", sent: false });
+  assert.deepEqual(ids(dec.get("ahmed") as { charges: SheetCharge[] }), ["a1"]);
+  assert.deepEqual((dec.get("ahmed")?.all ?? []).map((c) => c.id), ["a1", "a2"]);
+  assert.deepEqual(dec.get("wael")?.standing, { kind: "waiting" });
+  assert.deepEqual(dec.get("youssef")?.standing, { kind: "earlier", month: "2026-11" });
+  const nov = new Map(patientRows(charges, placed, "2026-11", "2026-11").map((r) => [r.patientId, r]));
+  assert.deepEqual(nov.get("youssef")?.standing, { kind: "on_sheet", month: "2026-11", sent: true });
+  assert.deepEqual(nov.get("hoda")?.standing, { kind: "later", month: "2026-12" });
+  assert.equal(nov.get("wael")?.value, 100);
+  const order = patientRows(charges, placed, "2026-12", "2026-12").map((r) => r.patientId);
+  assert.deepEqual(order, ["ahmed", "hoda", "samar", "wael", "youssef"]);
 });
 
-check("standings: finished but its month already sent goes on the next month", () => {
-  const charges = [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p2", "2026-11-20", "n2")];
-  const cards = [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-20", "2026-11-20")];
-  const sheets = buildCompanySheets({ charges, cards, sent: [{ month: "2026-11", chargeIds: ["c1"] }], payerId: "gasco", through: "2026-11" });
-  const p2 = patientStandings(sheets, "2026-11", "2026-11").find((r) => r.patientId === "p2");
-  assert.deepEqual(p2?.standing, { kind: "later", month: "2026-12" });
-});
-
-check("drawer groups: pending first, then months newest first", () => {
-  const charges = [...youssef, charge("y2", "youssef", "2026-12-03", "ny2")];
-  const cards = [...youssefCards, card("ny2", "Ongoing", "2026-12-03")];
-  const sheets = buildCompanySheets({ charges, cards, sent: [nov], payerId: "gasco", through: "2026-12" });
-  const groups = patientGroups(sheets, "youssef");
-  assert.deepEqual(groups.map((g) => g.kind), ["pending", "month"]);
-  assert.equal(groups[0].kind === "pending" && groups[0].reason, "not_finished");
-  assert.equal(groups[0].month, "2027-01");
-  assert.deepEqual(ids(groups[0]), ["y1", "y2"]);
-  assert.equal(groups[1].month, "2026-11");
-  assert.equal(groups[1].kind === "month" && groups[1].sent?.sentByName, "Sara");
-});
-
-check("nextMonth rolls the year", () => {
-  assert.equal(nextMonth("2026-12"), "2027-01");
-  assert.equal(nextMonth("2026-09"), "2026-10");
-});
-
-check("story: started, visits, drawer changes, finished, sent — in order", () => {
+check("story: started, visits, changes made on the sheet, finished, sent — in order", () => {
   const cards = [
     { ...card("r", "Completed", "2026-11-02", "2026-11-14"), doctor: "Dr. Ahmed" },
-    { ...card("v", "Completed", "2026-11-09", "2026-11-14", "r"), doctor: "Ahmed", finishLog: [{ day: "2026-11-15", kind: "date", byName: "Mona", from: "2026-11-13", to: "2026-11-14" }, { junk: 1 }] },
+    {
+      ...card("v", "Completed", "2026-11-09", "2026-11-14", "r"),
+      doctor: "Ahmed",
+      finishLog: [
+        { day: "2026-11-15", kind: "date", byName: "Mona", from: "2026-11-13", to: "2026-11-14" },
+        { junk: 1 },
+        { day: "2026-11-16", kind: "month", byName: "Mona", from: "", to: "2026-12" },
+        { day: "2026-11-16", kind: "start", byName: "Mona", from: "2026-11-03", to: "2026-11-02" },
+      ],
+    },
   ];
   const map = new Map(cards.map((c) => [c.id, c]));
-  const story = serviceStory(charge("c1", "p1", "2026-11-02", "r"), map, cardChildren(cards), [{ month: "2026-11", chargeIds: ["c1"], sentAt: "2026-12-01", sentByName: "Sara" }]);
+  const story = serviceStory(charge("c1", "p1", "2026-11-02", "r"), map, cardChildren(cards), [{ month: "2026-12", chargeIds: ["c1"], sentAt: "2027-01-01", sentByName: "Sara" }]);
   assert.deepEqual(
     story.map((e) => [e.date, e.kind, e.by ?? ""]),
     [
@@ -456,11 +469,14 @@ check("story: started, visits, drawer changes, finished, sent — in order", () 
       ["2026-11-09", "visit", "Ahmed"],
       ["2026-11-14", "finished", ""],
       ["2026-11-15", "date_changed", "Mona"],
-      ["2026-12-01", "sent", "Sara"],
+      ["2026-11-16", "month_changed", "Mona"],
+      ["2026-11-16", "start_changed", "Mona"],
+      ["2027-01-01", "sent", "Sara"],
     ],
   );
   assert.equal(story[3].from, "2026-11-13");
-  assert.equal(story[4].month, "2026-11");
+  assert.equal(story[4].to, "2026-12");
+  assert.equal(story[6].month, "2026-12");
 });
 
 check("story: an undo then a finish on the same day stay in the order they were made", () => {
@@ -482,11 +498,23 @@ check("story: no card = started and finished on the charge date", () => {
   assert.deepEqual(story.map((e) => e.kind), ["started", "finished"]);
 });
 
-check("serviceState: the newest card is acted on; sent month found", () => {
-  const cards = [card("r", "Completed", "2026-11-02", "2026-11-03"), card("v", "Ongoing", "2026-11-09", undefined, "r")];
+check("serviceState: dates, the card acted on, the dentist", () => {
+  const cards = [
+    { ...card("r", "Completed", "2026-11-02", "2026-11-03"), doctor: "Dr. Karim" },
+    { ...card("v", "Ongoing", "2026-11-09", undefined, "r"), doctor: "Dr. Karim" },
+  ];
   const map = new Map(cards.map((c) => [c.id, c]));
-  const s = serviceState(charge("c1", "p1", "2026-11-02", "r"), map, cardChildren(cards), [{ month: "2026-11", chargeIds: ["c1"] }]);
-  assert.deepEqual(s, { noteId: "v", done: false, finishDate: "", lastVisit: "2026-11-09", sentMonth: "2026-11" });
+  assert.deepEqual(serviceState(charge("c1", "p1", "2026-11-02", "r"), map, cardChildren(cards)), {
+    noteId: "v",
+    done: false,
+    startDate: "2026-11-02",
+    finishDate: "",
+    lastVisit: "2026-11-09",
+    nextVisit: "2026-11-09",
+    dentist: "Karim",
+  });
+  const solo = serviceState(charge("c2", "p1", "2026-11-05", undefined, { doctorName: "Dr. Mona" } as Partial<SheetCharge>), new Map(), new Map());
+  assert.deepEqual([solo.noteId, solo.done, solo.finishDate, solo.nextVisit, solo.dentist], ["", true, "2026-11-05", "", "Mona"]);
 });
 
 check("parseFinishLog keeps only well-formed lines", () => {
@@ -496,5 +524,14 @@ check("parseFinishLog keeps only well-formed lines", () => {
   ]);
 });
 
-console.log(failed ?`companySheet: ${failed} failed, ${passed} passed` : `companySheet: all ${passed} checks passed`);
+check("the picker offers twelve months, never before the start", () => {
+  const early = pickerMonths("2026-11-21", "2026-11");
+  assert.equal(early.length, 12);
+  assert.equal(early[0], "2026-11");
+  assert.equal(early[11], "2027-10");
+  const later = pickerMonths("2027-09-02", "2026-11");
+  assert.deepEqual([later[0], later[6], later[11]], ["2027-03", "2027-09", "2028-02"]);
+});
+
+console.log(failed ? `companySheet: ${failed} failed, ${passed} passed` : `companySheet: all ${passed} checks passed`);
 if (failed) process.exit(1);
