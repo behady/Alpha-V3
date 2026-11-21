@@ -22,6 +22,7 @@ import {
   filterTreatments,
   inheritBranch,
   nextVisits,
+  payerOptions,
   treatmentLabel,
 } from "../src/lib/reports/treatmentStatus";
 
@@ -169,6 +170,16 @@ ok(/report=treatments&preset=\$\{preset\}/.test(numbersCard), "and the home's nu
   eq(payer("q2"), "GASCO", "a company's treatment names the company");
   eq(payer("q3"), "", "private work carries no label");
   eq(payer("q4"), "", "nor does a card from before payers existed");
+
+  // The payer filter.
+  const lines = buildTreatmentStatus(notes, PATIENTS, [], NOVEMBER, TODAY).lines;
+  const ids = (payerId: string) => filterTreatments(lines, { ...NO_TREATMENT_FILTERS, payerId }).map((l) => l.id).sort();
+  eq(ids(""), ["q1", "q2", "q3", "q4"], "no payer picked shows everything");
+  eq(ids("gasco"), ["q2"], "a company shows its own work only");
+  eq(ids("metlife"), ["q1"], "an insurer shows its own, the continued treatment once");
+  eq(ids("private"), ["q3", "q4"], "private is what carries no payer, old cards included");
+  eq(payerOptions(lines).map((o) => o.value), ["private", "gasco", "metlife"], "the dropdown lists private first, then each payer by name");
+  eq(payerOptions(lines.filter((l) => !l.payerId)).map((o) => o.value), ["private"], "a list of private work alone has no payer to offer");
 }
 
 // --- a state picked on the dropdown, before the page reads again ------------------------------------

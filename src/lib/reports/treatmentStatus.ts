@@ -272,6 +272,8 @@ export type TreatmentFilters = {
   /** "" shows every state. */
   state: TreatmentState | "";
   doctorId: string;
+  /** "" shows every payer; PRIVATE_FILTER shows what patients pay for themselves; else a payer's id. */
+  payerId: string;
   /** Matches the patient's name or phone. */
   search: string;
   /** Only open work whose patient has nothing booked — the list to phone. */
@@ -280,9 +282,13 @@ export type TreatmentFilters = {
   includeOlder: boolean;
 };
 
+/** The payer filter's value for private work, whose lines carry no payer id. */
+export const PRIVATE_FILTER = "private";
+
 export const NO_TREATMENT_FILTERS: TreatmentFilters = {
   state: "",
   doctorId: "",
+  payerId: "",
   search: "",
   unbookedOnly: false,
   includeOlder: false,
@@ -307,10 +313,27 @@ export function filterTreatments(lines: readonly TreatmentLine[], f: TreatmentFi
     if (l.older && !f.includeOlder) return false;
     if (f.state && l.state !== f.state) return false;
     if (f.doctorId && l.doctorId !== f.doctorId) return false;
+    if (f.payerId && (f.payerId === PRIVATE_FILTER ? l.payerId !== "" : l.payerId !== f.payerId)) return false;
     if (f.unbookedOnly && (l.state === "Completed" || l.nextVisit)) return false;
     if (needle && !fold(l.patientName).includes(needle) && !(digits.length >= 3 && l.phone.replace(/\D/g, "").includes(digits))) return false;
     return true;
   });
+}
+
+/**
+ * The payers present in the list, for its dropdown: private first when there is any, then each
+ * insurer or company by name. The label is the name stored on the card; the screen may replace it
+ * with the clinic's own name for that payer.
+ */
+export function payerOptions(lines: readonly TreatmentLine[]): { value: string; label: string }[] {
+  const seen = new Map<string, string>();
+  let hasPrivate = false;
+  for (const l of lines) {
+    if (!l.payerId) hasPrivate = true;
+    else if (!seen.has(l.payerId)) seen.set(l.payerId, l.payerName || l.payerId);
+  }
+  const named = [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  return hasPrivate ? [{ value: PRIVATE_FILTER, label: "Private" }, ...named] : named;
 }
 
 /** The dentists present in the list, for its dropdown. */

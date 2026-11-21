@@ -14,6 +14,7 @@ import type { ReportProps } from "@/components/reports/types";
 import { dayText } from "@/lib/reportHelpers";
 import {
   NO_TREATMENT_FILTERS,
+  PRIVATE_FILTER,
   TREATMENT_STATES,
   applyStatePicks,
   buildTreatmentStatus,
@@ -21,6 +22,7 @@ import {
   type StatePick,
   dentistOptions,
   filterTreatments,
+  payerOptions,
   type TreatmentFilters,
   type TreatmentLine,
   type TreatmentState,
@@ -143,7 +145,17 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
 
   const rows = useMemo(() => filterTreatments(status.lines, filters), [status.lines, filters]);
   const dentists = useMemo(() => dentistOptions(status.lines), [status.lines]);
-  const dirty = Boolean(filters.doctorId || filters.search || filters.unbookedOnly);
+  // Offered only when the list mixes payers: a clinic with private work alone has nothing to pick.
+  const payerChoices = useMemo(() => {
+    const options = payerOptions(status.lines);
+    if (!options.some((o) => o.value !== PRIVATE_FILTER)) return [];
+    return options.map((o) => {
+      if (o.value === PRIVATE_FILTER) return { ...o, label: isAr ? "خاص" : "Private" };
+      const p = findPayer(payers, o.value);
+      return { ...o, label: (p && (isAr && p.nameAr ? p.nameAr : p.name)) || o.label };
+    });
+  }, [status.lines, payers, isAr]);
+  const dirty = Boolean(filters.doctorId || filters.payerId || filters.search || filters.unbookedOnly);
 
   const word = (s: TreatmentState) =>
     isAr ? { Planned: "مخطط", Ongoing: "جاري", Completed: "اتعمل" }[s] : { Planned: "Planned", Ongoing: "In progress", Completed: "Done" }[s];
@@ -244,6 +256,22 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
           <select value={filters.doctorId} onChange={(e) => set({ doctorId: e.target.value })} className={control}>
             <option value="">{isAr ? "كل الأطباء" : "All dentists"}</option>
             {dentists.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {payerChoices.length > 0 && (
+          <select
+            value={filters.payerId}
+            onChange={(e) => set({ payerId: e.target.value })}
+            aria-label={isAr ? "مين بيدفع" : "Payer"}
+            className={control}
+          >
+            <option value="">{isAr ? "كل الجهات" : "Every payer"}</option>
+            {payerChoices.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
