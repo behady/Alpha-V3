@@ -460,7 +460,7 @@ console.log("the month picked for an approval's closing sheet");
   const before = await frozen("metlife_m1");
   let r = await patch("metlife_m1", { sheetMonth: "2026-12" });
   check("picking a month is accepted", r.status === 200, r);
-  let d = await raw("metlife_m1");
+  const d = await raw("metlife_m1");
   check("the approval carries it", d.sheetMonth === "2026-12", d.sheetMonth);
   check("and nothing else on it or its rows changed", JSON.stringify([{ ...d, sheetMonth: undefined, updatedAt: undefined, updatedBy: undefined }, await rowDates("metlife_m1")]) === JSON.stringify([{ ...JSON.parse(before)[0], sheetMonth: undefined, updatedAt: undefined, updatedBy: undefined }, JSON.parse(before)[1]]));
   check("it parses as the approval's sheet month", (await claimOf("metlife_m1")).sheetMonth === "2026-12");
