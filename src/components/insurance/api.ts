@@ -16,7 +16,6 @@ import type { Check, MetlifeExtraction, MetlifeHeader, MetlifeLine } from "@/lib
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
 import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
 import type { BinNotice } from "@/lib/recycleBin";
-import type { SheetChoice } from "@/lib/insurance/companySheet";
 
 export type ApiAnswer = { status: number; data: Record<string, unknown> };
 
@@ -169,6 +168,12 @@ export type ClaimPatch = {
   lineStatus?: Record<number, LineStatus>;
   /** Line index -> the day that service was done (`yyyy-mm-dd`), or null to go back to the default. */
   lineDates?: Record<number, string | null>;
+  /** The month (`yyyy-mm`) of the closing sheet the whole approval goes on; null = automatic (the month it was finished). Travels alone. */
+  sheetMonth?: string | null;
+  /** Line index -> that service's teeth (FDI codes; empty = none). One line at a time. Travels alone. */
+  lineTeeth?: Record<number, string[]>;
+  /** With `lineTeeth` on an approval already sent: an Owner or Admin has read the warning. */
+  confirmSent?: boolean;
   /** Delete one service the patient will not come back for (never a Completed one). Travels alone. */
   removeLine?: number;
   /** Put a deleted service back on the approval. Travels alone. */
@@ -186,7 +191,9 @@ export type ClaimPatch = {
 
 /** PATCH /api/insurance/claims. Resolves to the server's message on a refusal, null on success. */
 export async function patchClaim(clinicId: string, claimId: string, patch: ClaimPatch, branchId?: string): Promise<string | null> {
-  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch, ...(branchId ? { branchId } : {}) });
+  // `confirmSent` is the person's yes, not a change to the approval: it rides beside the patch.
+  const { confirmSent, ...change } = patch;
+  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch: change, ...(confirmSent ? { confirmSent: true } : {}), ...(branchId ? { branchId } : {}) });
   if (status === 200 && data.ok === true) return null;
   return typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`;
 }
@@ -274,15 +281,36 @@ async function companySheetCall(body: Record<string, unknown>): Promise<string |
   try {
     const { status, data } = await call("POST", "/api/insurance/company-sheet", body);
     if (status === 200 && data.ok === true) return null;
-    return typeof data.reason === "string" && data.reason ? data.reason : "failed";
+    if (typeof data.reason === "string" && data.reason) return data.reason;
+    return data.code === "branch_forbidden" ? "branch_forbidden" : "failed";
   } catch {
     return "failed";
   }
 }
 
-/** The company's monthly sheet: tick a patient onto this month ("include"), carry him on ("hold"), or back to automatic (null). */
-export function markCompanySheet(clinicId: string, payerId: string, patientId: string, month: string, choice: SheetChoice | null): Promise<string | null> {
-  return companySheetCall({ clinicId, action: "mark", payerId, month, patientId, choice });
+/** Put one procedure on a month of the company sheet; null = back to automatic. */
+export function setProcedureSheetMonth(clinicId: string, payerId: string, chargeId: string, month: string | null): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "pickMonth", payerId, chargeId, month });
+}
+
+/** Change the day a procedure started: its charge and its first treatment card. */
+export function setProcedureStartDate(clinicId: string, payerId: string, chargeId: string, date: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "startDate", payerId, chargeId, date, confirmSent });
+}
+
+/** Change the day a finished treatment was finished (`noteId`: the card that speaks for it). */
+export function setTreatmentFinishDate(clinicId: string, payerId: string, noteId: string, date: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "finishDate", payerId, noteId, date, confirmSent });
+}
+
+/** A treatment marked finished by mistake goes back to In progress. */
+export function reopenTreatment(clinicId: string, payerId: string, noteId: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "reopen", payerId, noteId, confirmSent });
+}
+
+/** Mark an unfinished treatment finished today. */
+export function finishTreatment(clinicId: string, payerId: string, noteId: string, confirmSent = false): Promise<string | null> {
+  return companySheetCall({ clinicId, action: "finish", payerId, noteId, confirmSent });
 }
 
 /** Freeze a month as sent to the company. */

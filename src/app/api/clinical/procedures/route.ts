@@ -49,9 +49,11 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim, shareDiscountOf } from "@/lib/insurance/claims";
 import { billingFields, lineDateOf, lineDatesAfterStates, movesSentMonth } from "@/lib/insurance/billingMonth";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { isFdiTooth } from "@/lib/insurance/nextcare";
+import { isFdiTooth, withLineTeeth } from "@/lib/insurance/nextcare";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { sentSheetGate } from "@/lib/server/companySheetLock";
+import { isFullAccessRole } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -634,6 +636,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     | { kind: "no_staff" }
     | { kind: "not_dentist" }
     | { kind: "sent_locked" }
+    | { kind: "teeth_sent_role" }
+    | { kind: "teeth_sent_confirm" }
     | { kind: "ok"; after: Record<string, unknown>; restamp: Array<string | null>; moved: { ledgerId: string; from: unknown; to: string } | null };
   const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
     const claimSnap = await tx.get(claimRef);
@@ -711,14 +715,16 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
       }
     }
     if (teeth !== undefined) {
+      // An approval already sent printed these teeth on the sheet the company holds: only an Owner
+      // or Admin changes them, after the warning — the same rule the Insurance page's teeth box has.
+      if (claim.status === "sent") {
+        if (!isFullAccessRole(actor.role)) return { kind: "teeth_sent_role" };
+        if (body.confirmSentApproval !== true) return { kind: "teeth_sent_confirm" };
+      }
       // The approval's line is what the monthly sheet prints; the note and its charge say the same.
-      // A flat insurance price: the teeth never move the money.
-      claimUpdate.lines = claim.lines.map((l, k) => {
-        const own = k === i ? teeth : l.teeth;
-        const { teeth: _old, ...rest } = l;
-        void _old;
-        return own && own.length ? { ...rest, teeth: [...own] } : rest;
-      });
+      // A flat insurance price: the teeth never move the money. Cleared teeth are remembered as
+      // cleared, so the paper's conditions do not print teeth the file no longer has.
+      claimUpdate.lines = withLineTeeth(claim.lines, i, teeth);
       const toothText = teeth.length ? teeth.join(",") : "Gen";
       noteUpdate.tooth = toothText;
       const description = withToothText(ledgerSnap?.data()?.description, toothText);
@@ -734,6 +740,12 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   if (outcome.kind === "no_staff") return bad("That dentist is not on staff any more.");
   if (outcome.kind === "not_dentist") return bad(NOT_A_DENTIST_MESSAGE);
   if (outcome.kind === "sent_locked") return bad(APPROVAL_SENT_MESSAGE, 409);
+  if (outcome.kind === "teeth_sent_role") {
+    return NextResponse.json({ ok: false, reason: "approval_sent", error: "This approval was already sent to the company. Only the owner or an admin can change its teeth. / الموافقة دي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّر أسنانها." }, { status: 409 });
+  }
+  if (outcome.kind === "teeth_sent_confirm") {
+    return NextResponse.json({ ok: false, reason: "approval_sent_confirm", error: "This approval was already sent to the company. Confirm to change its teeth. / الموافقة دي اتبعتت للشركة. أكّد عشان تغيّر أسنانها." }, { status: 409 });
+  }
   // The approval no longer knows this row (deleted, or saved again): the row is frozen as before.
   if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
   await restampStaffSettlementsFor(clinicId, outcome.restamp);
@@ -780,6 +792,24 @@ async function linkedChargeBranch(clinicId: string, noteId: string, note: Record
   return linked.empty ? null : linked.docs[0].data().branchId ?? null;
 }
 
+/** The charges a treatment card carries: its own link, and any charge that points back at it. */
+async function noteChargeIds(clinicId: string, noteId: string, note: Record<string, unknown> | undefined): Promise<string[]> {
+  const legacyId = typeof note?.ledgerId === "string" ? note.ledgerId.trim() : "";
+  const linked = await adminClinicCollection(clinicId, "ledger").where("clinicalNoteId", "==", noteId).where("type", "==", "procedure").get();
+  return [...new Set([legacyId, ...linked.docs.map((d) => d.id)].filter(Boolean))];
+}
+
+/**
+ * A treatment on a company sheet that was already sent: nobody but an Owner or Admin changes it,
+ * and they only after the screen's warning (see lib/server/companySheetLock). A private treatment
+ * is on no company's sheet, so it is not looked up.
+ */
+async function sentSheetRefusal(clinicId: string, actor: Actor, noteId: string, note: Record<string, unknown> | undefined, body: Record<string, unknown>) {
+  const payerId = typeof note?.payerId === "string" ? note.payerId.trim() : "";
+  if (!payerId || payerId === "private") return null;
+  return sentSheetGate({ clinicId, role: actor.role, chargeIds: await noteChargeIds(clinicId, noteId, note), confirmed: body.confirmSentSheet });
+}
+
 async function updateProcedure(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
   const noteId = String(body.noteId || "").trim();
@@ -799,6 +829,10 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   }
   if (current.exists && isApprovalRow(current.data())) {
     return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {} });
+  }
+  if (current.exists) {
+    const locked = await sentSheetRefusal(clinicId, actor, noteId, current.data(), body);
+    if (locked) return locked;
   }
 
   const storedPayerId = current.exists ? current.data()?.payerId : null;
@@ -966,6 +1000,10 @@ async function deleteProcedure(args: { clinicId: string; actor: Actor; body: Rec
     rowBranchId: charge ? charge.data().branchId : await linkedChargeBranch(clinicId, noteId, note),
   });
   if (!gate.ok) return gate.response;
+  {
+    const locked = await sentSheetRefusal(clinicId, actor, noteId, note, body);
+    if (locked) return locked;
+  }
   const related: Array<{ id: string; type?: string; procedureId?: string | null; clinicalNoteId?: string | null }> =
     linkedSnap.docs.map((d) => ({ id: d.id, type: String(d.data().type || ""), clinicalNoteId: noteId }));
 
@@ -1037,6 +1075,12 @@ async function moveProcedure(args: { clinicId: string; actor: Actor; body: Recor
   // payroll read. Moving it here would re-date the books alone and the three would disagree.
   if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_MOVE_MESSAGE, 409);
   const linkedIds = linkedSnap.docs.map((d) => d.id);
+  {
+    // Moving it re-dates its charge: on a sent sheet that is a change to what the company received.
+    const moving = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
+    const locked = moving.exists ? await sentSheetRefusal(clinicId, actor, noteId, moving.data(), body) : null;
+    if (locked) return locked;
+  }
 
   const result = await adminDb().runTransaction(async (txn) => {
     const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
@@ -1174,10 +1218,101 @@ async function procedurePhotos(args: { clinicId: string; actor: Actor; body: Rec
 }
 
 // ---------------------------------------------------------------------------------------------
+// status
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Change where a treatment stands — Planned, In progress, Done — and nothing else.
+ *
+ * The Treatments report changes a row's state from a dropdown. A full `update` would re-price the
+ * card from whatever the screen sent, and the report holds no price list, discount or payer to send,
+ * so this touches only the state: the note, its finish stamp, and the visit's `services[]` mirror.
+ * The charge carries no state and is left alone. An insurance approval's card goes through the
+ * approval's own path, which moves its line state and billing month the same way the file does.
+ */
+async function setProcedureStatus(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+  const noteId = String(body.noteId || "").trim();
+  if (!noteId) return bad("Which treatment?");
+  const status = String(body.status || "");
+  if (!isLineStatus(status)) return bad("A treatment is Planned, Ongoing or Completed.");
+
+  const current = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
+  if (!current.exists) throw new Error("NOT_FOUND");
+  const gate = await assertRowBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role,
+    rowBranchId: await linkedChargeBranch(clinicId, noteId, current.data()),
+  });
+  if (!gate.ok) return gate.response;
+  if (isApprovalRow(current.data())) {
+    return await updateApprovalNote({ clinicId, actor, body: { noteId, status }, noteId, before: current.data() || {} });
+  }
+  // The report's dropdown is one more door to a treatment on a company sheet already sent:
+  // the same lock as the patient's file (Owner or Admin only, after the warning).
+  if (String(current.data()?.status || "") !== status) {
+    const locked = await sentSheetRefusal(clinicId, actor, noteId, current.data(), body);
+    if (locked) return locked;
+  }
+
+  const result = await adminDb().runTransaction(async (txn) => {
+    const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
+    const snap = await txn.get(noteRef);
+    if (!snap.exists) throw new Error("NOT_FOUND");
+    const before = snap.data() || {};
+    if (isApprovalRow(before)) throw new Error("APPROVAL_NOTE");
+    if (String(before.status || "") === status) return { before, changed: false };
+
+    const appointmentId = typeof before.appointmentId === "string" ? before.appointmentId : null;
+    const appointmentRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
+    const appointmentSnap = appointmentRef ? await txn.get(appointmentRef) : null;
+
+    // The same finish stamp an edit in the patient's file writes (see finishStamp).
+    const today = ymdInTimeZone(clinicTimeZone());
+    const date = typeof before.date === "string" ? before.date : today;
+    const stamp: Record<string, unknown> =
+      status !== "Completed"
+        ? before.completedDate !== undefined ? { completedDate: FieldValue.delete() } : {}
+        : String(before.status) === "Completed" ? {} : { completedDate: date > today ? date : today };
+
+    txn.update(noteRef, {
+      status,
+      ...stamp,
+      updatedByUid: actor.uid,
+      updatedByName: actor.name,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    if (appointmentRef && appointmentSnap?.exists) {
+      const services = appointmentSnap.data()?.services;
+      if (Array.isArray(services) && services.some((s) => s && s.clinicalNoteId === noteId)) {
+        txn.update(appointmentRef, {
+          services: services.map((s) => (s && s.clinicalNoteId === noteId ? { ...s, status } : s)),
+        });
+      }
+    }
+    return { before, changed: true };
+  });
+
+  if (result.changed) {
+    await recordMoneyChange({
+      entry: {
+        clinicId, action: "update", collection: "clinical_notes", documentId: noteId,
+        before: { status: result.before.status ?? null }, after: { status },
+        actor, via: "clinical/procedures:status",
+      },
+      action: "Procedure Updated",
+      details: `state ${status} on ${String(result.before.procedure || "treatment")}`,
+    });
+  }
+  return NextResponse.json({ ok: true, noteId, status });
+}
+
+// ---------------------------------------------------------------------------------------------
 
 const PERMISSION_BY_ACTION: Record<string, string> = {
   create: "clinical.edit",
   update: "clinical.edit",
+  status: "clinical.edit",
   move: "clinical.edit",
   continue: "clinical.edit",
   photos: "clinical.edit",
@@ -1215,6 +1350,8 @@ export async function POST(request: Request) {
         return await createProcedure({ clinicId, actor, body });
       case "update":
         return await updateProcedure({ clinicId, actor, body });
+      case "status":
+        return await setProcedureStatus({ clinicId, actor, body });
       case "delete":
         return await deleteProcedure({ clinicId, actor, body });
       case "move":

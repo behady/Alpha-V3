@@ -1,248 +1,181 @@
 "use client";
 
 /**
- * The company's monthly sheet on screen, one block per month: who prints this month, who waits and
- * why, a "This month / Next month" switch per patient, and Mark as sent (which freezes the month).
+ * A contract company's (GASCO's) monthly sheet on the Insurance page, one patient per line.
  *
- * The lists come ready-made from `companyStatement` (the same call that feeds the Excel report), so
- * what is shown here is exactly what the report prints. Every write goes through the company-sheet
- * route; the page's live listeners then redraw this panel, so nothing here keeps its own copy.
- * A sent month is read-only until it is marked not sent.
+ * Each patient carries one label against the dates picked above: on this sheet, sent with a month,
+ * waiting (a procedure on no sheet yet), or goes on a later month. Tapping him opens his procedures
+ * right under his name (`CompanyPatientProcedures`): each with its dates, status and the month of
+ * the sheet it goes on. "What goes on this sheet?" opens the month-by-month list with Mark as sent
+ * and the Excel (`CompanySheetPreview`).
+ *
+ * Every list comes from the same placement the Excel report is built from, so what is shown here
+ * is exactly what the report prints.
  */
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { CheckCircle2, Loader2, Undo2 } from "lucide-react";
+import { ChevronDown, Eye } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
-import { useUI } from "@/context/UIContext";
-import Protect from "@/components/Protect";
 import { statementLineText } from "@/lib/insuranceStatement";
-import type { HeldPatient, MonthSheet, SheetChoice, SheetPatient } from "@/lib/insurance/companySheet";
-import { cairoToday, markCompanySheet, sendCompanySheet, unsendCompanySheet } from "./api";
-import { tr, type TextKey } from "./text";
+import { cardChildren, COMPANY_SHEET_START, placeCharges, type MonthSheet, type SheetCharge, type SheetInputs } from "@/lib/insurance/companySheet";
+import { patientRows, type PatientRow } from "@/lib/insurance/sheetPatients";
+import CompanyPatientProcedures from "./CompanyPatientProcedures";
+import CompanySheetPreview from "./CompanySheetPreview";
+import { fill, money, monthShort } from "./sheetFormat";
+import { tr } from "./text";
 
-const REFUSAL_TEXT: Record<string, TextKey> = {
-  sent_locked: "sheetToastSentLocked",
-  already_sent: "sheetToastSentLocked",
-  not_finished: "sheetToastNotFinished",
-  empty: "sheetToastEmpty",
-  earlier_open: "sheetToastEarlierOpen",
-  later_sent: "sheetToastLaterSent",
-};
-
-const HELD_TEXT: Record<HeldPatient["reason"], TextKey> = {
-  not_finished: "sheetNotFinished",
-  finished_late: "sheetFinishedLate",
-  moved: "sheetMoved",
-};
+const GREY = "border-line bg-surface-subtle text-ink-body";
+const AMBER = "border-amber-100 bg-amber-50 text-amber-800";
+const BLACK = "border-ink-slab bg-ink-slab text-white";
 
 export default function CompanySheetPanel({
   clinicId,
   payerId,
-  sheets,
-  allBranchSheets,
+  payerName,
+  range,
+  charges,
+  walked,
+  allBranchWalked,
+  inputs,
   scoped,
+  onExcel,
+  exporting,
+  excelReady,
 }: {
   clinicId: string;
   payerId: string;
   payerName: string;
-  sheets: MonthSheet[];
-  /** The same months for every branch: Mark as sent freezes the whole company month, so it is judged on these. */
-  allBranchSheets?: MonthSheet[];
-  /** A single branch is on screen, so the list above is not the whole month. */
-  scoped?: boolean;
+  /** The dates picked on the page (yyyy-mm-dd). */
+  range: { start: string; end: string };
+  /** The company's live charges for the branch on screen. */
+  charges: readonly SheetCharge[];
+  /** Every month from the start through today or the end of the dates, whichever is later — for the branch on screen. */
+  walked: MonthSheet[];
+  /** The same months for every branch (Mark as sent freezes the whole company month). */
+  allBranchWalked: MonthSheet[];
+  inputs: SheetInputs;
+  /** A single branch is on screen, so the lists are not the whole company. */
+  scoped: boolean;
+  onExcel: () => void;
+  exporting: boolean;
+  excelReady: boolean;
 }) {
   const { language } = useLanguage();
   const ar = language === "ar";
   const t = useMemo(() => tr(ar), [ar]);
-  const { confirm, showToast } = useUI();
-  /** What is being saved: a month's button or a patient's switch. Everything is held while one is in flight. */
-  const [busy, setBusy] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
-  const thisMonth = cairoToday().slice(0, 7);
+  const from = (range.start > `${COMPANY_SHEET_START}-01` ? range.start : `${COMPANY_SHEET_START}-01`).slice(0, 7);
+  const to = range.end.slice(0, 7);
+  const placed = useMemo(() => placeCharges({ ...inputs, payerId }), [inputs, payerId]);
+  const rows = useMemo(() => (to >= from ? patientRows(charges, placed, from, to) : []), [charges, placed, from, to]);
+  const earlier = rows.filter((r) => r.standing.kind === "earlier");
+  const visible = showAll ? rows : rows.filter((r) => r.standing.kind !== "earlier");
 
-  const fmt = (n: number) => n.toLocaleString(ar ? "ar-EG" : "en-US");
-  const monthName = (month: string) =>
-    new Intl.DateTimeFormat(ar ? "ar-EG" : "en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
+  const unfinished = useMemo(() => new Set([...placed].filter(([, at]) => !at.done).map(([id]) => id)), [placed]);
+  const cards = useMemo(() => new Map(inputs.cards.map((c) => [c.id, c])), [inputs.cards]);
+  const cardKids = useMemo(() => cardChildren(inputs.cards), [inputs.cards]);
+  const months = walked.filter((s) => s.month >= from && s.month <= to);
 
-  const finish = (reason: string | null) => {
-    if (reason) showToast(t(REFUSAL_TEXT[reason] ?? "sheetToastFailed"), "error");
+  const chip = (r: PatientRow): { label: string; tone: string } => {
+    const s = r.standing;
+    if (s.kind === "on_sheet") return s.sent ? { label: fill(t("dwSentWith"), { month: monthShort(s.month, ar) }), tone: GREY } : { label: t("dwOnSheet"), tone: BLACK };
+    if (s.kind === "waiting") return { label: t("dwWaiting"), tone: AMBER };
+    if (s.kind === "later") return { label: fill(t("dwGoesOn"), { month: monthShort(s.month, ar) }), tone: GREY };
+    return { label: fill(t("dwEarlier"), { month: monthShort(s.month, ar) }), tone: GREY };
   };
-
-  const choose = async (month: string, patientId: string, choice: SheetChoice | null) => {
-    if (busy) return;
-    setBusy(`${month}|${patientId}`);
-    try {
-      finish(await markCompanySheet(clinicId, payerId, patientId, month, choice));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const send = async (month: string) => {
-    if (busy) return;
-    const ok = await confirm(t("sheetConfirm").replace("{month}", monthName(month)) + (scoped ? " " + t("sheetConfirmAllBranches") : ""), {
-      title: t("sheetMarkSent"),
-      confirmLabel: t("sheetMarkSent"),
-    });
-    if (!ok) return;
-    setBusy(month);
-    try {
-      finish(await sendCompanySheet(clinicId, payerId, month));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const unsend = async (month: string) => {
-    if (busy) return;
-    setBusy(month);
-    try {
-      finish(await unsendCompanySheet(clinicId, payerId, month));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const seg = (active: boolean) =>
-    `max-lg:min-h-10 px-3 py-1 text-[11px] font-black whitespace-nowrap transition-colors disabled:opacity-40 ${
-      active ? "bg-ink text-white" : "bg-surface text-ink-body hover:bg-slate-50"
-    }`;
-
-  /** One patient: name, treatments, value, and the switch. `reason` only for a waiting patient. */
-  const row = (sheet: MonthSheet, p: SheetPatient, held: HeldPatient | null) => {
-    const locked = sheet.sent !== null || sheet.month > thisMonth; // the server refuses a month that has not started
-    const rowBusy = busy === `${sheet.month}|${p.patientId}`;
-    const onThisMonth = held === null;
-    // Not finished: no switch can override it, so none is offered.
-    const switchable = held === null || held.reason !== "not_finished";
-    const treatments = p.charges.map((c) => statementLineText(c)).join(" + ");
-    return (
-      <li key={p.patientId} className="flex flex-col gap-2 py-3 lg:flex-row lg:items-center lg:gap-4">
-        <div className="min-w-0 lg:w-56 shrink-0 font-semibold text-ink">
-          {p.patientId ? (
-            <Link href={`/patients/${p.patientId}`} className="hover:underline">
-              {p.patientName || "—"}
-            </Link>
-          ) : (
-            p.patientName || "—"
-          )}
-        </div>
-        <p className="min-w-0 flex-1 text-sm text-ink-body">{treatments || "—"}</p>
-        {held && (
-          <span className="inline-flex w-fit rounded-full bg-amber-50 text-amber-800 border border-amber-100 px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap">
-            {t(HELD_TEXT[held.reason])}
-          </span>
-        )}
-        <span className="font-figure text-sm font-black text-ink lg:w-24 lg:text-end">{fmt(p.value)}</span>
-        <Protect permission="patients.edit">
-          <div className="flex items-center gap-2 lg:w-60 lg:justify-end">
-            {switchable && (
-              <div className="inline-flex overflow-hidden rounded-full border border-line" role="group">
-                <button
-                  type="button"
-                  disabled={locked || busy !== null}
-                  aria-pressed={onThisMonth}
-                  onClick={() => {
-                    if (onThisMonth) return;
-                    void choose(sheet.month, p.patientId, "include");
-                  }}
-                  className={seg(onThisMonth)}
-                >
-                  {t("sheetThisMonth")}
-                </button>
-                <button
-                  type="button"
-                  disabled={locked || busy !== null}
-                  aria-pressed={!onThisMonth}
-                  onClick={() => {
-                    if (!onThisMonth) return;
-                    void choose(sheet.month, p.patientId, "hold");
-                  }}
-                  className={seg(!onThisMonth)}
-                >
-                  {t("sheetNextMonth")}
-                </button>
-              </div>
-            )}
-            {switchable && p.choice !== null && (
-              <button
-                type="button"
-                disabled={locked || busy !== null}
-                onClick={() => void choose(sheet.month, p.patientId, null)}
-                className="max-lg:min-h-10 text-[11px] font-bold text-ink-muted underline underline-offset-2 hover:text-ink disabled:opacity-40"
-              >
-                {t("sheetAutomatic")}
-              </button>
-            )}
-            {rowBusy && <Loader2 size={14} className="animate-spin text-ink-muted" />}
-          </div>
-        </Protect>
-      </li>
-    );
-  };
-
-  if (sheets.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-4">
-      {sheets.map((sheet) => {
-        const sentLine = sheet.sent?.sentAt
-          ? (sheet.sent.sentByName ? t("sheetSentOn").replace("{name}", sheet.sent.sentByName) : t("sheetSentOnNoName")).replace("{date}", sheet.sent.sentAt)
-          : "";
-        const empty = sheet.printed.length === 0 && sheet.held.length === 0;
-        return (
-          <section key={sheet.month} className="rounded-3xl border border-line bg-surface p-4 xl:p-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <h3 className="font-display text-base font-extrabold text-ink">{t("sheetTitle").replace("{month}", monthName(sheet.month))}</h3>
-              {sheet.sent && sentLine && <span className="text-xs font-semibold text-ink-muted">{sentLine}</span>}
-              <div className="flex-1" />
-              <Protect permission="patients.edit">
-                {sheet.sent ? (
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void unsend(sheet.month)}
-                    className="max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
-                  >
-                    {busy === sheet.month ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
-                    {t("markNotSent")}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busy !== null || sheet.month > thisMonth || (allBranchSheets ?? sheets).find((s) => s.month === sheet.month)?.printed.length === 0}
-                    onClick={() => void send(sheet.month)}
-                    className="max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
-                  >
-                    {busy === sheet.month ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                    {t("sheetMarkSent")}
-                  </button>
-                )}
-              </Protect>
-            </div>
+    <section className="rounded-3xl border border-line bg-surface p-3 sm:p-4 xl:p-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-base font-extrabold text-ink">{payerName}</h3>
+          <p className="mt-0.5 max-w-2xl text-[12.5px] font-semibold leading-relaxed text-ink-muted">{t("dwRules")}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPreview(true)}
+          disabled={to < from}
+          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-5 text-[13.5px] font-black text-ink-on-accent shadow-sm hover:bg-accent-strong disabled:opacity-40"
+        >
+          <Eye size={16} />
+          {t("dwPreview")}
+        </button>
+      </div>
 
-            {empty ? (
-              <p className="mt-3 text-sm text-ink-muted">{t("sheetEmpty")}</p>
-            ) : (
-              <>
-                <h4 className="mt-4 text-[11px] font-black uppercase tracking-wider text-ink-muted">{t("sheetOnHeading")}</h4>
-                {sheet.printed.length === 0 ? (
-                  <p className="mt-1 text-sm text-ink-muted">{t("sheetEmpty")}</p>
-                ) : (
-                  <ul className="mt-1 divide-y divide-slate-100">{sheet.printed.map((p) => row(sheet, p, null))}</ul>
-                )}
-                {sheet.held.length > 0 && (
-                  <>
-                    <h4 className="mt-4 text-[11px] font-black uppercase tracking-wider text-ink-muted">{t("sheetWaitingHeading")}</h4>
-                    <ul className="mt-1 divide-y divide-slate-100">{sheet.held.map((p) => row(sheet, p, p))}</ul>
-                  </>
-                )}
-              </>
-            )}
-          </section>
-        );
-      })}
-    </div>
+      {visible.length === 0 ? (
+        <p className="mt-4 rounded-2xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink-muted">{t("dwEmpty")}</p>
+      ) : (
+        <>
+          <p className="mt-4 text-[12px] font-semibold text-ink-muted">{t("dwListHint")}</p>
+          <ul className="mt-2 divide-y divide-line overflow-hidden rounded-2xl border border-line">
+            {visible.map((r) => {
+              const c = chip(r);
+              const quiet = r.standing.kind !== "on_sheet" || r.standing.sent;
+              const open = openId === r.patientId;
+              return (
+                <li key={r.patientId}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(open ? null : r.patientId)}
+                    aria-expanded={open}
+                    className={`flex w-full items-center gap-3 px-4 py-3.5 text-start transition-colors hover:bg-surface-subtle ${open ? "bg-surface-subtle" : ""}`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14.5px] font-bold text-ink">{r.patientName || "—"}</span>
+                      <span className="mt-0.5 block truncate text-[12px] text-ink-muted">{r.charges.map((x) => statementLineText(x)).filter(Boolean).join(" + ")}</span>
+                    </span>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap ${c.tone}`}>{c.label}</span>
+                    <span className={`w-16 shrink-0 text-end font-figure text-[15px] font-black max-sm:hidden ${quiet ? "text-ink-muted" : "text-ink"}`}>{money(r.value, ar)}</span>
+                    <ChevronDown size={16} className={`shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+                  </button>
+                  {open && (
+                    <CompanyPatientProcedures
+                      clinicId={clinicId}
+                      payerId={payerId}
+                      patientId={r.patientId}
+                      patientName={r.patientName}
+                      charges={r.all}
+                      placed={placed}
+                      cards={cards}
+                      cardKids={cardKids}
+                      sent={inputs.sent}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      {earlier.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-2 min-h-10 rounded-xl px-2 text-[12.5px] font-black text-ink-body underline underline-offset-2 hover:text-ink"
+        >
+          {showAll ? t("dwShowLess") : fill(t("dwShowAll"), { n: money(earlier.length, ar) })}
+        </button>
+      )}
+
+      {preview && (
+        <CompanySheetPreview
+          clinicId={clinicId}
+          payerId={payerId}
+          payerName={payerName}
+          range={range}
+          sheets={months}
+          allBranchSheets={allBranchWalked}
+          scoped={scoped}
+          onExcel={onExcel}
+          exporting={exporting}
+          excelReady={excelReady}
+          unfinished={unfinished}
+          onClose={() => setPreview(false)}
+        />
+      )}
+    </section>
   );
 }

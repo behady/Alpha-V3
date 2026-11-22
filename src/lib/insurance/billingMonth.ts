@@ -8,7 +8,9 @@
  *   their share of it in — October's work is October's pay even while the approval is still open;
  * - the approval is FINISHED on its last done date, once every service is Completed or deleted;
  * - an approval saved before per-service dates existed has none, and every one of its services
- *   reads as done on its treated date — exactly the month it was in before.
+ *   reads as done on its treated date — exactly the month it was in before;
+ * - the clinic can pick another month for the whole approval (`sheetMonth`): listed "by finish
+ *   date" it then goes on that month's sheet instead. Listed "by approval date" nothing changes.
  *
  * Every date rule lives here. The claims route stores what `billingFields` returns on each write so
  * screens can query by it; nothing else decides a month.
@@ -20,7 +22,9 @@ export { isLineRemoved, lineDateOf };
 /** How the Insurance page picks the approvals of a date range. */
 export type SheetDateMode = "approval" | "finish";
 
-export type BillingClaim = Pick<InsuranceClaim, "status" | "lines" | "lineStatus" | "lineDates" | "removedLines" | "treatedDate" | "approvalDate">;
+export type BillingClaim = Pick<InsuranceClaim, "status" | "lines" | "lineStatus" | "lineDates" | "removedLines" | "treatedDate" | "approvalDate"> & {
+  sheetMonth?: string | null;
+};
 
 /** Only work that was done is billed or paid: an approved claim's services have not happened yet. */
 const isWorked = (c: Pick<InsuranceClaim, "status">) => c.status === "treated" || c.status === "sent";
@@ -88,16 +92,28 @@ export function lineDatesAfterStates(
 }
 
 /**
+ * The month (`yyyy-mm`) of the closing sheet a worked approval goes on, listed by finish date:
+ * the month the clinic picked for it, else the month it was finished, else null (not finished and
+ * not placed).
+ */
+export function claimSheetMonth(c: BillingClaim): string | null {
+  if (!isWorked(c)) return null;
+  if (c.sheetMonth) return c.sheetMonth;
+  const finished = claimFinishedDate(c);
+  return finished ? finished.slice(0, 7) : null;
+}
+
+/**
  * Whether an edit would move an approval that was already sent to the company onto another
  * month's sheet, or reopen it (the owner's rule: it cannot — mark it not sent first). An approval
- * sent while a service was still open has no finish month yet, so finishing it is allowed.
+ * sent while a service was still open has no finish month yet, so finishing it is allowed. An
+ * approval with a picked month stays on that month whatever its services do.
  */
 export function movesSentMonth(before: BillingClaim, after: BillingClaim): boolean {
   if (before.status !== "sent" || after.status !== "sent") return false;
-  const was = claimFinishedDate(before);
+  const was = claimSheetMonth(before);
   if (was === null) return false;
-  const now = claimFinishedDate(after);
-  return now === null || now.slice(0, 7) !== was.slice(0, 7);
+  return claimSheetMonth(after) !== was;
 }
 
 /** The date that places an approval in a range: its approval date, or the day it was finished. */
@@ -108,6 +124,9 @@ export function sheetDate(c: BillingClaim, mode: SheetDateMode): string | null {
 /** Whether an approval belongs on the sheet of `[from, to]` (inclusive). Only worked approvals ever do. */
 export function inSheetRange(c: BillingClaim, mode: SheetDateMode, from: string, to: string): boolean {
   if (!isWorked(c)) return false;
+  // By finish date, a picked month speaks for the whole approval: it is on the sheet when that
+  // month is one the range touches, wherever its services were actually done.
+  if (mode === "finish" && c.sheetMonth) return c.sheetMonth >= from.slice(0, 7) && c.sheetMonth <= to.slice(0, 7);
   const d = sheetDate(c, mode);
   return d !== null && d >= from && d <= to;
 }

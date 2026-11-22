@@ -40,6 +40,11 @@ export type MetlifeLine = {
    * paper's conditions, then the desk's); MetLife's paper names no teeth, so its lines never set it.
    */
   teeth?: string[];
+  /**
+   * The desk cleared this service's teeth by hand: it goes to the company with none, even when the
+   * paper's conditions name some. Only ever `true`, and only on a line with no teeth of its own.
+   */
+  noTeeth?: boolean;
 };
 
 export type MetlifeHeader = {

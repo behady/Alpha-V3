@@ -1,6 +1,6 @@
 /**
- * The company (GASCO) monthly sheet's route: the dentist's per-patient switch and the sent lock,
- * against the Firestore emulator.
+ * The company (GASCO) monthly sheet's route: one procedure's month, dates and state, and the sent
+ * lock, against the Firestore emulator.
  *
  *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx tests/companySheetRoute.test.mts
  *
@@ -84,7 +84,9 @@ async function post(body: Json, token: string | null = as): Promise<{ status: nu
   const res = await route.POST(new Request("http://localhost/api/insurance/company-sheet", { method: "POST", headers, body: JSON.stringify({ clinicId: CLINIC, payerId: "gasco", month: "2026-11", ...body }) }));
   return { status: res.status, json: (await res.json()) as Json };
 }
-const marksOf = async () => ((await clinic.collection("settings").doc("company_sheet_gasco").get()).data()?.marks ?? {}) as Json;
+const note = async (id: string) => ((await clinic.collection("clinical_notes").doc(id).get()).data() ?? {}) as Json;
+const picked = async () => ((await clinic.collection("settings").doc("company_sheet_gasco").get()).data()?.months ?? {}) as Json;
+const ledger = async (id: string) => ((await clinic.collection("ledger").doc(id).get()).data() ?? {}) as Json;
 const sentDoc = () => clinic.collection("settings").doc("company_sheet_gasco_2026-11").get();
 
 await db.recursiveDelete(clinic);
@@ -107,22 +109,95 @@ await charge("L2a", "p2", "N2a", 300);
 await card("N2a", "p2", "Completed");
 await charge("L2b", "p2", "N2b", 200);
 await card("N2b", "p2", "Ongoing");
+await clinic.collection("clinical_notes").doc("N1").update({ appointmentId: "A1" });
+await clinic.collection("appointments").doc("A1").set({ date: "2026-11-03", services: [{ clinicalNoteId: "N1", status: "Completed", cost: 500 }, { clinicalNoteId: "X", status: "Planned" }] });
 
-console.log("the switch");
+console.log("the drawer: finish date, undo, mark finished");
 {
-  let r = await post({ action: "mark", patientId: "p1", choice: "hold" });
-  check("hold p1 is accepted", r.status === 200 && r.json.ok === true, r);
-  check("and stored under the patient and month", (await marksOf())["p1__2026-11"] === "hold", await marksOf());
-  r = await post({ action: "mark", patientId: "p1", choice: null });
-  check("clearing it is accepted", r.status === 200, r);
-  check("and the key is gone", !("p1__2026-11" in (await marksOf())), await marksOf());
-  r = await post({ action: "mark", patientId: "p2", choice: "include" });
-  check("include for a patient with work still waiting is refused", r.status === 409 && r.json.reason === "not_finished", r);
-  r = await post({ action: "mark", patientId: "p2", choice: "hold" });
-  check("hold for him is fine", r.status === 200, r);
-  r = await post({ action: "mark", patientId: "p2", choice: "include" });
-  check("a hold tick does not hide that he is unfinished", r.status === 409 && r.json.reason === "not_finished", r);
-  await post({ action: "mark", patientId: "p2", choice: null });
+  let r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-07" });
+  check("changing a finish date is accepted", r.status === 200 && r.json.ok === true, r);
+  let n = await note("N1");
+  check("the card carries the new day", n.completedDate === "2026-11-07", n.completedDate);
+  check("and one log line saying who and from what", n.finishLog?.length === 1 && n.finishLog[0].kind === "date" && n.finishLog[0].from === "2026-11-05" && n.finishLog[0].to === "2026-11-07" && n.finishLog[0].byName === "Dr Tester" && /^\d{4}-\d{2}-\d{2}$/.test(n.finishLog[0].day), n.finishLog);
+  check("a day before the visit is refused", (await post({ action: "finishDate", noteId: "N1", date: "2026-11-01" })).json.reason === "before_visit");
+  check("a day after today is refused", (await post({ action: "finishDate", noteId: "N1", date: "2999-01-01" })).json.reason === "future_date");
+  check("a day that is not a day is refused", (await post({ action: "finishDate", noteId: "N1", date: "2026-13-01" })).json.reason === "bad_date");
+  r = await post({ action: "finishDate", noteId: "N2b", date: "2026-11-06" });
+  check("an unfinished treatment has no finish date to change", r.status === 409 && r.json.reason === "not_done", r);
+  r = await post({ action: "finishDate", noteId: "nope", date: "2026-11-06" });
+  check("a card that is not this company's is not_found", r.status === 404 && r.json.reason === "not_found", r);
+
+  r = await post({ action: "reopen", noteId: "N1" });
+  check("undo (not finished) is accepted", r.status === 200, r);
+  n = await note("N1");
+  check("the card is back to Ongoing with no finish day", n.status === "Ongoing" && !("completedDate" in n), n);
+  check("the log says it was reopened from the 7th", n.finishLog?.length === 2 && n.finishLog[1].kind === "reopened" && n.finishLog[1].from === "2026-11-07", n.finishLog);
+  const appt = (await clinic.collection("appointments").doc("A1").get()).data() as Json;
+  check("the visit's line follows; the other line is untouched", appt.services[0].status === "Ongoing" && appt.services[1].status === "Planned" && appt.services[0].cost === 500, appt.services);
+  check("undo twice is not_done", (await post({ action: "reopen", noteId: "N1" })).json.reason === "not_done");
+
+  r = await post({ action: "finish", noteId: "N1" });
+  check("mark finished is accepted", r.status === 200, r);
+  n = await note("N1");
+  check("Completed today", n.status === "Completed" && /^\d{4}-\d{2}-\d{2}$/.test(n.completedDate) && n.finishLog?.length === 3 && n.finishLog[2].kind === "finished", n);
+  check("finishing twice is already_done", (await post({ action: "finish", noteId: "N1" })).json.reason === "already_done");
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-05" });
+  check("and its day can be set back", r.status === 200 && (await note("N1")).completedDate === "2026-11-05", r);
+
+  await charge("L9", "p9", "N9", 100);
+  await clinic.collection("clinical_notes").doc("N9").set({ patientId: "p9", date: "2026-11-03", status: "Completed", completedDate: "2026-11-03", claimId: "CL1" });
+  r = await post({ action: "reopen", noteId: "N9" });
+  check("an approval's treatment is not touched here", r.status === 409 && r.json.reason === "approval", r);
+  await clinic.collection("ledger").doc("L9").delete();
+  await clinic.collection("clinical_notes").doc("N9").delete();
+}
+
+console.log("the month picker");
+{
+  let r = await post({ action: "pickMonth", chargeId: "L2a", month: "2026-12" });
+  check("picking a month is accepted", r.status === 200 && r.json.ok === true, r);
+  check("and stored under the procedure", (await picked()).L2a === "2026-12", await picked());
+  check("the procedure's history keeps the move", (await note("N2a")).finishLog?.some((e: Json) => e.kind === "month" && e.to === "2026-12" && e.byName === "Dr Tester"), (await note("N2a")).finishLog);
+  r = await post({ action: "pickMonth", chargeId: "L2b", month: "2026-11" });
+  check("an unfinished procedure can be placed (the screen warns first)", r.status === 200 && (await picked()).L2b === "2026-11", r);
+  r = await post({ action: "pickMonth", chargeId: "L2b", month: null });
+  check("null puts it back to automatic", r.status === 200 && !("L2b" in (await picked())), [r, await picked()]);
+  r = await post({ action: "pickMonth", chargeId: "L2a", month: null });
+  check("and again for the finished one", r.status === 200 && !("L2a" in (await picked())), await picked());
+  check("a month before the sheet began is refused", (await post({ action: "pickMonth", chargeId: "L1", month: "2026-10" })).json.reason === "bad_month");
+  check("a month that is not a month is refused", (await post({ action: "pickMonth", chargeId: "L1", month: "2026-13" })).json.reason === "bad_month");
+  check("a month years ahead is refused", (await post({ action: "pickMonth", chargeId: "L1", month: "2999-01" })).json.reason === "bad_month");
+  r = await post({ action: "pickMonth", chargeId: "nope", month: "2026-12" });
+  check("a charge that is not this company's is not_found", r.status === 404 && r.json.reason === "not_found", r);
+}
+
+console.log("the start date");
+{
+  let r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04" });
+  check("changing the start date is accepted", r.status === 200, r);
+  check("the charge moved", (await ledger("L1")).date === "2026-11-04", (await ledger("L1")).date);
+  const n = await note("N1");
+  check("the treatment card moved with it", n.date === "2026-11-04", n.date);
+  check("its end date did not", n.completedDate === "2026-11-05", n.completedDate);
+  check("and the history says so", n.finishLog?.some((e: Json) => e.kind === "start" && e.from === "2026-11-03" && e.to === "2026-11-04"), n.finishLog);
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-06" });
+  check("a start after the end date is refused", r.status === 400 && r.json.reason === "after_finish", r);
+  check("a start before the sheet began is refused", (await post({ action: "startDate", chargeId: "L1", date: "2026-10-30" })).json.reason === "before_start");
+  check("a start after today is refused", (await post({ action: "startDate", chargeId: "L1", date: "2999-01-01" })).json.reason === "future_date");
+  check("nothing moved on the refusals", (await ledger("L1")).date === "2026-11-04");
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-03" });
+  check("and it can be set back", r.status === 200 && (await ledger("L1")).date === "2026-11-03" && (await note("N1")).date === "2026-11-03", r);
+  const audit = await clinic.collection("ledger_audit").get();
+  check("a ledger date change leaves an audit row", audit.size >= 1, audit.size);
+
+  // A card finished before the finish stamp existed reads its end from its own date: moving the start keeps that day.
+  await charge("L8", "p8", "N8", 100);
+  await clinic.collection("clinical_notes").doc("N8").set({ patientId: "p8", date: "2026-11-03", status: "Completed", procedure: "Filling" });
+  r = await post({ action: "startDate", chargeId: "L8", date: "2026-11-02" });
+  const n8 = await note("N8");
+  check("an old finished card keeps its end date when its start moves", r.status === 200 && n8.date === "2026-11-02" && n8.completedDate === "2026-11-03", n8);
+  await clinic.collection("ledger").doc("L8").delete();
+  await clinic.collection("clinical_notes").doc("N8").delete();
 }
 
 console.log("a long chain of continuation cards");
@@ -140,21 +215,28 @@ console.log("a long chain of continuation cards");
       procedure: "Filling",
     });
   }
-  const r = await post({ action: "mark", patientId: "p3", choice: "include" });
-  check("a chain of 8 cards, only the newest Completed, reads as finished", r.status === 200, r);
-  await post({ action: "mark", patientId: "p3", choice: null });
+  let r = await post({ action: "finishDate", noteId: "K7", date: "2026-11-11" });
+  check("the newest of 8 chained cards is the one the drawer acts on", r.status === 200, r);
+  r = await post({ action: "finishDate", noteId: "K0", date: "2026-11-11" });
+  check("an older card of the chain is not_found", r.status === 404 && r.json.reason === "not_found", r);
+  r = await post({ action: "startDate", chargeId: "L3", date: "2026-11-05" });
+  check("the start cannot pass the next visit", r.status === 400 && r.json.reason === "after_visit", r);
+  r = await post({ action: "startDate", chargeId: "L3", date: "2026-11-02" });
+  check("an earlier start moves the first card only", r.status === 200 && (await note("K0")).date === "2026-11-02" && (await note("K1")).date === "2026-11-04", r);
+  check("and the history sits on the newest card", (await note("K7")).finishLog?.some((e: Json) => e.kind === "start"), (await note("K7")).finishLog);
   await clinic.collection("ledger").doc("L3").delete();
   for (let i = 0; i < 8; i++) await clinic.collection("clinical_notes").doc(`K${i}`).delete();
 }
 
 console.log("refusals before anything is written");
 {
-  check("a document-format insurer is refused", (await post({ action: "mark", patientId: "p1", choice: "hold", payerId: "metlife" })).status === 400);
-  check("an unknown company is refused", (await post({ action: "mark", patientId: "p1", choice: "hold", payerId: "nobody" })).status === 400);
-  check("a month before the start is refused", (await post({ action: "mark", patientId: "p1", choice: "hold", month: "2026-10" })).status === 400);
-  check("a month that is not a month is refused", (await post({ action: "mark", patientId: "p1", choice: "hold", month: "2026-13" })).status === 400);
+  check("a document-format insurer is refused", (await post({ action: "send", payerId: "metlife" })).status === 400);
+  check("an unknown company is refused", (await post({ action: "send", payerId: "nobody" })).status === 400);
+  check("a month before the start is refused", (await post({ action: "send", month: "2026-10" })).status === 400);
+  check("a month that is not a month is refused", (await post({ action: "send", month: "2026-13" })).status === 400);
   check("a month still to come is refused", (await post({ action: "send", month: "2999-01" })).status === 400);
-  check("a bad choice is refused", (await post({ action: "mark", patientId: "p1", choice: "maybe" })).status === 400);
+  check("the old switch is gone", (await post({ action: "mark", patientId: "p1", choice: "hold" })).status === 400);
+  check("no note id is refused", (await post({ action: "reopen" })).status === 400);
   check("no token is a 401", (await post({ action: "send" }, null)).status === 401);
   // A second clinic without the add-on (the server caches a clinic's features for a minute).
   const bare = db.collection("clinics").doc("C2");
@@ -170,16 +252,25 @@ console.log("sending the month");
   let r = await post({ action: "send" });
   check("send is accepted", r.status === 200, r);
   const d = (await sentDoc()).data() as Json;
-  check("the server stored its own list: only p1's charge", JSON.stringify(d?.chargeIds) === JSON.stringify(["L1"]), d?.chargeIds);
-  check("with the case count and total", d?.cases === 1 && d?.total === 500 && d?.payerId === "gasco" && d?.month === "2026-11", d);
+  check("the server stored its own list: every finished procedure, not the unfinished one", JSON.stringify([...(d?.chargeIds ?? [])].sort()) === JSON.stringify(["L1", "L2a"]), d?.chargeIds);
+  check("with the case count and total", d?.cases === 2 && d?.total === 800 && d?.payerId === "gasco" && d?.month === "2026-11", d);
   check("and who sent it", d?.sentBy === UID && d?.sentByName === "Dr Tester" && !!d?.sentAt, d);
   r = await post({ action: "send" });
   check("a second send is already_sent", r.status === 409 && r.json.reason === "already_sent", r);
-  r = await post({ action: "mark", patientId: "p1", choice: "hold" });
-  check("the switch is locked once sent", r.status === 409 && r.json.reason === "sent_locked", r);
-  check("nothing was written by the refused switch", !("p1__2026-11" in (await marksOf())), await marksOf());
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06" });
+  check("a sent treatment is locked: even an admin must confirm", r.status === 409 && r.json.reason === "sent_confirm", r);
+  r = await post({ action: "reopen", noteId: "N1" });
+  check("and cannot be undone without confirming either", r.status === 409 && r.json.reason === "sent_confirm", r);
+  const after = await note("N1");
+  check("nothing was written by the refusals", after.completedDate === "2026-11-05" && after.status === "Completed", after);
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04" });
+  check("nor its start date moved", r.status === 409 && r.json.reason === "sent_confirm", r);
+  r = await post({ action: "pickMonth", chargeId: "L1", month: "2026-12" });
+  check("nor its month picked", r.status === 409 && r.json.reason === "sent_locked", r);
+  r = await post({ action: "pickMonth", chargeId: "L2b", month: "2026-11" });
+  check("no procedure can be picked onto the sent month", r.status === 409 && r.json.reason === "month_sent", r);
   const logs = await clinic.collection("system_logs").get();
-  check("each success left an activity row", logs.size >= 3, logs.size);
+  check("each success left an activity row", logs.size >= 10, logs.size);
 }
 
 console.log("taking it back");
@@ -191,6 +282,98 @@ console.log("taking it back");
   check("unsend again is not_sent", r.status === 409 && r.json.reason === "not_sent", r);
   r = await post({ action: "send", payerId: "gasco_empty" });
   check("a month with nothing to print is empty", r.status === 409 && r.json.reason === "empty", r);
+}
+
+console.log("who may do it: permissions, branches, and the owner/admin override on a sent month");
+{
+  const STAFF = "staff-1";
+  const asStaff = idToken(STAFF);
+  const staffDoc = db.collection("users").doc(STAFF);
+  const grant = (list: string[]) => staffDoc.update({ [`clinicPermissions.${CLINIC}`]: list });
+  // A receptionist whose list was saved before the insurance permissions existed.
+  await staffDoc.set({ name: "Sara Desk", clinicRoles: { [CLINIC]: "Receptionist" }, clinicPermissions: { [CLINIC]: ["patients.edit"] } });
+
+  let r = await post({ action: "pickMonth", chargeId: "L2a", month: "2026-12" }, asStaff);
+  check("an account from before the insurance permissions keeps working", r.status === 200, r);
+  await post({ action: "pickMonth", chargeId: "L2a", month: null }, asStaff);
+
+  await grant(["patients.edit", "no:insurance.edit"]);
+  r = await post({ action: "pickMonth", chargeId: "L2a", month: "2026-12" }, asStaff);
+  check("switched off for her: changing a procedure is refused", r.status === 403 && r.json.reason === "no_permission", r);
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06" }, asStaff);
+  check("for every kind of change", r.status === 403 && r.json.reason === "no_permission", r);
+  r = await post({ action: "send" }, asStaff);
+  check("but sending is its own switch, still on", r.status === 200, r);
+  await grant(["patients.edit", "no:insurance.send"]);
+  r = await post({ action: "unsend" }, asStaff);
+  check("send switched off: unsend is refused", r.status === 403 && r.json.reason === "no_permission", r);
+  await post({ action: "unsend" });
+  r = await post({ action: "pickMonth", chargeId: "L2a", month: "2026-12" }, asStaff);
+  check("and changing a procedure works again", r.status === 200, r);
+  await post({ action: "pickMonth", chargeId: "L2a", month: null }, asStaff);
+  await grant(["no:insurance.send"]);
+  r = await post({ action: "pickMonth", chargeId: "L2a", month: "2026-12" }, asStaff);
+  check("without the page's own permission nothing is allowed, default-on or not", r.status === 403 && (await picked()).L2a === undefined, r);
+  await grant(["patients.edit"]);
+
+  // Branches: she works at A only; L1 belongs to B.
+  await clinic.collection("settings").doc("locations").set({ branches: [{ id: "bA", name: "A", rooms: [] }, { id: "bB", name: "B", rooms: [] }] });
+  await clinic.collection("staff").doc("s1").set({ uid: STAFF, name: "Sara Desk", branchIds: ["bA"] });
+  await clinic.collection("ledger").doc("L1").update({ branchId: "bB" });
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04" }, asStaff);
+  check("another branch's procedure: its start date is refused", r.status === 403 && r.json.code === "branch_forbidden", r);
+  r = await post({ action: "pickMonth", chargeId: "L1", month: "2026-12" }, asStaff);
+  check("and its month", r.status === 403 && r.json.code === "branch_forbidden", r);
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06" }, asStaff);
+  check("and its end date", r.status === 403 && r.json.code === "branch_forbidden", r);
+  r = await post({ action: "reopen", noteId: "N1" }, asStaff);
+  check("and its status", r.status === 403 && r.json.code === "branch_forbidden", r);
+  check("nothing of it moved", (await ledger("L1")).date === "2026-11-03" && (await note("N1")).completedDate === "2026-11-05" && (await picked()).L1 === undefined);
+  await clinic.collection("ledger").doc("L1").update({ branchId: "bA" });
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06" }, asStaff);
+  check("her own branch's procedure is hers to change", r.status === 200, r);
+  await post({ action: "finishDate", noteId: "N1", date: "2026-11-05" }, asStaff);
+
+  // Sent: staff are locked out; an Owner or Admin may change it, after the warning.
+  await post({ action: "send" });
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06" }, asStaff);
+  check("sent: staff are locked out", r.status === 409 && r.json.reason === "sent_locked" && r.json.month === "2026-11", r);
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04", confirmSent: true }, asStaff);
+  check("even if they send the confirmation themselves", r.status === 409 && r.json.reason === "sent_locked", r);
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06" });
+  check("an admin is asked to confirm first", r.status === 409 && r.json.reason === "sent_confirm" && r.json.month === "2026-11", r);
+  check("and nothing changed yet", (await note("N1")).completedDate === "2026-11-05");
+  r = await post({ action: "finishDate", noteId: "N1", date: "2026-11-06", confirmSent: true });
+  check("with the confirmation the admin's change is saved", r.status === 200 && (await note("N1")).completedDate === "2026-11-06", r);
+  r = await post({ action: "startDate", chargeId: "L1", date: "2026-11-04", confirmSent: true });
+  check("the start date too", r.status === 200 && (await ledger("L1")).date === "2026-11-04", r);
+  r = await post({ action: "reopen", noteId: "N1", confirmSent: true });
+  check("and the status", r.status === 200 && (await note("N1")).status === "Ongoing", r);
+  const stillSent = (await sentDoc()).data() as Json;
+  check("the sent list itself is untouched", JSON.stringify([...(stillSent?.chargeIds ?? [])].sort()) === JSON.stringify(["L1", "L2a"]), stillSent?.chargeIds);
+  r = await post({ action: "pickMonth", chargeId: "L1", month: "2026-12", confirmSent: true });
+  check("its month stays locked for everyone", r.status === 409 && r.json.reason === "sent_locked", r);
+  await post({ action: "finish", noteId: "N1", confirmSent: true });
+  await post({ action: "finishDate", noteId: "N1", date: "2026-11-05", confirmSent: true });
+  await post({ action: "startDate", chargeId: "L1", date: "2026-11-03", confirmSent: true });
+  await post({ action: "unsend" });
+}
+
+console.log("a card from before treatments carried a state");
+{
+  await charge("L7", "p7", "N7", 100);
+  await clinic.collection("clinical_notes").doc("N7").set({ patientId: "p7", date: "2026-11-03", procedure: "Filling" });
+  let r = await post({ action: "finishDate", noteId: "N7", date: "2026-11-04" });
+  let n = await note("N7");
+  check("its end date can be changed, and it gains the state it lacked", r.status === 200 && n.completedDate === "2026-11-04" && n.status === "Completed", [r, n]);
+  await clinic.collection("clinical_notes").doc("N7").set({ patientId: "p7", date: "2026-11-03", procedure: "Filling", status: "" });
+  r = await post({ action: "reopen", noteId: "N7" });
+  n = await note("N7");
+  check("and it can be marked not finished", r.status === 200 && n.status === "Ongoing", [r, n]);
+  r = await post({ action: "finish", noteId: "N7" });
+  check("then finished again", r.status === 200 && (await note("N7")).status === "Completed", r);
+  await clinic.collection("ledger").doc("L7").delete();
+  await clinic.collection("clinical_notes").doc("N7").delete();
 }
 
 authServer.close();

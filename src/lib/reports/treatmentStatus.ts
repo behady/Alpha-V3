@@ -33,6 +33,8 @@ type Row = Record<string, unknown> & { id: string };
 export type TreatmentLine = {
   /** The first card of the treatment. */
   id: string;
+  /** The card whose state the line shows — the newest in the chain. Changing the state changes this one. */
+  stateNoteId: string;
   patientId: string;
   patientName: string;
   phone: string;
@@ -40,6 +42,13 @@ export type TreatmentLine = {
   tooth: string;
   doctorId: string;
   doctorName: string;
+  /**
+   * Who pays when it is not the patient — an insurer or a company like GASCO. "" for private work
+   * (and for cards written before payers existed). Read off the first card: that is the one charged.
+   */
+  payerName: string;
+  /** The payer's id, "" for private work: the screen names it from the clinic's payer list. */
+  payerId: string;
   state: TreatmentState;
   /** The day this line is filed under: the finish day when done, the last visit's day otherwise. */
   date: string;
@@ -70,6 +79,18 @@ const num = (v: unknown) => {
 function stateOf(note: Row): TreatmentState | null {
   const s = text(note.status);
   return s === "Planned" || s === "Ongoing" || s === "Completed" ? s : null;
+}
+
+/** The payer's id on a card, "" when the patient pays. */
+function payerIdOf(note: Row): string {
+  const id = text(note.payerId);
+  return id === "private" ? "" : id;
+}
+
+/** The payer's name as stored on the card ("" when the patient pays); falls back to the id. */
+function payerOf(note: Row): string {
+  const id = payerIdOf(note);
+  return id ? text(note.payerName) || id : "";
 }
 
 const noteDate = (note: Row) => toYmd(note.date) || toYmd(note.createdAt);
@@ -125,6 +146,38 @@ export function inheritBranch<T extends Row>(notes: readonly T[]): T[] {
   });
 }
 
+/**
+ * A state picked on the report's dropdown and saved, shown before the page reads its data again.
+ *
+ * `from` is what the card said in the data the pick was made on. `fresh` is true for a few seconds
+ * after the save: a reload that lands in that time may have been read before the write, so the pick
+ * outlives it. After that, freshly read data is the truth and the pick is dropped with the old data.
+ */
+export type StatePick = { to: TreatmentState; from: string; fresh: boolean };
+
+/**
+ * The cards as the screen should show them: each pick laid over its card, unless the card has since
+ * become something that is neither where the pick started nor where it went — somebody else changed
+ * it, and theirs is the newer word. Finishing stamps today, reopening clears the finish day, as the
+ * server does (route `status`).
+ */
+export function applyStatePicks<T extends Row>(notes: readonly T[], picks: Readonly<Record<string, StatePick>>, today: string): readonly T[] {
+  if (Object.keys(picks).length === 0) return notes;
+  return notes.map((n) => {
+    const pick = picks[n.id];
+    const now = text(n.status);
+    if (!pick || now === pick.to || now !== pick.from) return n;
+    const { completedDate: _was, ...rest } = n as T & { completedDate?: unknown };
+    void _was;
+    return (pick.to === "Completed" ? { ...rest, status: pick.to, completedDate: today } : { ...rest, status: pick.to }) as unknown as T;
+  });
+}
+
+/** The picks a reload leaves standing: only the ones saved moments ago. */
+export function picksAfterReload(picks: Readonly<Record<string, StatePick>>): Record<string, StatePick> {
+  return Object.fromEntries(Object.entries(picks).filter(([, p]) => p.fresh));
+}
+
 export function buildTreatmentStatus(
   notes: readonly Row[],
   patients: readonly Row[],
@@ -177,6 +230,7 @@ export function buildTreatmentStatus(
     const patient = patientById.get(patientId);
     lines.push({
       id: rootId,
+      stateNoteId: latest.id,
       patientId,
       patientName: text(patient?.name) || text(root.patientName) || "—",
       phone: text(patient?.phone),
@@ -184,6 +238,8 @@ export function buildTreatmentStatus(
       tooth: toothOf(root),
       doctorId: text(latest.doctorId) || text(root.doctorId),
       doctorName: text(latest.doctor) || text(root.doctor),
+      payerName: payerOf(root) || payerOf(latest),
+      payerId: payerIdOf(root) || payerIdOf(latest),
       state,
       date,
       price: Number(chain.reduce((sum, n) => sum + num(n.cost), 0).toFixed(2)),
@@ -216,6 +272,8 @@ export type TreatmentFilters = {
   /** "" shows every state. */
   state: TreatmentState | "";
   doctorId: string;
+  /** "" shows every payer; PRIVATE_FILTER shows what patients pay for themselves; else a payer's id. */
+  payerId: string;
   /** Matches the patient's name or phone. */
   search: string;
   /** Only open work whose patient has nothing booked — the list to phone. */
@@ -224,9 +282,13 @@ export type TreatmentFilters = {
   includeOlder: boolean;
 };
 
+/** The payer filter's value for private work, whose lines carry no payer id. */
+export const PRIVATE_FILTER = "private";
+
 export const NO_TREATMENT_FILTERS: TreatmentFilters = {
   state: "",
   doctorId: "",
+  payerId: "",
   search: "",
   unbookedOnly: false,
   includeOlder: false,
@@ -251,10 +313,27 @@ export function filterTreatments(lines: readonly TreatmentLine[], f: TreatmentFi
     if (l.older && !f.includeOlder) return false;
     if (f.state && l.state !== f.state) return false;
     if (f.doctorId && l.doctorId !== f.doctorId) return false;
+    if (f.payerId && (f.payerId === PRIVATE_FILTER ? l.payerId !== "" : l.payerId !== f.payerId)) return false;
     if (f.unbookedOnly && (l.state === "Completed" || l.nextVisit)) return false;
     if (needle && !fold(l.patientName).includes(needle) && !(digits.length >= 3 && l.phone.replace(/\D/g, "").includes(digits))) return false;
     return true;
   });
+}
+
+/**
+ * The payers present in the list, for its dropdown: private first when there is any, then each
+ * insurer or company by name. The label is the name stored on the card; the screen may replace it
+ * with the clinic's own name for that payer.
+ */
+export function payerOptions(lines: readonly TreatmentLine[]): { value: string; label: string }[] {
+  const seen = new Map<string, string>();
+  let hasPrivate = false;
+  for (const l of lines) {
+    if (!l.payerId) hasPrivate = true;
+    else if (!seen.has(l.payerId)) seen.set(l.payerId, l.payerName || l.payerId);
+  }
+  const named = [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  return hasPrivate ? [{ value: PRIVATE_FILTER, label: "Private" }, ...named] : named;
 }
 
 /** The dentists present in the list, for its dropdown. */

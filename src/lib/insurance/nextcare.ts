@@ -304,6 +304,55 @@ function cleanTeeth(v: unknown): string[] {
   return out;
 }
 
+/** Arabic-Indic (٤٦) and Persian (۴۶) digits as 46: an Arabic keyboard types them, and they are the same teeth. */
+export function foldToothDigits(raw: string): string {
+  return String(raw ?? "")
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+}
+
+/**
+ * Teeth as the desk types them — "44, 46", "44 46", "٤٤، ٤٦" — as FDI codes, each once, in the order
+ * typed. `bad` is the first thing typed that is not a tooth (then `teeth` is not to be used).
+ */
+export function parseTypedTeeth(typed: string): { teeth: string[]; bad: string | null } {
+  const teeth: string[] = [];
+  for (const code of foldToothDigits(typed).split(/[^0-9A-Za-z]+/).filter(Boolean)) {
+    if (!isFdiTooth(code)) return { teeth: [], bad: code };
+    if (!teeth.includes(code)) teeth.push(code);
+  }
+  return { teeth, bad: null };
+}
+
+type TeethLine = { teeth?: string[]; noTeeth?: boolean; unitsApproved: number; code?: unknown; description?: unknown };
+
+/**
+ * The teeth each service of a NextCare / AXA approval goes to the company with (FDI codes): none
+ * when the desk cleared them by hand; else its own — read from the paper, or typed by the desk —
+ * else the ones the paper's conditions give it. The monthly sheet, the Insurance page's teeth box
+ * and the treatment written to the patient's file all read this, so the three always agree.
+ */
+export function sheetTeethOf(c: { lines: ReadonlyArray<TeethLine>; metlife?: { comment?: string | null } | null }): string[][] {
+  const fromPaper = assignConditionTeeth(c.lines, quadrantTeeth(c.metlife?.comment ?? ""));
+  return c.lines.map((l, i) => {
+    if (l.teeth && l.teeth.length) return [...l.teeth];
+    return l.noTeeth === true ? [] : [...(fromPaper[i] ?? [])];
+  });
+}
+
+/**
+ * An approval's lines with one service's teeth set by hand, as they are stored: typed teeth are its
+ * own from now on; cleared teeth are remembered as cleared (`noTeeth`), so the paper's conditions
+ * do not bring them back. The other lines are untouched.
+ */
+export function withLineTeeth<T extends { teeth?: string[]; noTeeth?: boolean }>(lines: ReadonlyArray<T>, index: number, teeth: ReadonlyArray<string>): T[] {
+  return lines.map((l, k) => {
+    const { teeth: old, noTeeth: cleared, ...rest } = l;
+    if (k !== index) return { ...rest, ...(old && old.length ? { teeth: [...old] } : cleared === true ? { noTeeth: true } : {}) } as T;
+    return { ...rest, ...(teeth.length ? { teeth: [...teeth] } : { noTeeth: true }) } as T;
+  });
+}
+
 // --- Normalising ----------------------------------------------------------------------------------------
 
 /**
@@ -429,8 +478,13 @@ function normalizeLine(raw: unknown, conditionTeeth: string[] | undefined): Metl
     approvedAmount: moneyOr0(r.approvedAmount),
     comment: text(r.comment),
     confidence: c,
-    teeth: Array.isArray(r.teeth) ? cleanTeeth(r.teeth) : conditionTeeth ?? [],
+    ...lineTeethFields(Array.isArray(r.teeth) ? cleanTeeth(r.teeth) : r.noTeeth === true ? [] : conditionTeeth ?? [], r.noTeeth),
   };
+}
+
+/** A stored line's teeth, and the "cleared by hand" mark — kept only while the line has no teeth of its own. */
+export function lineTeethFields(teeth: string[], noTeeth: unknown): { teeth: string[]; noTeeth?: true } {
+  return teeth.length === 0 && noTeeth === true ? { teeth, noTeeth: true } : { teeth };
 }
 
 /**

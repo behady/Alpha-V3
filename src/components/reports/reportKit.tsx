@@ -88,6 +88,8 @@ export type Column<T> = {
   render?: (row: T) => ReactNode;
   /** What to put in the spreadsheet. Defaults to `row[key]`. */
   exportValue?: (row: T) => string | number;
+  /** In the spreadsheet only, not on screen — a detail the screen already shows another way. */
+  exportOnly?: boolean;
   /** The totals-row cell. Omit for blank. */
   total?: ReactNode;
   className?: string;
@@ -131,6 +133,7 @@ export function DataTable<T>({
   const current = Math.min(page, pages);
   const shown = rows.slice((current - 1) * pageSize, current * pageSize);
   const hasTotals = columns.some((c) => c.total !== undefined);
+  const screenColumns = columns.filter((c) => !c.exportOnly);
   const doExport = () =>
     exportToExcel(
       rows.map((r) => {
@@ -178,7 +181,7 @@ export function DataTable<T>({
             const k = rowKey(r);
             const open = expanded === k;
             const cell = (c: Column<T>) => (c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? ""));
-            const [head, ...rest] = columns;
+            const [head, ...rest] = screenColumns;
             return (
               <li key={k} className={open ? "bg-surface-subtle" : ""}>
                 <div
@@ -210,7 +213,7 @@ export function DataTable<T>({
               <dl className="mt-1.5 space-y-1">
                 {/* The first column's total cell is the table's own "Total" label; the card says it
                     already, above, so it is left out here. */}
-                {columns.slice(1).map((c) =>
+                {screenColumns.slice(1).map((c) =>
                   c.total !== undefined && c.total !== null && c.total !== "" ? (
                     <div key={c.key} className="flex items-baseline justify-between gap-3">
                       <dt className="shrink-0 text-[11.5px] font-semibold text-ink-muted">{c.label}</dt>
@@ -226,7 +229,7 @@ export function DataTable<T>({
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-y border-line bg-surface-subtle">
-                {columns.map((c) => (
+                {screenColumns.map((c) => (
                   <th key={c.key} className={`${pad} whitespace-nowrap text-[10.5px] font-black uppercase tracking-wider text-ink-muted ${align(c.align)}`}>
                     {c.label}
                   </th>
@@ -243,7 +246,7 @@ export function DataTable<T>({
                       onClick={onRowClick ? () => onRowClick(r) : undefined}
                       className={`border-b border-line ${onRowClick ? "cursor-pointer transition-colors hover:bg-surface-subtle" : ""} ${open ? "bg-surface-subtle" : ""}`}
                     >
-                      {columns.map((c) => (
+                      {screenColumns.map((c) => (
                         <td key={c.key} className={`${pad} text-[12.5px] text-ink-body ${align(c.align)} ${c.className || ""}`}>
                           {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? "")}
                         </td>
@@ -251,7 +254,7 @@ export function DataTable<T>({
                     </tr>
                     {open && renderExpanded && (
                       <tr className="border-b border-line bg-surface-subtle/60">
-                        <td colSpan={columns.length} className="p-0">
+                        <td colSpan={screenColumns.length} className="p-0">
                           {renderExpanded(r)}
                         </td>
                       </tr>
@@ -263,7 +266,7 @@ export function DataTable<T>({
             {hasTotals && (
               <tfoot>
                 <tr className="border-t-2 border-line bg-surface-subtle">
-                  {columns.map((c, i) => (
+                  {screenColumns.map((c, i) => (
                     <td key={c.key} className={`${pad} font-figure text-[12.5px] font-bold text-ink ${align(c.align)}`}>
                       {c.total !== undefined ? c.total : i === 0 ? <span className="font-sans text-[11px] font-black uppercase tracking-wider text-ink-muted">{isAr ? "الإجمالي" : "Total"}</span> : ""}
                     </td>

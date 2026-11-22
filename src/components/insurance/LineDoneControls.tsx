@@ -46,7 +46,7 @@ const SAVE_AFTER_MS = 800;
  * and never sent. The parent remounts this (`key`) when the stored day changes, so the draft
  * always starts from what is saved.
  */
-function DoneDateField({
+export function DoneDateField({
   stored,
   min,
   max,

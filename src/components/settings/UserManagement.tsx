@@ -11,7 +11,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { logActivity } from "@/lib/logger";
-import { getAllPermissionIds } from "@/config/permissionsCatalog";
+import { effectivePermissions, getAllPermissionIds, listHoldsPermission, withPermission } from "@/config/permissionsCatalog";
 import { countedNoun } from "@/lib/arabicCount";
 import UserAccessModal from "./UserAccessModal";
 import InviteLinks from "./InviteLinks";
@@ -319,7 +319,8 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
   };
 
   const togglePermission = async (userId: string, currentPerms: string[], key: string, targetUser: UserRow) => {
-    const newPerms = currentPerms.includes(key) ? currentPerms.filter((p) => p !== key) : [...currentPerms, key];
+    // A default-on permission is "on" with nothing stored, and switching it off stores its marker.
+    const newPerms = withPermission(currentPerms, key, !listHoldsPermission(currentPerms, key));
     setUpdatingUserId(userId);
     try {
       await updateUserViaApi(userId, { permissions: newPerms });
@@ -339,7 +340,43 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
     }
   };
 
-  const activeCount = (perms: string[] | undefined) => (perms || []).filter((p) => getAllPermissionIds().includes(p)).length;
+  const activeCount = (perms: string[] | undefined) => effectivePermissions(perms).length;
+
+  /**
+   * Gives one person exactly the switches another person has.
+   *
+   * Setting a new colleague up toggle by toggle is thirteen decisions somebody already made for
+   * the person sitting next to them. The role is left alone: only the switches are copied, and
+   * they are saved the same way a hand edit is.
+   */
+  const copyPermissionsFrom = async (userId: string, targetUser: UserRow, source: UserRow) => {
+    const who = source.name || source.email || "?";
+    const whom = targetUser.name || targetUser.email || "?";
+    const ok = await confirm(
+      isAr
+        ? `هتخلّي صلاحيات ${whom} زي صلاحيات ${who} بالظبط؟ صلاحياته الحالية هتتبدّل. الدور مش هيتغيّر.`
+        : `Give ${whom} exactly the same permissions as ${who}? The current ones are replaced. The role does not change.`,
+    );
+    if (!ok) return;
+    const next = [...(source.permissions || [])];
+    setUpdatingUserId(userId);
+    try {
+      await updateUserViaApi(userId, { permissions: next });
+      if (accessModalUser && accessModalUser.id === userId) {
+        setAccessModalUser(prev => prev ? { ...prev, permissions: next } : null);
+      }
+      await logActivity(
+        { uid: currentUser?.uid, name: currentUser?.name, role: currentUser?.role },
+        "Permissions Copied",
+        `Copied ${who}'s permissions to ${whom}`
+      );
+      showToast(txt.successMsg, "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : txt.errorMsg, "error");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
 
   /** Puts someone back on their role's switches, discarding whatever was tuned by hand. */
   const applyRolePreset = async (userId: string, targetUser: UserRow) => {
@@ -406,11 +443,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
 
   const togglePermissionGroup = async (userId: string, currentPerms: string[], keys: string[], targetUser: UserRow, setAll: boolean) => {
     let newPerms = [...currentPerms];
-    if (setAll) {
-      keys.forEach(k => { if (!newPerms.includes(k)) newPerms.push(k); });
-    } else {
-      newPerms = newPerms.filter(p => !keys.includes(p));
-    }
+    keys.forEach(k => { newPerms = withPermission(newPerms, k, setAll); });
     
     setUpdatingUserId(userId);
     try {
@@ -872,6 +905,8 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
         viewerIsOwner={viewerIsOwner}
         applyRolePreset={applyRolePreset}
         transferOwnership={transferOwnership}
+        copyFrom={usersList.filter((u) => u.id !== accessModalUser?.id && !isFullAccessRole(u.role) && !!u.name)}
+        copyPermissionsFrom={copyPermissionsFrom}
       />
     </div>
   );

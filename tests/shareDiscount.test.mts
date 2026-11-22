@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import {
   dentistBase, insuranceTreatmentRows, lineCharge, lineDentistFor, parseLineDentists, parseShareDiscounts,
-  reshareLineDentists, shareDiscountOf, shareDiscountReason, type LineDentist,
+  reshareLineDentists, shareDiscountOf, shareDiscountReason, type InsuranceClaim, type LineDentist,
 } from "../src/lib/insurance/claims";
 
 let checks = 0;
@@ -68,6 +68,7 @@ eq(parsed[1].basis, undefined, "an unknown rule is the old rule");
 
 // --- 5. The treatment row an approval writes --------------------------------------------------------
 const claim = {
+  insurer: "metlife" as const, metlife: {} as InsuranceClaim["metlife"],
   payerId: "metlife-egypt", approvalNumber: "A1", approvalDate: "2026-11-16", treatedDate: "2026-11-16",
   patientId: "p1", patientName: "TEST", lines: [crown], dentists: { 0: { ...now, share: 125 } }, lineStatus: {},
   shareDiscounts: { 0: { amount: 100, reason: "Staff family", by: "u1", at: "2026-11-16" } },

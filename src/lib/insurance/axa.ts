@@ -25,7 +25,7 @@
  * the two printed totals are hard checks, so a paper the rule gets wrong is caught before it is saved.
  */
 import { parseMoney, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
-import { isFdiTooth, quadrantTeeth } from "./nextcare";
+import { isFdiTooth, lineTeethFields, quadrantTeeth } from "./nextcare";
 
 export const AXA_FORMAT = "axa";
 
@@ -373,7 +373,7 @@ function normalizeLine(raw: unknown): MetlifeLine {
     approvedAmount: moneyOr0(r.approvedAmount),
     comment: text(r.comment),
     confidence: c,
-    teeth: cleanTeeth(r.teeth),
+    ...lineTeethFields(cleanTeeth(r.teeth), r.noTeeth),
   };
 }
 

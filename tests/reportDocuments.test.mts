@@ -108,7 +108,7 @@ ok(!compare.figures[0].delta?.bad, "and a rise in income is not red");
             { id: "n1", status: "Completed", date: "2026-11-05", completedDate: "2026-11-05" },
             { id: "n2", status: "Ongoing", date: "2026-11-12" },
           ],
-          marks: {},
+          months: {},
           sent: [],
         } } }
       : {}),
