@@ -143,7 +143,7 @@ export default function ClaimsExportBar({
 
   const markAllSent = async () => {
     if (marking || toSend.length === 0) return;
-    const ok = await confirm(t("markAllSentConfirm").replace("{n}", String(toSend.length)), { confirmLabel: t("markAllSent") });
+    const ok = await confirm(t("markAllSentConfirm").replace("{n}", String(toSend.length)).replace("{insurer}", payerName || "—"), { confirmLabel: t("markAllSent") });
     if (!ok) return;
     setMarking(true);
     let failed = 0;

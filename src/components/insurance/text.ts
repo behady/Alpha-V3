@@ -250,8 +250,8 @@ export const TEXT = {
   excelFailed: { en: "Could not build the file. Try again.", ar: "تعذّر إنشاء الملف. حاول مرة أخرى." },
   markAllSent: { en: "Mark all as sent", ar: "علّم الكل اتبعت" },
   markAllSentConfirm: {
-    en: "Mark {n} treated approvals in this range as sent to MetLife?",
-    ar: "تعلّم {n} موافقة متعالجة في الفترة دي إنها اتبعتت لميتلايف؟",
+    en: "Mark {n} treated approvals in this range as sent to {insurer}?",
+    ar: "تعلّم {n} موافقة متعالجة في الفترة دي إنها اتبعتت لـ {insurer}؟",
   },
   markingSent: { en: "Marking…", ar: "بنعلّم…" },
   markedSent: { en: "Marked as sent", ar: "اتعلّموا اتبعتوا" },
