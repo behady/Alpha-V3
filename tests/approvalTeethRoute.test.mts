@@ -62,7 +62,8 @@ const { adminDb } = await import("../src/lib/firebaseAdmin");
 const route = await import("../src/app/api/clinical/procedures/route");
 const claimsRoute = await import("../src/app/api/insurance/claims/route");
 const { buildNextcareStatement, sheetTeethOf } = await import("../src/lib/insuranceStatementNextcare");
-const { parseClaim } = await import("../src/lib/insurance/claims");
+const { parseClaim, insuranceTreatmentRows } = await import("../src/lib/insurance/claims");
+const { parseTypedTeeth } = await import("../src/lib/insurance/nextcare");
 
 const db = adminDb();
 const clinic = db.collection("clinics").doc(CLINIC);
@@ -84,11 +85,11 @@ function check(label: string, condition: boolean, detail: unknown = "") {
 }
 
 type Json = Record<string, any>;
-async function update(body: Json): Promise<{ status: number; json: Json }> {
+async function update(body: Json, token = as): Promise<{ status: number; json: Json }> {
   const res = await route.POST(
     new Request("http://localhost/api/clinical/procedures", {
       method: "POST",
-      headers: { authorization: `Bearer ${as}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ action: "update", clinicId: CLINIC, noteId: "N1", patientId: "P1", status: "Completed", doctorId: null, note: "", ...body }),
     }),
   );
@@ -147,12 +148,12 @@ console.log("taking the teeth off");
 }
 
 // --- the same teeth, typed on the Insurance page (PATCH /api/insurance/claims { lineTeeth }) -------------
-async function typeTeeth(claimId: string, patch: Json, token = as): Promise<{ status: number; json: Json }> {
+async function typeTeeth(claimId: string, patch: Json, token = as, extra: Json = {}): Promise<{ status: number; json: Json }> {
   const res = await claimsRoute.PATCH(
     new Request("http://localhost/api/insurance/claims", {
       method: "PATCH",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ clinicId: CLINIC, claimId, patch }),
+      body: JSON.stringify({ clinicId: CLINIC, claimId, patch, ...extra }),
     }),
   );
   return { status: res.status, json: (await res.json()) as Json };
@@ -239,14 +240,122 @@ console.log("teeth on an approval that is not treated yet, sent, or cancelled");
   r = await typeTeeth("nextcare_c3", { lineTeeth: { 1: ["45", "46"] } });
   check("typed teeth replace them on the sheet", r.status === 200 && JSON.stringify(sheetTeethOf(await claimNow("nextcare_c3"))[1]) === JSON.stringify(["45", "46"]), r);
 
+  // Sent to the company: its teeth are on the sheet the company holds. Owner / Admin only, after the warning.
   await seedPlain("nextcare_c4", "sent");
+  const DESK = "desk-sent";
+  await db.collection("users").doc(DESK).set({ name: "Mona Desk", clinicRoles: { [CLINIC]: "Receptionist" }, clinicPermissions: { [CLINIC]: ["patients.edit"] } });
+  r = await typeTeeth("nextcare_c4", { lineTeeth: { 1: ["36", "37"] } }, idToken(DESK));
+  check("sent: staff are refused", r.status === 409 && r.json.reason === "approval_sent", r);
+  r = await typeTeeth("nextcare_c4", { lineTeeth: { 1: ["36", "37"] } }, idToken(DESK), { confirmSent: true });
+  check("sent: staff are refused even when the call says 'confirmed'", r.status === 409 && r.json.reason === "approval_sent", r);
   r = await typeTeeth("nextcare_c4", { lineTeeth: { 1: ["36", "37"] } });
+  check("sent: an admin is asked to confirm first", r.status === 409 && r.json.reason === "approval_sent_confirm", r);
+  check("sent: nothing changed so far", ((await claimNow("nextcare_c4")).lines[1].teeth ?? []).length === 0);
+  r = await typeTeeth("nextcare_c4", { lineTeeth: { 1: ["36", "37"] } }, as, { confirmSent: true });
   const sent = await claimNow("nextcare_c4");
-  check("sent: allowed (the page asks first), and it stays sent", r.status === 200 && sent.status === "sent" && JSON.stringify(sent.lines[1].teeth) === JSON.stringify(["36", "37"]), r);
+  check("sent: an admin who confirmed changes them, and it stays sent", r.status === 200 && sent.status === "sent" && JSON.stringify(sent.lines[1].teeth) === JSON.stringify(["36", "37"]), r);
+  r = await typeTeeth("nextcare_c4", { lineTeeth: { 1: ["36", "37"] } }, idToken(DESK));
+  check("sent: the same teeth again are no change, so nobody is refused", r.status === 200, r);
+
+  // The same lock from the patient's file (the treatment's own teeth picker).
+  await clinic.collection("insurance_claims").doc("nextcare_c8").set({
+    insurer: "nextcare", payerId: "nc", status: "sent", approvalNumber: "C8/1", approvalDate: "2026-09-10", treatedDate: "2026-09-12",
+    patientId: "P1", patientName: "Test Patient", paperPatientName: "", metlife: { memberCode: "AB12" },
+    lines: [line("DE-1", "Consultation - كشف", 1, 34.5), { ...line("DEN-14", "Composite - حشو كمبوزيت", 2, 1610), teeth: ["16", "17"] }],
+    ledgerIds: { 1: { ledgerId: "L8", noteId: "N8" } }, dentists: {}, lineStatus: {},
+  });
+  await clinic.collection("clinical_notes").doc("N8").set({ patientId: "P1", claimId: "nextcare_c8", tooth: "16,17", procedure: "حشو كمبوزيت", cost: 1610, status: "Completed", note: "", doctorId: null, payerId: "nc" });
+  await clinic.collection("ledger").doc("L8").set({ patientId: "P1", type: "procedure", claimId: "nextcare_c8", amount: 1610, cost: 1610, description: "حشو كمبوزيت (T: 16,17) | NextCare C8/1" });
+  const DENTIST = "dentist-sent";
+  await db.collection("users").doc(DENTIST).set({ name: "Dr Staff", clinicRoles: { [CLINIC]: "Dentist" }, clinicPermissions: { [CLINIC]: ["clinical.edit", "patients.edit"] } });
+  let f = await update({ noteId: "N8", selectedTeeth: ["16", "18"] }, idToken(DENTIST));
+  check("patient's file, sent: staff are refused", f.status === 409 && f.json.reason === "approval_sent", f);
+  f = await update({ noteId: "N8", selectedTeeth: ["16", "18"], confirmSentApproval: true }, idToken(DENTIST));
+  check("patient's file, sent: staff are refused even when the call says 'confirmed'", f.status === 409 && f.json.reason === "approval_sent", f);
+  f = await update({ noteId: "N8", selectedTeeth: ["16", "18"] });
+  check("patient's file, sent: an admin is asked to confirm first", f.status === 409 && f.json.reason === "approval_sent_confirm", f);
+  check("patient's file, sent: nothing changed", (await clinic.collection("clinical_notes").doc("N8").get()).data()?.tooth === "16,17");
+  f = await update({ noteId: "N8", selectedTeeth: ["16", "18"], confirmSentApproval: true });
+  check("patient's file, sent: confirmed, the teeth change everywhere", f.status === 200 && (await clinic.collection("clinical_notes").doc("N8").get()).data()?.tooth === "16,18" && JSON.stringify((await claimNow("nextcare_c8")).lines[1].teeth) === JSON.stringify(["16", "18"]), f);
+  f = await update({ noteId: "N8", selectedTeeth: ["16", "18"], note: "polished" });
+  check("patient's file, sent: a note with the same teeth needs no confirmation", f.status === 200, f);
 
   await seedPlain("nextcare_c5", "cancelled");
   r = await typeTeeth("nextcare_c5", { lineTeeth: { 1: ["36"] } });
   check("cancelled: refused", r.status === 400 && r.json.reason === "no_line", r);
+}
+
+console.log("typing on an Arabic keyboard");
+{
+  const typed = parseTypedTeeth("٤٤، ٤٦");
+  check("٤٤، ٤٦ is read as 44, 46", typed.bad === null && JSON.stringify(typed.teeth) === JSON.stringify(["44", "46"]), typed);
+  check("۴۵ (Persian digits) is read as 45", JSON.stringify(parseTypedTeeth("۴۵").teeth) === JSON.stringify(["45"]));
+  check("44 46 44 is two teeth", JSON.stringify(parseTypedTeeth("44 46 44").teeth) === JSON.stringify(["44", "46"]));
+  check("a number that is not a tooth is named", parseTypedTeeth("44, ٩٩").bad === "99", parseTypedTeeth("44, ٩٩"));
+  check("an empty box is no teeth, not a mistake", parseTypedTeeth("  ").bad === null && parseTypedTeeth("  ").teeth.length === 0);
+  const r = await typeTeeth("nextcare_c2", { lineTeeth: { 1: ["٣٥"] } });
+  check("the server reads them too", r.status === 200 && JSON.stringify((await claimNow("nextcare_c2")).lines[1].teeth) === JSON.stringify(["35"]), r);
+}
+
+console.log("teeth the sheet only borrowed from the paper's note");
+{
+  // Treated before the file took the paper's teeth: the sheet prints 4-6, the patient's file says "Gen".
+  const c6 = clinic.collection("insurance_claims").doc("nextcare_c6");
+  const n6 = clinic.collection("clinical_notes").doc("N6");
+  const l6 = clinic.collection("ledger").doc("L6");
+  await c6.set({
+    insurer: "nextcare", payerId: "nc", status: "treated", approvalNumber: "C6/1", approvalDate: "2026-09-10", treatedDate: "2026-09-12",
+    patientId: "P1", patientName: "Test Patient", paperPatientName: "", metlife: { memberCode: "AB12", comment: "L.R 4-6" },
+    lines: [line("DE-1", "Consultation - كشف", 1, 34.5), line("DEN-14", "Composite - حشو كمبوزيت", 2, 1610)],
+    ledgerIds: { 1: { ledgerId: "L6", noteId: "N6" } }, dentists: {}, lineStatus: {},
+  });
+  await n6.set({ patientId: "P1", claimId: "nextcare_c6", tooth: "Gen", procedure: "حشو كمبوزيت", cost: 1610, status: "Completed", note: "", doctorId: null, payerId: "nc" });
+  await l6.set({ patientId: "P1", type: "procedure", claimId: "nextcare_c6", amount: 1610, cost: 1610, description: "حشو كمبوزيت (T: Gen) | NextCare C6/1" });
+  const sheetLine = async () => buildNextcareStatement({ claims: [await claimNow("nextcare_c6")], payerId: "nc", payerName: "NextCare", from: "2026-09-01", to: "2026-09-30", wording: {} }).cases[0]?.lines[1]?.text;
+  check("before: the sheet prints the paper's teeth", (await sheetLine()) === "2حشو كمبوزيت رقم 4-6", await sheetLine());
+
+  let r = await typeTeeth("nextcare_c6", { lineTeeth: { 1: ["44", "46"] } });
+  check("typing the numbers shown saves them as the line's own", r.status === 200 && JSON.stringify((await claimNow("nextcare_c6")).lines[1].teeth) === JSON.stringify(["44", "46"]), r);
+  check("and puts the patient's file right", (await n6.get()).data()?.tooth === "44,46" && (await l6.get()).data()?.description === "حشو كمبوزيت (T: 44,46) | NextCare C6/1", [(await n6.get()).data()?.tooth, (await l6.get()).data()?.description]);
+  const audits = async () => (await clinic.collection("ledger_audit").where("documentId", "==", "N6").get()).docs.map((d) => d.data()).filter((d) => d.via === "insurance/claims:line-teeth");
+  check("the audit says what the file said before", (await audits()).length === 1 && (await audits())[0].before?.tooth === "Gen", await audits());
+
+  r = await typeTeeth("nextcare_c6", { lineTeeth: { 1: [] } });
+  const cleared = await claimNow("nextcare_c6");
+  check("clearing the box really clears: the paper's teeth do not come back", r.status === 200 && sheetTeethOf(cleared)[1].length === 0 && cleared.lines[1].noTeeth === true, cleared.lines[1]);
+  check("the sheet prints no tooth for it", (await sheetLine()) === "2حشو كمبوزيت", await sheetLine());
+  check("the patient's file is general", (await n6.get()).data()?.tooth === "Gen" && (await l6.get()).data()?.description === "حشو كمبوزيت (T: Gen) | NextCare C6/1");
+  const stored = ((await c6.get()).data() as Json).lines[1];
+  check("stored cleanly: the mark, and no empty teeth list", stored.noTeeth === true && !("teeth" in stored), stored);
+  r = await typeTeeth("nextcare_c6", { lineTeeth: { 1: [] } });
+  check("clearing again changes and logs nothing", r.status === 200 && (await audits()).length === 2, (await audits()).length);
+
+  r = await typeTeeth("nextcare_c6", { lineTeeth: { 1: ["45"] } });
+  const typedAgain = await claimNow("nextcare_c6");
+  check("typed teeth lift the mark", r.status === 200 && typedAgain.lines[1].noTeeth !== true && JSON.stringify(typedAgain.lines[1].teeth) === JSON.stringify(["45"]), typedAgain.lines[1]);
+
+  const f = await update({ noteId: "N6", selectedTeeth: [], tooth: "" });
+  const fileCleared = await claimNow("nextcare_c6");
+  check("cleared in the patient's file: the sheet prints none either", f.status === 200 && sheetTeethOf(fileCleared)[1].length === 0 && (await sheetLine()) === "2حشو كمبوزيت", [f, fileCleared.lines[1]]);
+}
+
+console.log("a new treatment takes the teeth the sheet prints");
+{
+  const base = {
+    payerId: "nc", approvalNumber: "C7/1", approvalDate: "2026-09-10", treatedDate: "2026-09-12", patientId: "P1", patientName: "Test Patient",
+    lines: [line("DE-1", "Consultation - كشف", 1, 34.5), line("DEN-14", "Composite - حشو كمبوزيت", 2, 1610)], dentists: {}, lineStatus: {},
+  };
+  const rowsOf = (claim: Json) => insuranceTreatmentRows({ claimId: "c7", claim: claim as never, payerName: "NextCare", wording: {}, actor: { uid: UID, name: "Dr Tester", role: "Admin" } });
+  const tooth = (claim: Json, i: number) => rowsOf(claim).find((r) => r.lineIndex === i)?.note.tooth;
+  const paper = { ...base, insurer: "nextcare", metlife: { comment: "L.R 4-6" } };
+  check("the paper's teeth reach the patient's file", tooth(paper, 1) === "44,46", tooth(paper, 1));
+  check("and the charge", String(rowsOf(paper).find((r) => r.lineIndex === 1)?.charge.description).includes("(T: 44,46)"), rowsOf(paper).find((r) => r.lineIndex === 1)?.charge.description);
+  check("the exam stays general", tooth(paper, 0) === "Gen", tooth(paper, 0));
+  const own = { ...paper, lines: [paper.lines[0], { ...paper.lines[1], teeth: ["36", "37"] }] };
+  check("a line's own teeth win", tooth(own, 1) === "36,37", tooth(own, 1));
+  const clearedLine = { ...paper, lines: [paper.lines[0], { ...paper.lines[1], noTeeth: true }] };
+  check("teeth cleared by hand stay cleared", tooth(clearedLine, 1) === "Gen", tooth(clearedLine, 1));
+  check("MetLife is general, whatever its comment says", tooth({ ...paper, insurer: "metlife" }, 1) === "Gen", tooth({ ...paper, insurer: "metlife" }, 1));
 }
 
 console.log("clearing the teeth from the Insurance page");

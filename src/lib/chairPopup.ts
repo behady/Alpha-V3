@@ -9,6 +9,7 @@ import { isMine, type DentistIdentity } from "@/lib/dentistHome";
 import type { Note } from "@/components/clinical-notes/types";
 import { parseTeethString } from "@/components/clinical-notes/utils";
 import { lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import { sheetTeethOf } from "@/lib/insurance/nextcare";
 import type { ProcedureWriteArgs } from "@/lib/moneyApi";
 
 /**
@@ -133,12 +134,15 @@ export function approvalLinesForChair(claims: InsuranceClaim[], me: { staffId: s
   const out: ApprovalLine[] = [];
   for (const c of claims) {
     if (c.status === "cancelled") continue;
+    // The teeth the monthly sheet prints (the line's own, else the paper's note): the dentist
+    // reads the same numbers the desk and the company do.
+    const sheet = c.insurer === "metlife" ? [] : sheetTeethOf(c);
     c.lines.forEach((line, i) => {
       out.push({
         claimId: c.id,
         lineIndex: i,
         name: line.description?.trim() || line.code,
-        teeth: (line.teeth ?? []).join(", "),
+        teeth: (sheet[i] ?? line.teeth ?? []).join(", "),
         status: lineStatusOf(c, i),
         mine: !!me?.staffId && c.dentists?.[i]?.staffId === me.staffId,
       });

@@ -454,6 +454,10 @@ export const TEXT = {
   apTeethWarnTitle: { en: "Change the teeth?", ar: "تغيّر الأسنان؟" },
   apTeethWarn: { en: "{service}: change the teeth from {was} to {now}? The monthly sheet, the patient's file and the charge will all show the new teeth. The price does not change.", ar: "{service}: تغيّر الأسنان من {was} إلى {now}؟ التقفيلة وملف المريض والحساب هيظهروا بالأسنان الجديدة. السعر مش بيتغير." },
   apTeethWarnGo: { en: "Change the teeth", ar: "غيّر الأسنان" },
+  apTeethCountWarn: { en: "{service} was approved for {units}, and you wrote {count} teeth. Save it like this?", ar: "{service} متوافق عليها {units}، وانت كتبت {count} أسنان. تحفظها كده؟" },
+  apTeethSentTitle: { en: "Already sent to the company", ar: "اتبعتت للشركة خلاص" },
+  apTeethSentWarn: { en: "This approval was already sent to the company, with these teeth printed on its sheet. If you change them, the sheet will no longer match what the company received, and the company is not told.", ar: "الموافقة دي اتبعتت للشركة، والأسنان دي مكتوبة في تقفيلتها. لو غيّرتها، التقفيلة مش هتبقى زي اللي الشركة استلمته، والشركة مش هتعرف." },
+  apTeethSentStaff: { en: "This approval was already sent to the company. Only the owner or an admin can change its teeth.", ar: "الموافقة دي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّر أسنانها." },
   apTeethSaved: { en: "Teeth saved — the sheet and the patient's file follow", ar: "الأسنان اتحفظت — التقفيلة وملف المريض اتحدثوا" },
 } as const satisfies Record<string, Lang>;
 

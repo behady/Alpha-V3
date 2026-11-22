@@ -172,6 +172,8 @@ export type ClaimPatch = {
   sheetMonth?: string | null;
   /** Line index -> that service's teeth (FDI codes; empty = none). One line at a time. Travels alone. */
   lineTeeth?: Record<number, string[]>;
+  /** With `lineTeeth` on an approval already sent: an Owner or Admin has read the warning. */
+  confirmSent?: boolean;
   /** Delete one service the patient will not come back for (never a Completed one). Travels alone. */
   removeLine?: number;
   /** Put a deleted service back on the approval. Travels alone. */
@@ -189,7 +191,9 @@ export type ClaimPatch = {
 
 /** PATCH /api/insurance/claims. Resolves to the server's message on a refusal, null on success. */
 export async function patchClaim(clinicId: string, claimId: string, patch: ClaimPatch, branchId?: string): Promise<string | null> {
-  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch, ...(branchId ? { branchId } : {}) });
+  // `confirmSent` is the person's yes, not a change to the approval: it rides beside the patch.
+  const { confirmSent, ...change } = patch;
+  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch: change, ...(confirmSent ? { confirmSent: true } : {}), ...(branchId ? { branchId } : {}) });
   if (status === 200 && data.ok === true) return null;
   return typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`;
 }

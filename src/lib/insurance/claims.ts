@@ -10,7 +10,7 @@
  */
 
 import { normalizeMetlife, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
-import { normalizeNextcare } from "./nextcare";
+import { normalizeNextcare, sheetTeethOf } from "./nextcare";
 import { normalizeAxa } from "./axa";
 import { commissionRateFor, isInsurerFormat, type CommissionRates, type InsurerFormat, type Payer } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
@@ -707,7 +707,7 @@ export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientSh
 
 export type TreatmentRowArgs = {
   claimId: string;
-  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists" | "lineStatus"> &
+  claim: Pick<InsuranceClaim, "insurer" | "metlife" | "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists" | "lineStatus"> &
     Partial<Pick<InsuranceClaim, "lineDates" | "removedLines" | "shareDiscounts">>;
   payerName: string;
   /** The clinic's own name per code, else the paper's description prints. */
@@ -737,6 +737,10 @@ export type TreatmentRow = {
 export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
   const { claim, claimId, payerName, wording, actor } = args;
   const out: TreatmentRow[] = [];
+  // NextCare's and AXA's services name their teeth — the ones the monthly sheet prints (their own,
+  // else the paper's conditions), so the patient's file and the sheet agree from the first day.
+  // MetLife's never do ("Gen", as before).
+  const sheetTeeth = claim.insurer === "metlife" ? [] : sheetTeethOf(claim);
   claim.lines.forEach((line, i) => {
     // A service deleted from the approval has no row in the patient's file.
     if (isLineRemoved(claim, i)) return;
@@ -752,8 +756,8 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
     const listPrice = round2(line.grossTotal);
     const discountAmount = Math.max(0, round2(listPrice - charge));
     const commissionAmount = dentist ? dentist.share : 0;
-    // NextCare's and AXA's lines name their teeth; MetLife's never do ("Gen", as before).
-    const toothText = line.teeth && line.teeth.length ? line.teeth.join(",") : "Gen";
+    const teeth = sheetTeeth[i] ?? [];
+    const toothText = teeth.length ? teeth.join(",") : "Gen";
     const base = {
       cost: charge,
       unitCost,

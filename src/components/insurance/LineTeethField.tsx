@@ -13,6 +13,7 @@ import { useState } from "react";
 
 export default function LineTeethField({
   teeth,
+  borrowed,
   disabled,
   label,
   placeholder,
@@ -20,6 +21,11 @@ export default function LineTeethField({
 }: {
   /** The teeth on record (FDI codes). */
   teeth: string[];
+  /**
+   * The numbers shown are only borrowed from the paper's note, not saved on the service yet:
+   * typing them again (unchanged) still saves, which puts the patient's file right.
+   */
+  borrowed?: boolean;
   disabled?: boolean;
   label: string;
   placeholder: string;
@@ -32,7 +38,7 @@ export default function LineTeethField({
 
   const commit = async () => {
     if (draft === null || saving) return;
-    if (draft.trim() === shown) {
+    if (draft.trim() === shown && !borrowed) {
       setDraft(null);
       return;
     }

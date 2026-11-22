@@ -80,3 +80,15 @@ stays; patient → approvals → services; the action buttons stay on each appro
 ## Not built
 
 The GASCO tutorial film still shows the old switch. A production build was not run locally.
+
+## Teeth box on each NextCare / AXA service - built 2026-11-21, hardened 2026-11-22
+
+- Each service line of a NextCare / AXA approval has a Teeth box (between Service and Dentist). It shows what the monthly sheet prints. MetLife has none (its sheet prints no teeth); the consultation line shows a dash.
+- One rule for everyone: `sheetTeethOf` in `src/lib/insurance/nextcare.ts` - cleared by hand (`noTeeth`) = none; else the line's own teeth; else the teeth the paper's note gives it. The sheet, the box, the dentist's chair pop-up and the treatment written to the patient's file all read it.
+- Saving (`PATCH /api/insurance/claims { lineTeeth }`, one line, alone) writes the approval line, the treatment's `tooth` and the charge's `(T: ...)` in one transaction. Price, dates and sheet month never change. The patient's file writes the same three the other way (`/api/clinical/procedures`).
+- Typed input accepts Arabic numerals (`parseTypedTeeth`). Numbers that are not teeth are refused.
+- Clearing the box is remembered (`noTeeth: true` on the line), so the paper's teeth do not come back. Typing the numbers the box only borrowed from the paper saves them and puts the patient's file right.
+- Warnings (one dialog): replacing numbers already there; number of teeth different from the count approved.
+- Sent approval: only Owner / Admin, after a red warning (`confirmSent` on the Insurance page, `confirmSentApproval` from the patient's file; refusals `approval_sent`, `approval_sent_confirm`). Same lock as a sent company sheet.
+- Needs `insurance.edit` (on by default).
+- Tests: `tests/approvalTeethRoute.test.mts` (78).

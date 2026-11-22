@@ -35,8 +35,8 @@ import { fill, monthLabel } from "./sheetFormat";
 import { STATE_KEY, tr, type TextKey } from "./text";
 import LineDoneControls from "./LineDoneControls";
 import LineTeethField from "./LineTeethField";
-import { isFdiTooth, isVisitService } from "@/lib/insurance/nextcare";
-import { sheetTeethOf } from "@/lib/insuranceStatementNextcare";
+import { isVisitService, parseTypedTeeth, sheetTeethOf } from "@/lib/insurance/nextcare";
+import { useClinic } from "@/context/ClinicContext";
 import { useOpenShares } from "./useOpenShares";
 
 const STATUS: Record<ClaimStatus, { key: TextKey; pill: string }> = {
@@ -83,6 +83,7 @@ export default function ClaimsTable({
   const isAr = language === "ar";
   const t = tr(isAr);
   const { confirm, showToast } = useUI();
+  const { isAdmin } = useClinic();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const [busyId, setBusyId] = useState("");
   /** The patients whose approvals are opened out under their line. */
@@ -314,29 +315,42 @@ export default function ClaimsTable({
   /** The teeth a service goes to the company with: its own, else the ones the paper's conditions give it. */
   const teethOf = (c: InsuranceClaim, i: number): string[] => sheetTeethOf(c)[i] ?? [];
 
-  /** Typed over by hand: checked, warned about when numbers already there are replaced, then saved everywhere at once. */
+  /**
+   * Typed over by hand: checked, then one question at most before it is saved everywhere at once —
+   * an approval already sent asks its own (Owner or Admin only); otherwise the desk is warned when
+   * numbers already there are replaced, or when the count of teeth is not the count approved.
+   */
   const saveTeeth = async (c: InsuranceClaim, i: number, typed: string) => {
-    const teeth: string[] = [];
-    for (const code of typed.split(/[^0-9A-Za-z]+/).filter(Boolean)) {
-      if (!isFdiTooth(code)) {
-        showToast(fill(t("apTeethBad"), { tooth: code }), "error");
-        return;
-      }
-      if (!teeth.includes(code)) teeth.push(code);
+    const { teeth, bad } = parseTypedTeeth(typed);
+    if (bad !== null) {
+      showToast(fill(t("apTeethBad"), { tooth: bad }), "error");
+      return;
     }
+    const line = c.lines[i];
     const was = teethOf(c, i);
-    if (was.join(",") === teeth.join(",")) return;
-    if (was.length > 0) {
-      const question = fill(t("apTeethWarn"), {
-        service: c.lines[i].description || c.lines[i].code,
-        was: was.join(", "),
-        now: teeth.join(", ") || t("apTeethNone"),
-      });
-      if (!(await confirm(question, { title: t("apTeethWarnTitle"), confirmLabel: t("apTeethWarnGo") }))) return;
+    const own = line.teeth ?? [];
+    const replacing = was.join(",") !== teeth.join(",");
+    // Nothing to do — unless the numbers shown are only the paper's: typing them saves them.
+    if (!replacing && (teeth.length === 0 || own.join(",") === teeth.join(","))) return;
+    const sent = c.status === "sent";
+    if (sent && !isAdmin) {
+      showToast(t("apTeethSentStaff"), "error");
+      return;
     }
-    if (!(await sentOk(c))) return;
+    const service = line.description || line.code;
+    const units = Math.round(Number(line.unitsApproved) || 0);
+    const parts: string[] = [];
+    // Tooth lists read left to right ("44, 46"), also inside an Arabic sentence.
+    const list = (codes: string[]) => `⁦${codes.join(", ")}⁩`;
+    if (sent) parts.push(t("apTeethSentWarn"));
+    if (replacing && was.length > 0) parts.push(fill(t("apTeethWarn"), { service, was: list(was), now: teeth.length ? list(teeth) : t("apTeethNone") }));
+    if (teeth.length > 0 && units > 0 && teeth.length !== units) parts.push(fill(t("apTeethCountWarn"), { service, units: String(units), count: String(teeth.length) }));
+    if (parts.length > 0) {
+      const ok = await confirm(parts.join("\n\n"), sent ? { title: t("apTeethSentTitle"), confirmLabel: t("apTeethWarnGo"), tone: "danger" } : { title: t("apTeethWarnTitle"), confirmLabel: t("apTeethWarnGo") });
+      if (!ok) return;
+    }
     await run(c, async () => {
-      if (await onPatch(c, { lineTeeth: { [i]: teeth } })) showToast(t("apTeethSaved"), "success");
+      if (await onPatch(c, { lineTeeth: { [i]: teeth }, ...(sent ? { confirmSent: true } : {}) })) showToast(t("apTeethSaved"), "success");
     });
   };
 
@@ -354,7 +368,7 @@ export default function ClaimsTable({
     }
     return (
       <Protect permission="insurance.edit" fallback={plain}>
-        <LineTeethField teeth={teeth} disabled={busyId === c.id} label={t("colTeeth")} placeholder={t("apTeethPlaceholder")} onCommit={(typed) => saveTeeth(c, i, typed)} />
+        <LineTeethField teeth={teeth} borrowed={teeth.length > 0 && (c.lines[i].teeth ?? []).length === 0} disabled={busyId === c.id} label={t("colTeeth")} placeholder={t("apTeethPlaceholder")} onCommit={(typed) => saveTeeth(c, i, typed)} />
       </Protect>
     );
   };

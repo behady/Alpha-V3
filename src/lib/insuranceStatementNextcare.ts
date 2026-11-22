@@ -21,7 +21,7 @@
  */
 import { claimStatementName, isLineRemoved, type InsuranceClaim } from "@/lib/insurance/claims";
 import { inSheetRange, type SheetDateMode } from "@/lib/insurance/billingMonth";
-import { assignConditionTeeth, isVisitService, memberCodeFromCard, quadrantTeeth } from "@/lib/insurance/nextcare";
+import { isVisitService, memberCodeFromCard, sheetTeethOf } from "@/lib/insurance/nextcare";
 import { insurerToothLabel, type Statement, type StatementCase, type StatementLine } from "@/lib/insuranceStatement";
 
 /** NextCare's codes, in the words the clinic's sheet uses. A clinic's own wording overrides any of them. */
@@ -51,15 +51,8 @@ export function nextcareLineText(line: InsuranceClaim["lines"][number], wording:
   return `${count}${name}${teeth.length ? ` رقم ${teeth.join("-")}` : ""}`;
 }
 
-/**
- * The teeth each service of an approval goes to the company with (FDI codes): its own — read from
- * the paper, or typed by the desk — else the ones the paper's conditions give it. The sheet and the
- * Insurance page's teeth box both read this, so the box shows what the sheet will print.
- */
-export function sheetTeethOf(c: Pick<InsuranceClaim, "lines" | "metlife">): string[][] {
-  const fromPaper = assignConditionTeeth(c.lines, quadrantTeeth(c.metlife.comment ?? ""));
-  return c.lines.map((l, i) => (l.teeth && l.teeth.length ? [...l.teeth] : [...(fromPaper[i] ?? [])]));
-}
+/** The one rule for a service's teeth (lib/insurance/nextcare), re-exported for the screens that print with it. */
+export { sheetTeethOf };
 
 /**
  * `mode` picks WHICH approvals are on the sheet of `[from, to]`, never what is printed for them:

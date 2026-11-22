@@ -45,6 +45,20 @@ export const SENT_SHEET_CONFIRM = {
   ar: { title: "اتبعتت للشركة خلاص", confirmLabel: "غيّره برضه", tone: "danger" as const },
 };
 
+/**
+ * The same warning for an insurance approval (MetLife / NextCare / AXA) already sent: its teeth
+ * are printed on the sheet the company holds. Shared by the Insurance page's teeth box and the
+ * patient's file (the server answers 409 `approval_sent_confirm` to an Owner or Admin).
+ */
+export const SENT_APPROVAL_TEETH_WARNING = {
+  en: "This approval was already sent to the company, with these teeth printed on its sheet. If you change them, the sheet will no longer match what the company received, and the company is not told. Change the teeth anyway?",
+  ar: "الموافقة دي اتبعتت للشركة، والأسنان دي مكتوبة في تقفيلتها. لو غيّرتها، التقفيلة مش هتبقى زي اللي الشركة استلمته، والشركة مش هتعرف. تغيّر الأسنان برضه؟",
+};
+export const SENT_APPROVAL_TEETH_REFUSED = {
+  en: "This approval was already sent to the company. Only the owner or an admin can change its teeth.",
+  ar: "الموافقة دي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّر أسنانها.",
+};
+
 export class MoneyApiError extends Error {
   status: number;
   reason?: string;
@@ -134,10 +148,18 @@ async function post<T = Record<string, unknown>>(path: string, body: Record<stri
     if (yes) return post<T>(path, { ...body, confirmSentSheet: true });
     throw new MoneyApiError(inLanguage({ en: "Nothing was changed.", ar: "مفيش حاجة اتغيّرت." }), 409, "sheet_sent_cancelled");
   }
+  // The teeth of an insurance approval already sent: the same question, the same second call.
+  if (response.status === 409 && payload.reason === "approval_sent_confirm" && body.confirmSentApproval !== true) {
+    const yes = await askConfirm(SENT_APPROVAL_TEETH_WARNING, SENT_SHEET_CONFIRM);
+    if (yes) return post<T>(path, { ...body, confirmSentApproval: true });
+    throw new MoneyApiError(inLanguage({ en: "Nothing was changed.", ar: "مفيش حاجة اتغيّرت." }), 409, "approval_sent_cancelled");
+  }
 
   if (!response.ok || payload.ok === false) {
     const sheetSent =
-      payload.reason === "sheet_sent"
+      payload.reason === "approval_sent"
+        ? inLanguage(SENT_APPROVAL_TEETH_REFUSED)
+        : payload.reason === "sheet_sent"
         ? inLanguage({
             en: `This treatment is on the ${monthWords(String(payload.month || ""), "en-US")} company sheet, which was already sent. Only the owner or an admin can change it.`,
             ar: `العلاج ده في تقفيلة ${monthWords(String(payload.month || ""), "ar-EG")} اللي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّره.`,

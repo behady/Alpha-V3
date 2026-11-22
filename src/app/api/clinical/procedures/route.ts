@@ -49,10 +49,11 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim, shareDiscountOf } from "@/lib/insurance/claims";
 import { billingFields, lineDateOf, lineDatesAfterStates, movesSentMonth } from "@/lib/insurance/billingMonth";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { isFdiTooth } from "@/lib/insurance/nextcare";
+import { isFdiTooth, withLineTeeth } from "@/lib/insurance/nextcare";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { sentSheetGate } from "@/lib/server/companySheetLock";
+import { isFullAccessRole } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -635,6 +636,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     | { kind: "no_staff" }
     | { kind: "not_dentist" }
     | { kind: "sent_locked" }
+    | { kind: "teeth_sent_role" }
+    | { kind: "teeth_sent_confirm" }
     | { kind: "ok"; after: Record<string, unknown>; restamp: Array<string | null>; moved: { ledgerId: string; from: unknown; to: string } | null };
   const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
     const claimSnap = await tx.get(claimRef);
@@ -712,14 +715,16 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
       }
     }
     if (teeth !== undefined) {
+      // An approval already sent printed these teeth on the sheet the company holds: only an Owner
+      // or Admin changes them, after the warning — the same rule the Insurance page's teeth box has.
+      if (claim.status === "sent") {
+        if (!isFullAccessRole(actor.role)) return { kind: "teeth_sent_role" };
+        if (body.confirmSentApproval !== true) return { kind: "teeth_sent_confirm" };
+      }
       // The approval's line is what the monthly sheet prints; the note and its charge say the same.
-      // A flat insurance price: the teeth never move the money.
-      claimUpdate.lines = claim.lines.map((l, k) => {
-        const own = k === i ? teeth : l.teeth;
-        const { teeth: _old, ...rest } = l;
-        void _old;
-        return own && own.length ? { ...rest, teeth: [...own] } : rest;
-      });
+      // A flat insurance price: the teeth never move the money. Cleared teeth are remembered as
+      // cleared, so the paper's conditions do not print teeth the file no longer has.
+      claimUpdate.lines = withLineTeeth(claim.lines, i, teeth);
       const toothText = teeth.length ? teeth.join(",") : "Gen";
       noteUpdate.tooth = toothText;
       const description = withToothText(ledgerSnap?.data()?.description, toothText);
@@ -735,6 +740,12 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   if (outcome.kind === "no_staff") return bad("That dentist is not on staff any more.");
   if (outcome.kind === "not_dentist") return bad(NOT_A_DENTIST_MESSAGE);
   if (outcome.kind === "sent_locked") return bad(APPROVAL_SENT_MESSAGE, 409);
+  if (outcome.kind === "teeth_sent_role") {
+    return NextResponse.json({ ok: false, reason: "approval_sent", error: "This approval was already sent to the company. Only the owner or an admin can change its teeth. / الموافقة دي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّر أسنانها." }, { status: 409 });
+  }
+  if (outcome.kind === "teeth_sent_confirm") {
+    return NextResponse.json({ ok: false, reason: "approval_sent_confirm", error: "This approval was already sent to the company. Confirm to change its teeth. / الموافقة دي اتبعتت للشركة. أكّد عشان تغيّر أسنانها." }, { status: 409 });
+  }
   // The approval no longer knows this row (deleted, or saved again): the row is frozen as before.
   if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
   await restampStaffSettlementsFor(clinicId, outcome.restamp);
