@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Lesson video stage</title>
+<!--
+  The stage for make-lesson-video.mjs. setup(config) loads fonts and frames; render(t) draws the
+  film at second t and nothing else moves: no CSS animation, no timers, so frame N is always the
+  same picture.
+
+  Layout, 1080x1920: a dark band on top (which step, how many, progress), the phone screen at its
+  true size in the middle (1080x1500, never zoomed or panned), a dark band below with one short
+  instruction. The ring is the same teal ring the in-app lessons use.
+-->
+<style>
+  :root { --ink: #0F1014; --band: #111318; --line: #2B2F38; --mute: #9AA1AD; --paper: #fff; --accent: #FACC15; --teal: #14B8A6; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+  body { font-family: "Cairo", sans-serif; color: var(--paper); direction: rtl; }
+  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+  .layer { position: absolute; inset: 0; }
+
+  /* --- the lesson: band, screen, band --- */
+  #top { position: absolute; left: 0; right: 0; top: 0; height: 210px; background: var(--band); }
+  #num { position: absolute; right: 48px; top: 36px; width: 104px; height: 104px; border-radius: 50%; background: var(--accent); color: var(--ink);
+         font-weight: 900; font-size: 62px; line-height: 104px; text-align: center; }
+  #count { position: absolute; right: 176px; top: 30px; font-weight: 600; font-size: 30px; line-height: 40px; color: var(--mute); white-space: nowrap; }
+  #name { position: absolute; right: 176px; top: 72px; font-weight: 800; font-size: 50px; line-height: 70px; white-space: nowrap; }
+  #lessonTitle { position: absolute; left: 48px; top: 58px; border: 2px solid var(--line); border-radius: 999px; padding: 8px 24px; font-weight: 600; font-size: 26px; color: #C9CED6; white-space: nowrap; }
+  #segs { position: absolute; left: 48px; right: 48px; top: 172px; height: 10px; display: flex; gap: 12px; }
+  .seg { flex: 1; height: 10px; border-radius: 5px; background: var(--line); position: relative; overflow: hidden; }
+  .seg i { position: absolute; top: 0; bottom: 0; right: 0; width: 0; background: var(--accent); border-radius: 5px; }
+
+  #screen { position: absolute; left: 0; top: 210px; width: 1080px; height: 1500px; overflow: hidden; background: #F4F5F7; }
+  #screen img { position: absolute; left: 0; top: 0; width: 1080px; height: 1500px; opacity: 0; }
+  #ring, #ping, #look { position: absolute; border-radius: 30px; opacity: 0; pointer-events: none; }
+  #ring { border: 7px solid var(--teal); }
+  #ping { border: 5px solid var(--teal); }
+  #look { border: 6px solid var(--teal); }
+  #finger { position: absolute; width: 92px; height: 92px; border-radius: 50%; background: rgba(255,255,255,.5); border: 6px solid var(--ink);
+            box-shadow: 0 10px 28px rgba(0,0,0,.38); opacity: 0; }
+  #ripple { position: absolute; border-radius: 50%; background: rgba(20,184,166,.38); opacity: 0; }
+
+  #bottom { position: absolute; left: 0; right: 0; top: 1710px; height: 210px; background: var(--band); display: flex; align-items: center; justify-content: center; }
+  #cap { font-weight: 800; font-size: 60px; line-height: 1.3; white-space: nowrap; padding: 0 40px; }
+
+  /* --- cards --- */
+  #card { background: radial-gradient(1200px 900px at 50% 38%, #1A1D25 0%, var(--ink) 70%); opacity: 0; }
+  .pill { display: inline-block; background: var(--accent); color: var(--ink); font-weight: 800; border-radius: 999px; white-space: nowrap; }
+  #tKicker { position: absolute; left: 0; right: 0; top: 640px; text-align: center; }
+  #tKicker .pill { font-size: 40px; padding: 10px 44px; }
+  #tQuestion { position: absolute; left: 90px; right: 90px; top: 770px; text-align: center; font-weight: 900; font-size: 98px; line-height: 1.38; }
+  #tLength { position: absolute; left: 0; right: 0; top: 1085px; text-align: center; font-weight: 600; font-size: 38px; color: var(--mute); }
+  .brand { position: absolute; left: 0; right: 0; top: 1770px; text-align: center; direction: ltr; font-family: "Montserrat", sans-serif; font-weight: 600; font-size: 28px; letter-spacing: .22em; color: #6B7280; }
+
+  #sHead { position: absolute; right: 90px; top: 230px; }
+  #sHead .pill { font-size: 36px; padding: 8px 36px; }
+  #sTitle { position: absolute; right: 90px; left: 90px; top: 322px; font-weight: 900; font-size: 76px; line-height: 1.3; }
+  #sRows { position: absolute; right: 90px; left: 90px; top: 500px; }
+  .row { position: relative; height: 138px; opacity: 0; }
+  .row b { position: absolute; right: 0; top: 20px; width: 88px; height: 88px; border-radius: 50%; border: 3px solid var(--line); font-weight: 800; font-size: 46px; line-height: 82px; text-align: center; }
+  .row span { position: absolute; right: 122px; top: 22px; font-weight: 700; font-size: 56px; line-height: 84px; white-space: nowrap; }
+  #sTip { position: absolute; left: 90px; right: 90px; top: 1250px; background: #1A1D24; border: 2px solid var(--line); border-radius: 40px; padding: 40px 48px 48px; opacity: 0; }
+  #sTip .pill { font-size: 34px; padding: 6px 32px; }
+  #sTip p { margin-top: 24px; font-weight: 600; font-size: 46px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="layer" id="lesson">
+    <div id="top">
+      <div id="num"></div>
+      <div id="count"></div>
+      <div id="name"></div>
+      <div id="lessonTitle"></div>
+      <div id="segs"></div>
+    </div>
+    <div id="screen">
+      <div id="look"></div>
+      <div id="ping"></div>
+      <div id="ring"></div>
+      <div id="ripple"></div>
+      <div id="finger"></div>
+    </div>
+    <div id="bottom"><div id="cap"></div></div>
+  </div>
+  <div class="layer" id="card">
+    <div id="titleCard">
+      <div id="tKicker"><span class="pill"></span></div>
+      <div id="tQuestion"></div>
+      <div id="tLength"></div>
+    </div>
+    <div id="sumCard">
+      <div id="sHead"><span class="pill">الخلاصة</span></div>
+      <div id="sTitle"></div>
+      <div id="sRows"></div>
+      <div id="sTip"><span class="pill">خلي بالك</span><p></p></div>
+    </div>
+    <div class="brand">ALPHA DENTAL</div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const ease = (p) => { p = clamp(p); return p * p * (3 - 2 * p); };
+const out = (p) => 1 - Math.pow(1 - clamp(p), 3);
+const arDigits = (n) => String(n).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[d]);
+/** How long before a tap shot ends the press lands (matches make-lesson-video.mjs). */
+const TAP_BEFORE_END = 0.55;
+const SCREEN = { w: 1080, h: 1500 };
+
+let C = null;
+const imgs = new Map();
+let stepSpan = [];
+
+window.setup = async (config) => {
+  C = config;
+  const css = document.createElement("style");
+  css.textContent = config.fonts.map((f) => `@font-face{font-family:"${f.family}";src:url("${f.url}") format("woff2");font-weight:${f.weight};font-display:block}`).join("\n");
+  document.head.appendChild(css);
+
+  $("lessonTitle").textContent = config.lesson.title;
+  $("tKicker").firstElementChild.textContent = config.lesson.kicker;
+  $("tQuestion").textContent = config.lesson.question;
+  $("tLength").textContent = config.lesson.length;
+  $("sTitle").textContent = config.lesson.title;
+  $("sTip").querySelector("p").textContent = config.lesson.tip;
+  $("segs").innerHTML = config.lesson.steps.map(() => '<div class="seg"><i></i></div>').join("");
+  $("sRows").innerHTML = config.lesson.steps.map((s, i) => `<div class="row"><b>${arDigits(i + 1)}</b><span></span></div>`).join("");
+  [...$("sRows").children].forEach((row, i) => { row.querySelector("span").textContent = config.lesson.steps[i]; });
+
+  // When each step starts and ends, for the progress bar.
+  stepSpan = config.lesson.steps.map((_, i) => {
+    const mine = config.scenes.filter((s) => s.step === i + 1);
+    return mine.length ? { start: mine[0].start, end: mine[mine.length - 1].start + mine[mine.length - 1].dur } : null;
+  });
+
+  const screen = $("screen");
+  const srcs = [...new Set(config.scenes.flatMap((s) => (s.shots || []).map((x) => x.src)))];
+  await Promise.all(srcs.map(async (src) => {
+    const im = new Image();
+    im.src = src;
+    await im.decode();
+    screen.insertBefore(im, screen.firstChild);
+    imgs.set(src, im);
+  }));
+  for (const w of ["400", "600", "700", "800", "900"]) await document.fonts.load(`${w} 40px Cairo`, "الخطوة ١ من ٥");
+  await document.fonts.load('600 28px Montserrat', "ALPHA DENTAL");
+  await document.fonts.ready;
+  window.render(0);
+};
+
+function place(el, b, grow = 0) {
+  el.style.left = b.x - grow + "px";
+  el.style.top = b.y - grow + "px";
+  el.style.width = b.w + 2 * grow + "px";
+  el.style.height = b.h + 2 * grow + "px";
+  el.style.borderRadius = Math.min(34 + grow, (b.h + 2 * grow) / 2) + "px";
+}
+
+/** The box kept inside the screen, with a little air around small targets. */
+function fit(box) {
+  const x = clamp(box.x, 6, SCREEN.w - 20), y = clamp(box.y, 6, SCREEN.h - 20);
+  return { x, y, w: Math.min(box.w, SCREEN.w - 6 - x), h: Math.min(box.h, SCREEN.h - 6 - y) };
+}
+
+function drawStep(sc, t, prev) {
+  const local = t - sc.start;
+  const shots = sc.shots;
+  let k = shots.findIndex((s) => local < s.at + s.dur);
+  if (k === -1) k = shots.length - 1;
+  const shot = shots[k];
+  const sl = local - shot.at;               // seconds into this shot
+  const left = shot.dur - sl;               // seconds until it ends
+
+  // Header.
+  const stepChanged = !prev || prev.step !== sc.step;
+  const pop = stepChanged ? out(local / 0.35) : 1;
+  $("num").textContent = arDigits(sc.step);
+  $("num").style.transform = `scale(${0.7 + 0.3 * pop})`;
+  $("count").textContent = `الخطوة ${arDigits(sc.step)} من ${arDigits(C.lesson.steps.length)}`;
+  $("name").textContent = C.lesson.steps[sc.step - 1];
+  $("name").style.opacity = stepChanged ? ease(local / 0.3) : 1;
+  [...$("segs").children].forEach((seg, i) => {
+    const span = stepSpan[i];
+    const p = !span ? 0 : clamp((t - span.start) / (span.end - span.start));
+    seg.firstElementChild.style.width = (p * 100).toFixed(2) + "%";
+  });
+
+  // Screen: this shot's picture, cross-faded from the one before.
+  const before = k > 0 ? shots[k - 1] : prev && prev.shots ? prev.shots[prev.shots.length - 1] : null;
+  const fade = ease(sl / 0.22);
+  for (const [src, im] of imgs) {
+    if (src === shot.src) { im.style.opacity = 1; im.style.zIndex = 1; }
+    else if (before && src === before.src && fade < 1) { im.style.opacity = 1 - fade; im.style.zIndex = 2; }
+    else { im.style.opacity = 0; im.style.zIndex = 0; }
+  }
+  if (before && before.src === shot.src) imgs.get(shot.src).style.opacity = 1;
+
+  // Pointer.
+  const ring = $("ring"), ping = $("ping"), look = $("look"), finger = $("finger"), ripple = $("ripple");
+  for (const el of [ring, ping, look, finger, ripple]) { el.style.opacity = 0; el.style.zIndex = 5; el.style.boxShadow = "none"; el.style.background = "transparent"; }
+  finger.style.background = "rgba(255,255,255,.5)";
+  ripple.style.background = "rgba(20,184,166,.38)";
+  if (shot.box) {
+    const b = fit(shot.box);
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (shot.act === "tap") {
+      const tapAt = shot.dur - TAP_BEFORE_END;
+      const a = ease((sl - 0.35) / 0.28) * (1 - ease((sl - (shot.dur - 0.12)) / 0.12));
+      const pressed = clamp((sl - tapAt) / 0.14);
+      place(ring, b, 6 + 10 * (1 - out((sl - 0.35) / 0.35)));
+      ring.style.opacity = a;
+      ring.style.background = `rgba(20,184,166,${(0.22 * (sl >= tapAt ? 1 - ease((sl - tapAt) / 0.4) : 0)).toFixed(3)})`;
+      ring.style.boxShadow = `0 0 0 5px rgba(20,184,166,.25), 0 0 34px rgba(20,184,166,.55)${shot.spot ? `, 0 0 0 3000px rgba(8,10,14,${(0.26 * a).toFixed(3)})` : ""}`;
+      // The ring breathes out every 1.3 s until the press.
+      if (sl > 0.7 && sl < tapAt) {
+        const ph = ((sl - 0.7) % 1.3) / 1.3;
+        place(ping, b, 6 + 34 * out(ph));
+        ping.style.opacity = 0.65 * (1 - ph);
+      }
+      // The finger slides in, presses, and the screen answers.
+      const arrive = tapAt - 0.2, set = arrive - 0.6;
+      if (sl > set) {
+        const p = out((sl - set) / 0.6);
+        const fx = cx + 14 + 130 * (1 - p), fy = cy + 16 + 190 * (1 - p);
+        const press = 1 - 0.16 * Math.sin(Math.PI * pressed);
+        finger.style.left = fx - 46 + "px";
+        finger.style.top = fy - 46 + "px";
+        finger.style.transform = `scale(${press})`;
+        finger.style.opacity = ease((sl - set) / 0.2) * (1 - ease((sl - (shot.dur - 0.14)) / 0.14));
+        if (sl >= tapAt) {
+          const r = 150 * out((sl - tapAt) / 0.42);
+          ripple.style.left = cx + 14 - r + "px"; ripple.style.top = cy + 16 - r + "px";
+          ripple.style.width = ripple.style.height = 2 * r + "px";
+          ripple.style.opacity = 0.9 * (1 - ease((sl - tapAt) / 0.42));
+        }
+      }
+    } else {
+      const a = ease((sl - 0.3) / 0.3) * (1 - ease((sl - (shot.dur - 0.18)) / 0.18));
+      place(look, b, 6);
+      look.style.opacity = a;
+      const glow = 26 + 10 * Math.sin((sl - 0.3) * 2.4);
+      look.style.boxShadow = `0 0 0 5px rgba(20,184,166,.22), 0 0 ${glow.toFixed(1)}px rgba(20,184,166,.5)${shot.spot ? `, 0 0 0 3000px rgba(8,10,14,${(0.22 * a).toFixed(3)})` : ""}`;
+    }
+  }
+
+  // Caption.
+  const sameCap = before && before.caption === shot.caption;
+  $("cap").textContent = shot.caption;
+  $("cap").style.opacity = sameCap ? 1 : ease(sl / 0.25);
+  $("cap").style.transform = `translateY(${sameCap ? 0 : (10 * (1 - out(sl / 0.3))).toFixed(2)}px)`;
+  void left;
+}
+
+function drawCard(sc, t) {
+  const local = t - sc.start;
+  const isTitle = sc.card === "title";
+  $("titleCard").style.display = isTitle ? "block" : "none";
+  $("sumCard").style.display = isTitle ? "none" : "block";
+  if (isTitle) {
+    const rise = (el, at) => { const p = out((local - at) / 0.5); el.style.opacity = clamp((local - at) / 0.35); el.style.transform = `translateY(${(26 * (1 - p)).toFixed(2)}px)`; };
+    rise($("tKicker"), 0.1);
+    rise($("tQuestion"), 0.28);
+    rise($("tLength"), 0.6);
+    return;
+  }
+  const rows = [...$("sRows").children];
+  const recap = C.scenes.find((s) => s.card === "recap");
+  const inTip = sc.card === "tip";
+  const rl = t - recap.start;
+  rows.forEach((row, i) => {
+    // One row per sentence of the recap line: row k lands as sentence k starts (after the heading word).
+    const cued = (recap.cues || []).length >= rows.length;
+    const even = (k) => recap.lead + recap.voSeconds * (0.11 + (0.89 * k) / rows.length);
+    const at = cued ? recap.cues[i] - 0.1 : even(i);
+    const p = out((rl - at) / 0.4);
+    row.style.opacity = clamp((rl - at) / 0.3) * (inTip ? 1 - 0.55 * ease(local / 0.4) : 1);
+    row.style.transform = `translateX(${(40 * (1 - p)).toFixed(2)}px)`;
+    const b = row.querySelector("b");
+    const next = i + 1 >= rows.length ? Infinity : cued ? recap.cues[i + 1] - 0.1 : even(i + 1);
+    const live = !inTip && rl >= at && rl < next;
+    b.style.background = live ? "var(--accent)" : "transparent";
+    b.style.color = live ? "var(--ink)" : "var(--paper)";
+    b.style.borderColor = live ? "var(--accent)" : "var(--line)";
+  });
+  const tip = $("sTip");
+  if (inTip) {
+    const p = out((local - 0.15) / 0.5);
+    tip.style.opacity = clamp((local - 0.15) / 0.35);
+    tip.style.transform = `translateY(${(36 * (1 - p)).toFixed(2)}px)`;
+  } else tip.style.opacity = 0;
+}
+
+window.render = (t) => {
+  if (!C) return;
+  const scenes = C.scenes;
+  let i = scenes.findIndex((s) => t < s.start + s.dur);
+  if (i === -1) i = scenes.length - 1;
+  const sc = scenes[i], prev = i > 0 ? scenes[i - 1] : null;
+  const local = t - sc.start;
+  const swap = !!sc.card !== !!(prev && prev.card) || !prev;
+  // Lesson and card layers trade places with a short fade whenever the kind of scene changes.
+  const p = swap ? ease(local / 0.35) : 1;
+  const card = $("card"), lesson = $("lesson");
+  if (sc.card) {
+    card.style.opacity = prev && prev.card ? 1 : p;
+    lesson.style.opacity = prev && !prev.card ? 1 : 0;
+    card.style.zIndex = 2; lesson.style.zIndex = 1;
+    drawCard(sc, t);
+  } else {
+    drawStep(sc, t, prev && !prev.card ? prev : null);
+    lesson.style.opacity = 1;
+    card.style.opacity = swap ? 1 - p : 0;
+    card.style.zIndex = 2; lesson.style.zIndex = 1;
+  }
+};
+</script>
+</body>
+</html>
