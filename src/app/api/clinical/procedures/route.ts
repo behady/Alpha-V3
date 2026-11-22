@@ -1247,6 +1247,12 @@ async function setProcedureStatus(args: { clinicId: string; actor: Actor; body: 
   if (isApprovalRow(current.data())) {
     return await updateApprovalNote({ clinicId, actor, body: { noteId, status }, noteId, before: current.data() || {} });
   }
+  // The report's dropdown is one more door to a treatment on a company sheet already sent:
+  // the same lock as the patient's file (Owner or Admin only, after the warning).
+  if (String(current.data()?.status || "") !== status) {
+    const locked = await sentSheetRefusal(clinicId, actor, noteId, current.data(), body);
+    if (locked) return locked;
+  }
 
   const result = await adminDb().runTransaction(async (txn) => {
     const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
