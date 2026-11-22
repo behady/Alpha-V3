@@ -89,7 +89,7 @@ export default function CompanySheetPanel({
 
   return (
     <section className="rounded-3xl border border-line bg-surface p-3 sm:p-4 xl:p-6">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <h3 className="font-display text-base font-extrabold text-ink">{payerName}</h3>
           <p className="mt-0.5 max-w-2xl text-[12.5px] font-semibold leading-relaxed text-ink-muted">{t("dwRules")}</p>
@@ -98,7 +98,7 @@ export default function CompanySheetPanel({
           type="button"
           onClick={() => setPreview(true)}
           disabled={to < from}
-          className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-5 text-[13.5px] font-black text-ink-on-accent shadow-sm hover:bg-accent-strong disabled:opacity-40"
+          className="inline-flex min-h-11 items-center gap-2 self-start rounded-full bg-accent px-5 text-[13.5px] font-black text-ink-on-accent shadow-sm hover:bg-accent-strong disabled:opacity-40"
         >
           <Eye size={16} />
           {t("dwPreview")}
