@@ -201,16 +201,22 @@ export function TasksTab() {
   const [busy, setBusy] = useState(false);
   const today = todayKey();
 
-  const load = useCallback(async () => {
-    const res = await callTasks();
+  /** Puts one answer from the server on screen. */
+  const show = useCallback((res: Awaited<ReturnType<typeof callTasks>>) => {
     if (res.ok && res.items) setTasks(res.items);
     else {
       setTasks((prev) => prev ?? []);
       showToast(res.error || w.loadFailed, "error");
     }
   }, [showToast, w.loadFailed]);
+  const load = useCallback(async () => show(await callTasks()), [show]);
 
-  useEffect(() => { void load(); }, [load]);
+  // First load: the list is set from the answer, never inside the effect itself.
+  useEffect(() => {
+    let alive = true;
+    void callTasks().then((res) => { if (alive) show(res); });
+    return () => { alive = false; };
+  }, [show]);
 
   const counts = useMemo(() => {
     const c: Record<TaskStatus, number> = { todo: 0, doing: 0, built: 0, live: 0 };

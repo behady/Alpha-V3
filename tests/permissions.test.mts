@@ -709,6 +709,10 @@ const ALLOWED_INACTIVE = [
   "finance/recovery/route.ts",            // GET: the unpaid-balances list, read
   "push/register-token/route.ts",         // POST, but writes only the caller's own users/ doc
                                           // (their phone's push token) — no clinic record
+  "tasks/request/route.ts",        // "Ask Alpha for a change" on the Help page. GET reads this
+                                   // clinic's own requests. POST adds one row to the platform
+                                   // owner's task list and touches no clinic record (capped per
+                                   // clinic), so a lapsed clinic can still ask — to renew, say.
   "stock/route.ts",                // One POST for every stock action. Only the five that read are
                                    // exempt (the cupboard, a barcode lookup, the history, the saved
                                    // counts and their comparison): a lapsed clinic may still see

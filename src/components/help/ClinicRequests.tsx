@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, MessageSquarePlus, Send } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
@@ -69,13 +69,14 @@ export default function ClinicRequests() {
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState<ClinicRequestView[]>([]);
 
-  const load = useCallback(async () => {
-    if (!clinicId) return;
-    const res = await call("GET", clinicId);
-    if (res.ok && res.items) setItems(res.items);
-  }, [clinicId]);
-
-  useEffect(() => { if (isAdmin) void load(); }, [isAdmin, load]);
+  // The list is set from the answer, never inside the effect itself, and an answer that arrives
+  // after the clinic on screen changed is dropped.
+  useEffect(() => {
+    if (!isAdmin || !clinicId) return;
+    let alive = true;
+    void call("GET", clinicId).then((res) => { if (alive && res.ok && res.items) setItems(res.items); });
+    return () => { alive = false; };
+  }, [isAdmin, clinicId]);
 
   if (!isAdmin || !clinicId) return null;
 
