@@ -793,13 +793,16 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
     waReady: true,
     en: "Someone is absent",
     ar: "حد غايب",
-    whenEn: "A rostered staff member still has no clock-in at the hour below.",
-    whenAr: "موظف في الجدول لسه مسجّلش حضور لحد الساعة اللي تحت.",
+    whenEn: "A rostered staff member still has no clock-in this many hours after their shift start. Once per person per day.",
+    whenAr: "موظف في الجدول لسه مسجّلش حضور بعد بداية شيفته بالساعات اللي تحت. مرة في اليوم لكل شخص.",
     roles: ["Owner", "Admin"],
     rolesMax: ["Owner", "Admin"],
     bell: true,
     push: true,
-    timings: [{ key: "hour", kind: "hourOfDay", en: "At", ar: "الساعة", fallback: 11, min: 0, max: 23 }],
+    // Hours after each person's own shift start. It was one clock hour for the whole clinic
+    // (11:00), which called afternoon staff absent before their shift began; no clinic had
+    // changed it, so the old `hour` key is simply no longer read.
+    timings: [{ key: "hours", kind: "hours", en: "After", ar: "بعد", fallback: 2, min: 1, max: 12 }],
   },
   {
     id: "labCaseOverdue",

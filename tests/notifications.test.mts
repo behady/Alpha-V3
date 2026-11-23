@@ -109,6 +109,7 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "src/lib/alerts/moneyAlerts.ts",
     "src/lib/alerts/stockAlerts.ts",
     "src/lib/alerts/sweep.ts",
+    "src/lib/alerts/attendanceAlerts.ts",
     "src/lib/alerts/complaint.ts",
     "src/lib/alerts/callReminderSweep.ts",
   ];

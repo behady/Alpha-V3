@@ -503,7 +503,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(notifyTiming("expenseAbove", "amount", {}), 2000, "expense threshold");
   eq(notifyTiming("patientWaitingLong", "minutes", {}), 20, "waiting threshold");
   eq(notifyTiming("staffLate", "minutes", {}), 15, "late threshold");
-  eq(notifyTiming("staffAbsent", "hour", {}), 11, "absent hour");
+  eq(notifyTiming("staffAbsent", "hours", {}), 2, "absent hours after the shift starts");
   eq(notifyTiming("labCaseOverdue", "days", {}), 1, "lab overdue days");
   eq(notifyTiming("aiCreditsLow", "credits", {}), 20, "credits floor");
   eq(notifyTiming("expenseAbove", "amount", { timings: { expenseAbove: { amount: 5000 } } }), 5000, "a clinic's own threshold is ignored");
