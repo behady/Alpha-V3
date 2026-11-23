@@ -136,6 +136,7 @@
     "test:attendance-refusal": "npx tsx tests/attendanceRefusal.test.mts",
     "test:attendance-alerts": "npx tsx tests/attendanceAlerts.test.mts",
     "test:punch-alert": "npx tsx tests/punchAlert.test.mts",
+    "test:punch-alert-route": "npx tsx tests/punchAlertRoute.test.mts",
     "test:autoclose":"npx tsx tests/attendanceAutoClose.test.mts",
     "_comment_test_conflicts": "Double-booking detection: a renamed dentist's existing appointments must still block their own slots, and cancellations must release theirs.",
     "test:conflicts": "npx tsx tests/appointmentConflicts.test.mjs",
