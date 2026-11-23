@@ -805,6 +805,20 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
     timings: [{ key: "hours", kind: "hours", en: "After", ar: "بعد", fallback: 2, min: 1, max: 12 }],
   },
   {
+    id: "staffClockInOut",
+    group: "clinic",
+    waReady: true,
+    en: "Someone clocked in or out",
+    ar: "حد سجّل حضور أو انصراف",
+    whenEn: "Every clock-in and clock-out: the time, the branch, how late against the shift, and the hours worked. Not the automatic clock-out at night.",
+    whenAr: "كل تسجيل حضور وانصراف: الساعة والفرع والتأخير عن الشيفت وساعات الشغل. مش الانصراف التلقائي بالليل.",
+    roles: ["Owner"],
+    rolesMax: ["Owner", "Admin"],
+    // Off until a clinic asks for it: about ten alerts a day for a clinic of five.
+    bell: false,
+    push: false,
+  },
+  {
     id: "labCaseOverdue",
     group: "clinic",
     waReady: true,

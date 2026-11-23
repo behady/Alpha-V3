@@ -38,6 +38,7 @@ import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { deviceKind, punchRefusalLog, type PunchRefusal } from "@/lib/attendanceRefusal";
 import { isDeviceRefused, readAttendanceChecks, type AttendanceChecks } from "@/lib/attendanceChecks";
 import { localYmd } from "@/lib/clinicDate";
+import { notifyPunch } from "@/lib/punchAlertClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { MoneyApiError, setPaymentCommission } from "@/lib/moneyApi";
 
@@ -762,6 +763,7 @@ export default function AttendancePage() {
                       status: 'completed',
                       ...whereOut,
                   });
+                  notifyPunch(clinicId, sessionForOut.id, "out");
                   showToast(
                       punchedAt
                           ? (isAr ? `تم تسجيل الخروج — فرع ${punchedAt}` : `Clocked out — ${punchedAt}`)
@@ -776,7 +778,7 @@ export default function AttendancePage() {
                       await updateDoc(staffRef, { registeredDeviceId: currentDeviceId });
                   }
 
-                  await addDoc(getClinicCollection("attendance"), {
+                  const punchRef = await addDoc(getClinicCollection("attendance"), {
                       userId: user.uid,
                       userName: user?.name,
                       staffId: myProfile.id,
@@ -789,6 +791,7 @@ export default function AttendancePage() {
                       status: 'active',
                       ...whereIn,
                   });
+                  notifyPunch(clinicId, punchRef.id, "in");
                   showToast(
                       punchedAt
                           ? (isAr ? `تم تسجيل الدخول — فرع ${punchedAt}` : `Clocked in — ${punchedAt}`)
