@@ -71,6 +71,8 @@ jobs:
         run: npm run --silent test:broadcast
       - name: Attendance geofence
         run: npm run --silent test:attendance
+      - name: Team clock-in sheet (day's pay adds up to the payroll engine) and its Excel file
+        run: npm run --silent test:attendance-sheet
       - name: Recycle bin boundaries
         run: npm run --silent test:recyclebin
       - name: Clinic expiry gate

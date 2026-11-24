@@ -12,6 +12,7 @@ import type { ClinicBranch } from "@/lib/clinicLocations";
 import type { StaffCommission } from "@/lib/staffCommission";
 import type { StaffInsuranceWork } from "@/lib/staffInsurance";
 import type { StaffSettlementDraft } from "@/lib/moneyApi";
+import type { AttendanceSheet } from "@/lib/attendanceSheet";
 import { shortName } from "./TeamList";
 import AttendanceTab from "./AttendanceTab";
 import MoneyTab from "./MoneyTab";
@@ -64,6 +65,8 @@ export default function StaffProfile({
   onSetRate,
   branches,
   onSaveBranchIds,
+  attendanceSheet,
+  onExportAttendance,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -100,6 +103,10 @@ export default function StaffProfile({
   branches: readonly ClinicBranch[];
   /** Save the branches this person may work in; null = every branch. */
   onSaveBranchIds: (ids: string[] | null) => void | Promise<void>;
+  /** The clock-in sheet for this person and period (rows, filters, totals, day's pay). */
+  attendanceSheet: AttendanceSheet;
+  /** Download the clock-in sheet as Excel: this person, or the whole team. */
+  onExportAttendance: (team: boolean) => Promise<void>;
 }) {
   // Between sm and lg the tab bar is a sideways strip; keep the open tab (e.g. from `?tab=`) in view.
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -354,8 +361,11 @@ export default function StaffProfile({
 
         {tab === "attendance" && (
           <AttendanceTab
-            punches={punches}
-            schedule={schedule}
+            sheet={attendanceSheet}
+            baseSalary={staff.baseSalary}
+            overtimeMultiplier={staff.overtimeMultiplier}
+            scheduleAssumed={scheduleAssumed}
+            onExport={onExportAttendance}
             canEdit={canEdit}
             isAr={isAr}
             onEditLog={onEditLog}

@@ -282,7 +282,11 @@ const STAFF = [
   // The profile is four tabs since 2026-10; a promise may be kept in any of them.
   const profile = ["StaffProfile", "AttendanceTab", "MoneyTab", "SettingsTab"].map((f) => read(`src/app/(dashboard)/team/${f}.tsx`)).join("\n");
   ok(/scheduleAssumed/.test(profile), "the profile does not say when it is assuming a roster");
-  ok(/checkInDistanceM/.test(profile), "the profile does not show how far from the clinic a punch was taken");
+  // Since 2026-11-24 the distance reaches the tab through the clock-in sheet (`distanceM`).
+  ok(
+    /checkInDistanceM/.test(profile) || (/distanceWords\(r\.distanceM/.test(profile) && /distanceM: p\.checkInDistanceM/.test(read("src/lib/attendanceSheet.ts"))),
+    "the profile does not show how far from the clinic a punch was taken",
+  );
   ok(
     /\/settings\/users/.test(profile),
     "permissions must be a LINK to the one editor with the server guards behind it, never a second copy"
