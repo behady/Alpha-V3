@@ -41,6 +41,7 @@ const TOTAL_FILL = { patternType: "solid", fgColor: { rgb: "F7F7F7" } } as const
 const STYLE = {
   title: { font: { sz: 14, bold: true } } satisfies Style,
   muted: { font: { color: { rgb: "666666" } } } satisfies Style,
+  note: { font: { color: { rgb: "444444" } }, alignment: { wrapText: true, vertical: "top" } } satisfies Style,
   head: { font: { bold: true }, fill: HEAD_FILL, border: BORDER, alignment: { horizontal: "center", vertical: "center", wrapText: true } } satisfies Style,
   text: { border: BORDER } satisfies Style,
   red: { border: BORDER, font: { color: { rgb: "B42318" }, bold: true } } satisfies Style,
@@ -158,8 +159,9 @@ function personSheet(p: AttendanceXlsxPerson, start: string, end: string, isAr: 
   const rows: Cell[][] = [];
   rows.push([s(L.title(p.name), STYLE.title)]);
   rows.push([s(L.period(dayLabel(start), dayLabel(end)), STYLE.muted)]);
-  rows.push([s(showPay ? L.rule(p.sheet.hourlyRate, p.baseSalary, p.sheet.monthlyHours, p.overtimeMultiplier || 1.5) : L.noSalary, STYLE.muted)]);
-  if (p.assumed) rows.push([s(L.assumed, STYLE.muted)]);
+  rows.push([s(showPay ? L.rule(p.sheet.hourlyRate, p.baseSalary, p.sheet.monthlyHours, p.overtimeMultiplier || 1.5) : L.noSalary, STYLE.note)]);
+  if (p.assumed) rows.push([s(L.assumed, STYLE.note)]);
+  const topLines = rows.length;
   rows.push([]);
   rows.push(head.map((h) => s(h, STYLE.head)));
   const first = rows.length;
@@ -200,6 +202,10 @@ function personSheet(p: AttendanceXlsxPerson, start: string, end: string, isAr: 
   if (p.sheet.rows.length === 0) rows.splice(first, 0, [s(L.empty, STYLE.muted)]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
+  // The title, the period and the pay rule each span the whole sheet, so they read as lines of text
+  // rather than spilling over (or being cut by) the cells beside them.
+  ws["!merges"] = Array.from({ length: topLines }, (_, r) => ({ s: { r, c: 0 }, e: { r, c: head.length - 1 } }));
+  ws["!rows"] = Array.from({ length: topLines }, (_, r) => (r >= 2 ? { hpt: 32 } : {}));
   const widths = [12, 11, 11, 11, 9, 11, 11, 16, 12, 22, 24];
   ws["!cols"] = (showPay ? widths : widths.filter((_, i) => i !== 8)).map((wch) => ({ wch }));
   return { ws, totalRow: rows.length - 1 };
@@ -234,6 +240,7 @@ export function attendanceWorkbook(input: {
     const rows: Cell[][] = [];
     rows.push([s(L.teamTitle, STYLE.title)]);
     rows.push([s(L.period(dayLabel(input.start), dayLabel(input.end)), STYLE.muted)]);
+    const titleLines = rows.length;
     rows.push([]);
     rows.push(L.summaryHead.map((h) => s(h, STYLE.head)));
     const first = rows.length;
@@ -263,6 +270,7 @@ export function attendanceWorkbook(input: {
       sum(6, round2(input.people.reduce((x, p) => x + (p.sheet.payShown ? round2(p.sheet.totals.pay) : 0), 0)), STYLE.totalMoney),
     ]);
     const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!merges"] = Array.from({ length: titleLines }, (_, r) => ({ s: { r, c: 0 }, e: { r, c: L.summaryHead.length - 1 } }));
     ws["!cols"] = [26, 8, 10, 11, 10, 11, 14].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(wb, ws, sheetName(L.summary, taken));
   }

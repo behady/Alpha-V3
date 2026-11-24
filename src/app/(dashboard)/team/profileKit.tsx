@@ -125,7 +125,8 @@ export function todayYmd(): string {
  */
 export const locale = (isAr: boolean) => (isAr ? "ar-EG-u-nu-latn" : "en-GB");
 
-export const money = (n: number) => Math.round(Number(n) || 0).toLocaleString();
+/** Western digits always: an Arabic-language browser otherwise prints ٨٬٠٠٠ beside 173 on the same line. */
+export const money = (n: number) => Math.round(Number(n) || 0).toLocaleString("en-US");
 
 export function timeOf(d: Date | null, isAr: boolean): string {
   if (!d) return isAr ? "لسه" : "still in";
