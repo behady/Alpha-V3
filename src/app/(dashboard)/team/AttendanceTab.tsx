@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import { ChevronDown, Edit2, FileSpreadsheet, Loader2, Save, Trash2 } from "lucide-react";
 import { matchesFilter, type AttendanceSheet, type SheetFilter, type ShiftRow } from "@/lib/attendanceSheet";
 import { hoursText } from "@/lib/hrClient";
-import { btnDark, btnGhost, dayOf, distanceWords, Empty, fieldInput, fieldLabel, hoursWords, inputValue, money, Section, timeOf } from "./profileKit";
+import { btnDark, btnGhost, distanceWords, Empty, fieldInput, fieldLabel, hoursWords, inputValue, money, Section, timeOf } from "./profileKit";
 
 /**
  * The clock-in sheet: one line per shift (and per missed day), filters above it, totals under it,
@@ -74,7 +74,8 @@ export default function AttendanceTab({
     }
   };
 
-  const short = (m: number) => (m < 60 ? (isAr ? `${m}د` : `${m}m`) : hoursText(m, isAr));
+  const short = (m: number) =>
+    m < 60 ? (isAr ? `${m}د` : `${m}m`) : m % 60 === 0 ? (isAr ? `${m / 60}س` : `${m / 60}h`) : hoursText(m, isAr);
   const decisionPill = (r: ShiftRow) =>
     r.extraDecision === "approved"
       ? { text: isAr ? "هيتدفع" : "Paid", tone: "bg-ok-tint text-ok" }
@@ -90,7 +91,21 @@ export default function AttendanceTab({
           : r.branchName
         : distanceWords(r.distanceM, isAr);
 
-  const cell = "border-b border-line px-3 py-3 align-middle";
+  const cell = "border-b border-line px-2 py-3 align-middle sm:px-3";
+  // "29 Oct" on the first line, the weekday under it: narrow enough for a phone's five columns.
+  const dateOf = (ymd: string) => {
+    const d = new Date(`${ymd}T12:00:00`);
+    const loc = isAr ? "ar-EG-u-nu-latn" : "en-GB";
+    return Number.isNaN(d.getTime())
+      ? { day: ymd, weekday: "" }
+      : { day: d.toLocaleDateString(loc, { day: "numeric", month: "short" }), weekday: d.toLocaleDateString(loc, { weekday: "long" }) };
+  };
+  const dateCell = (ymd: string) => (
+    <>
+      <span className="block whitespace-nowrap font-bold text-ink">{dateOf(ymd).day}</span>
+      <span className="block whitespace-nowrap text-[12.5px] font-semibold text-ink-muted">{dateOf(ymd).weekday}</span>
+    </>
+  );
   const num = `${cell} text-end font-figure`;
   // Columns: date, in, out, hours, [late sm+], [extra md+], [pay], [where xl+], chevron.
   const colCount = 9 - (pay ? 0 : 1);
@@ -170,10 +185,10 @@ export default function AttendanceTab({
       {sheet.rows.length === 0 ? (
         <Empty text={isAr ? "مفيش حضور متسجل في الفترة دي." : "No clock-ins in this period."} />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-line">
-          <table className="w-full border-collapse text-[14px] sm:text-[15px]">
+        <div className="overflow-hidden rounded-2xl border border-line max-sm:-mx-5 max-sm:rounded-none max-sm:border-x-0">
+          <table className="w-full border-collapse text-[14px] sm:text-[15px] [&_tbody_td+td]:border-s [&_tbody_td+td]:border-line [&_th+th]:border-s [&_th+th]:border-line">
             <thead>
-              <tr className="bg-surface-subtle text-[13px] font-bold text-ink-muted">
+              <tr className="bg-surface-subtle text-[13px] font-bold whitespace-nowrap text-ink-muted">
                 <th className={`${cell} text-start`}>{isAr ? "اليوم" : "Day"}</th>
                 <th className={`${cell} text-start`}>{isAr ? "دخول" : "In"}</th>
                 <th className={`${cell} text-start`}>{isAr ? "خروج" : "Out"}</th>
@@ -182,7 +197,7 @@ export default function AttendanceTab({
                 <th className={`${cell} text-start max-md:hidden`}>{isAr ? "وقت زيادة" : "Extra time"}</th>
                 {pay && <th className={`${cell} text-end`}>{isAr ? "أجر اليوم" : "Day's pay"}</th>}
                 <th className={`${cell} text-start max-xl:hidden`}>{isAr ? "المكان" : "Where"}</th>
-                <th className={`${cell} w-8`} aria-hidden />
+                <th className={`${cell} w-8 max-sm:hidden`} aria-hidden />
               </tr>
             </thead>
             <tbody>
@@ -190,7 +205,7 @@ export default function AttendanceTab({
                 if (r.kind === "absent") {
                   return (
                     <tr key={r.id} className="bg-danger-tint">
-                      <td className={`${cell} font-bold text-ink`}>{dayOf(r.date, isAr)}</td>
+                      <td className={cell}>{dateCell(r.date)}</td>
                       <td colSpan={3} className={`${cell} font-bold text-danger`}>
                         {isAr ? "غاب — مسجّلش حضور" : "Missed — no clock-in"}
                       </td>
@@ -198,7 +213,7 @@ export default function AttendanceTab({
                       <td className={`${cell} max-md:hidden`} />
                       {pay && <td className={`${num} font-bold text-ink-muted`}>0</td>}
                       <td className={`${cell} max-xl:hidden`} />
-                      <td className={cell} />
+                      <td className={`${cell} max-sm:hidden`} />
                     </tr>
                   );
                 }
@@ -207,12 +222,13 @@ export default function AttendanceTab({
                 const pill = r.extraDecision ? decisionPill(r) : null;
                 const tags: { text: string; bad?: boolean }[] = [];
                 if (r.late > 0) tags.push({ text: isAr ? `متأخر ${short(r.late)}` : `Late ${short(r.late)}`, bad: true });
-                if (pill) tags.push({ text: `${isAr ? "زيادة" : "Extra"} ${short(r.extra)} · ${pill.text}`, bad: r.extraDecision === "pending" });
+                // Short on purpose: the decision itself is one tap away.
+                if (pill) tags.push({ text: `${isAr ? "زيادة" : "Extra"} ${short(r.extra)}${r.extraDecision === "pending" ? " ؟" : ""}`, bad: r.extraDecision === "pending" });
                 const notes: { text: string; bad?: boolean }[] = [];
-                if (r.forgot) notes.push({ text: isAr ? "نسي يسجّل انصراف" : "Forgot to clock out", bad: true });
+                if (r.forgot) notes.push({ text: isAr ? "نسي الانصراف" : "No clock-out", bad: true });
                 if (r.autoClosed) notes.push({ text: isAr ? "انصراف تلقائي" : "Auto clock-out", bad: true });
-                if (r.stillIn) notes.push({ text: isAr ? "في الشغل دلوقتي" : "At work now" });
-                if (r.far) notes.push({ text: distanceWords(r.distanceM ?? 0, isAr), bad: true });
+                if (r.stillIn) notes.push({ text: isAr ? "في الشغل" : "At work" });
+                if (r.far) notes.push({ text: isAr ? "بعيد عن العيادة" : "Far away", bad: true });
                 return (
                   <Fragment key={r.id}>
                     <tr
@@ -224,7 +240,7 @@ export default function AttendanceTab({
                       className={`cursor-pointer transition-colors ${open ? "bg-surface-subtle" : "hover:bg-surface-subtle/70"}`}
                     >
                       <td className={cell}>
-                        <span className="block whitespace-nowrap font-bold text-ink">{dayOf(r.date, isAr)}</span>
+                        {dateCell(r.date)}
                         {/* What the hidden columns would say, on screens too narrow for them. */}
                         {tags.length > 0 && (
                           <span className="mt-0.5 flex flex-col text-[12.5px] font-bold md:hidden">
@@ -261,7 +277,7 @@ export default function AttendanceTab({
                       </td>
                       {pay && <td className={`${num} font-extrabold text-ink`}>{money(r.pay ?? 0)}</td>}
                       <td className={`${cell} max-xl:hidden ${r.far ? "font-bold text-danger" : "text-ink-muted"}`}>{whereText(r)}</td>
-                      <td className={`${cell} text-ink-muted`}>
+                      <td className={`${cell} text-ink-muted max-sm:hidden`}>
                         <ChevronDown size={16} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
                       </td>
                     </tr>
@@ -300,11 +316,11 @@ export default function AttendanceTab({
                           ) : (
                             <div className="flex flex-col gap-3">
                               <ul className="flex flex-col gap-1.5 text-[15px] font-semibold text-ink">
-                                <li>
+                                {r.worked > 0 && <li>
                                   {isAr
                                     ? `اشتغل ${hoursWords(r.worked, true)}${r.extra > 0 ? `، منهم ${hoursWords(r.regular, true)} جوه الوردية` : ""}.`
                                     : `Worked ${hoursWords(r.worked, false)}${r.extra > 0 ? `, ${hoursWords(r.regular, false)} of it inside the shift` : ""}.`}
-                                </li>
+                                </li>}
                                 {r.late > 0 && (
                                   <li className="text-danger">
                                     {isAr ? `اتأخر ${hoursWords(r.late, true)} عن ميعاد الوردية.` : `Came in ${hoursWords(r.late, false)} after the shift started.`}
@@ -392,22 +408,22 @@ export default function AttendanceTab({
             {/* The totals are the whole period, whatever filter is on. */}
             <tfoot>
               <tr className="bg-ink-slab text-white">
-                <td className="px-3 py-3.5 font-extrabold" colSpan={3}>
+                <td className="px-2 py-3.5 font-extrabold sm:px-3" colSpan={3}>
                   {isAr ? "الإجمالي" : "Total"}
                   <span className="ms-2 text-[13px] font-semibold text-white/60">
                     {isAr ? `${sheet.totals.days} يوم شغل` : `${sheet.totals.days} day${sheet.totals.days === 1 ? "" : "s"} worked`}
                   </span>
                 </td>
-                <td className="px-3 py-3.5 text-end font-figure font-extrabold whitespace-nowrap">{hoursText(sheet.totals.worked, isAr)}</td>
+                <td className="px-2 py-3.5 text-end font-figure font-extrabold whitespace-nowrap sm:px-3">{hoursText(sheet.totals.worked, isAr)}</td>
                 <td className="px-3 py-3.5 text-end font-figure font-bold text-white/80 max-sm:hidden">
                   {sheet.totals.lateDays > 0 ? (isAr ? `${sheet.totals.lateDays} يوم` : `${sheet.totals.lateDays}d`) : "—"}
                 </td>
                 <td className="px-3 py-3.5 font-figure font-bold text-white/80 max-md:hidden">{sheet.totals.extra > 0 ? short(sheet.totals.extra) : "—"}</td>
                 {pay && (
-                  <td className="px-3 py-3.5 text-end font-figure text-[16px] font-extrabold text-white whitespace-nowrap">{money(sheet.totals.pay)}</td>
+                  <td className="px-2 py-3.5 text-end font-figure text-[16px] font-extrabold text-white whitespace-nowrap sm:px-3">{money(sheet.totals.pay)}</td>
                 )}
                 <td className="px-3 py-3.5 max-xl:hidden" />
-                <td className="px-3 py-3.5" />
+                <td className="px-3 py-3.5 max-sm:hidden" />
               </tr>
             </tfoot>
           </table>
