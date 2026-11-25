@@ -697,7 +697,9 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
                   height: paperHeightPx,
                   border: 0,
                   transform: `scale(${previewScale})`,
-                  transformOrigin: "top left",
+                  // In Arabic the full-width page hangs off the LEFT of its smaller box, so it is
+                  // shrunk towards its right edge; from the left it landed off-screen on phones.
+                  transformOrigin: isRTL ? "top right" : "top left",
                 }}
               />
             </div>
