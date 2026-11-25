@@ -37,6 +37,16 @@ assert.equal(items[2].marked, true, "the ** is kept as a mark");
 assert.equal(items[0].marked, false);
 assert.deepEqual(parsePriceSheet([["٣٬٦٠٣", "تركيبة"]]).map((i) => i.price), [3603], "Arabic digits and separators");
 
+// a numbered sheet: the row number is not the price
+{
+  const numbered = parsePriceSheet([["م", "نوع الخدمة", "السعر"], ["أولاً: التشخيص"], [1, "كشف", 150], [2, "حشو كومبوزيت", 650], [3, "تاج زيركون", 4200]]);
+  assert.deepEqual(numbered.map((i) => [i.name, i.price]), [["كشف", 150], ["حشو كومبوزيت", 650], ["تاج زيركون", 4200]], "the header names the price column; the serial is skipped");
+  const noHeader = parsePriceSheet([[1, "كشف", 150], [2, "خلع", 500]]);
+  assert.deepEqual(noHeader.map((i) => i.price), [150, 500], "no header: a row with two numbers has its price last");
+  const priceFirst = parsePriceSheet([["التكلفة", "نوع الخدمة"], [700, "حشو"]]);
+  assert.deepEqual(priceFirst.map((i) => i.price), [700], "a price-first sheet still reads its price");
+}
+
 // spelling does not matter
 assert.equal(normalizeName("الأشعة"), normalizeName("الاشعه"));
 assert.ok(nameSimilarity("حشو كومبوزيت", "حشو كمبوزيت") >= 0.6, "one letter apart inside a word");
