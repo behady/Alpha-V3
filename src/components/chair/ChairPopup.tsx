@@ -257,7 +257,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
               {/* Phones get the whole name on up to two lines rather than an ellipsis. */}
               <h2 id="chair-title" className="lg:truncate max-lg:line-clamp-2 max-lg:break-words text-lg font-black leading-tight text-[#FACC15]">{patient?.name || "…"}</h2>
               <p className="truncate text-[13px] font-bold text-white/85">
-                {isAr ? "الكرسي" : "The chair"} · {isAr ? "د." : "Dr."} {me.name}
+                {isAr ? "الكرسي" : "The chair"} · {isAr ? "د." : "Dr."} {me.name.replace(/^Dr\.?\s*/i, "").replace(/^د\.?\s*/, "").trim()}
               </p>
             </div>
           </div>
@@ -332,7 +332,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
                 onSaved={() => {
                   setEditor(null);
                   setChartTeeth([]);
-                  showToast(isAr ? "اتحفظ" : "Saved", "success");
+                  // The editor already said "saved"; a second toast here stacked two of them.
                 }}
               />
               <div className="px-4 pb-3 text-end">

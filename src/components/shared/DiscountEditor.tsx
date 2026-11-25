@@ -23,7 +23,7 @@ import { useEffect, useMemo } from "react";
 import { Tag, Percent, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { applyDiscount, effectiveDiscountPercent, type DiscountMode } from "@/lib/discountMath";
-import { listsForBranch, resolveActiveListId, type PriceList } from "@/lib/priceLists";
+import { discountReasonLabel, listsForBranch, resolveActiveListId, type PriceList } from "@/lib/priceLists";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList, type Payer } from "@/lib/payers";
 
 export type DiscountState = {
@@ -306,7 +306,7 @@ export default function DiscountEditor({
             <option value="">{txt.pickReason}</option>
             {reasons.map((reason) => (
               <option key={reason} value={reason}>
-                {reason}
+                {discountReasonLabel(reason, ar)}
               </option>
             ))}
           </select>

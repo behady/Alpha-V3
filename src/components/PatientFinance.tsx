@@ -39,6 +39,7 @@ import InsurerBadge from "@/components/shared/InsurerBadge";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Service as EditorService, Staff as EditorStaff } from "@/components/clinical-notes/types";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { discountReasonLabel } from "@/lib/priceLists";
 import { patchClaim } from "@/components/insurance/api";
 import { insurerOutstanding, isApprovalRow, patientPortion } from "@/lib/ledgerInsurer";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
@@ -1212,7 +1213,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                   >
                                     <option value="">{language === "ar" ? "اختر السبب" : "Choose a reason"}</option>
                                     {discountSettings.reasons.map(reason => (
-                                      <option key={reason} value={reason}>{reason}</option>
+                                      <option key={reason} value={reason}>{discountReasonLabel(reason, language === "ar")}</option>
                                     ))}
                                   </select>
                                   <p className="text-[10px] font-bold text-gray-400 mt-1">
