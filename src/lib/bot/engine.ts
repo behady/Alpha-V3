@@ -249,7 +249,7 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
 export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
-import { asksForLocation, looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
+import { asksForLocation, looksLikeQuestion, quickIntent, saysTooFar, type QuickIntent } from "./quickAnswers";
 import { nameFromReply } from "./nameGuard";
 import { matchScript } from "./scripts";
 import { mapLinesBesideAddress } from "./careNote";
@@ -776,7 +776,10 @@ export function decideBotReply(args: {
      * coldness. Only the courtesies stay deterministic, because they cost nothing to get right.
      */
     const ACTIONS = new Set<QuickIntent>(["thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
-    if (!intent || !ACTIONS.has(intent)) {
+    // "لا شكرا بعيد عليا" thanks nobody: it refuses, with a reason the model can answer (another
+    // branch, or a person). The fixed "العفو" closed that chat on 26/11/2026.
+    const farNotThanks = intent === "thanks" && saysTooFar(text);
+    if (!intent || !ACTIONS.has(intent) || farNotThanks) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }
   }

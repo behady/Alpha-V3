@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { quickIntent, mentionsRelative, isDecline } from "../src/lib/bot/quickAnswers";
+import { quickIntent, mentionsRelative, isDecline, saysTooFar } from "../src/lib/bot/quickAnswers";
 import { readFileSync } from "node:fs";
 import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
 
@@ -128,6 +128,23 @@ run("courtesy is answered in one line and never with the booking menu", () => {
   const t = decideBotReply({ state: "awaiting_choice", text: "شكرا", ctx });
   assert.equal(t.reason, "thanks");
   assert.ok(!t.reply.includes("*1*"));
+});
+
+// Asnany, 26/11/2026: "لا شكرا بعيد على" was answered "العفو 🙏" and the chat ended. Reception then
+// offered the Nasr City branch by hand. With a salesperson on, "too far" is the model's to answer.
+run("'no thanks, it is far' is not a thank-you when the model is selling", () => {
+  for (const t of ["لا شكرا بعيد على", "شكرا بس بعيد عليا", "شكرا المكان بعيد", "thanks but too far"]) {
+    assert.ok(saysTooFar(t), `not read as too far: ${t}`);
+    const d = decideBotReply({ state: "awaiting_choice", text: t, ctx: { ...ctx, aiFirst: true, aiAvailable: true } });
+    assert.equal(d.action?.type, "ai", t);
+  }
+  // A plain thank-you still costs nothing.
+  const plain = decideBotReply({ state: "awaiting_choice", text: "لا شكرا", ctx: { ...ctx, aiFirst: true, aiAvailable: true } });
+  assert.equal(plain.reason, "thanks");
+  assert.ok(!saysTooFar("شكرا"));
+  assert.ok(!saysTooFar("تسلمي يا سارة"));
+  // A menu clinic has no model to pass it to: the one-line courtesy stands.
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "لا شكرا بعيد على", ctx }).reason, "thanks");
 });
 
 run("a patient can escape a booking loop by asking for a person", () => {

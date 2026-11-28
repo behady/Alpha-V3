@@ -2664,8 +2664,12 @@ ${askWho}` : askWho;
       // The patient wrote meanwhile: this tail was written for the older message. 14/11/2026: the
       // price went out, the patient asked "السعر كام", and 0.7 s later the old tail's question
       // arrived as if it were the answer.
-      // Or a receptionist did: the rest is hers.
-      if ((supersedable && (await wroteAgain())) || (await staffTookIt())) {
+      if (supersedable && (await wroteAgain())) {
+        tailDropped = true;
+        break;
+      }
+      // Or a receptionist wrote: the rest is hers.
+      if (await staffTookIt()) {
         tailDropped = true;
         break;
       }
