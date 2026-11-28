@@ -88,7 +88,10 @@ function probes(): Probe[] {
     { key: "treatments", run: () => anyDoc("clinical_notes") },
     { key: "prescriptions", run: () => anyDoc("prescriptions") },
     { key: "leads", run: () => anyDoc("leads") },
-    { key: "inventory", run: () => anyDoc("inventory") },
+    // The cupboard first: stock moved to `stock_items`, and a clinic that started on the new page
+    // has nothing in the old `inventory` collection, so its step never ticked. The old one is still
+    // asked for the clinics that only ever used it.
+    { key: "inventory", run: async () => (await anyDoc("stock_items")) || (await anyDoc("inventory")) },
     { key: "labCases", run: () => anyDoc("lab_cases") },
     { key: "payments", run: () => anyLedgerRow("payment") },
     { key: "expenses", run: () => anyLedgerRow("expense") },

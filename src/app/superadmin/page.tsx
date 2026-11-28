@@ -29,6 +29,7 @@ import { PlatformTab } from "@/components/superadmin/PlatformTab";
 import { CostsTab } from "@/components/superadmin/CostsTab";
 import SupplyStoreTab from "@/components/superadmin/SupplyStoreTab";
 import { TourTab } from "@/components/superadmin/TourTab";
+import { TasksTab } from "@/components/superadmin/TasksTab";
 
 /** One row of the trash, as /api/admin/clinic-trash lists it. */
 interface TrashedClinic {
@@ -43,7 +44,7 @@ interface TrashedClinic {
 
 const TAB_TITLE: Record<SuperAdminTab, SAKey> = {
   clinics: "navClinics", users: "navUsers", costs: "navCosts", analytics: "navAnalytics", meta: "navMeta",
-  supply: "navSupply", platform: "navPlatform", migrate: "navMigrate", misplaced: "navAudit", tour: "navTour",
+  supply: "navSupply", platform: "navPlatform", migrate: "navMigrate", misplaced: "navAudit", tour: "navTour", tasks: "navTasks",
 };
 
 export default function SuperAdminDashboard() {
@@ -81,7 +82,8 @@ export default function SuperAdminDashboard() {
     }
   }, []);
   const [loadingClinics, setLoadingClinics] = useState(true);
-  const [activeTab, setActiveTab] = useState<SuperAdminTab>("clinics");
+  // Tasks first: the console opens on what the owner has to do (owner, 2026-11-21).
+  const [activeTab, setActiveTab] = useState<SuperAdminTab>("tasks");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
 
@@ -365,6 +367,8 @@ export default function SuperAdminDashboard() {
         {activeTab === "migrate" && <MigrateTab clinics={clinics} />}
         {activeTab === "misplaced" && <DarkPanel><MisplacedRecordsTab /></DarkPanel>}
         {activeTab === "platform" && <PlatformTab />}
+        {/* The owner's own to-do list: what clinics asked for and how far each one got. */}
+        {activeTab === "tasks" && <TasksTab />}
       </main>
 
       {selectedClinicId && (

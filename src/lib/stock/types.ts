@@ -57,6 +57,11 @@ export interface StockVariant {
   supplier: string | null;
   lastPrice: number | null;
   /**
+   * Running low at this many or fewer, all drawers added up. Missing or null means 1 — records
+   * saved before the field existed need nothing done to them. Read it through `warnAtOf`.
+   */
+  warnAt?: number | null;
+  /**
    * The brandless placeholder every item gets at setup, so a drawer can hold "composite" before
    * the clinic has told us whose. Real brands arrive with deliveries and get their own lines.
    */

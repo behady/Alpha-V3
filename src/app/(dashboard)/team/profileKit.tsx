@@ -10,6 +10,7 @@
 
 import type { ReactNode } from "react";
 import type { Schedule } from "@/lib/hrClient";
+import { FAR_FROM_CLINIC_M } from "@/lib/attendanceSheet";
 import type { EarningSettled, StaffSettlement } from "@/lib/staffSettlement";
 
 export type ProfileTab = "summary" | "attendance" | "money" | "settings";
@@ -110,8 +111,8 @@ export const DAYS_AR = ["الأحد", "الاتنين", "التلات", "الأ�
 /** The clinic's clock. The payroll engine splits regular from extra time on it, so this page does too. */
 export const CLINIC_TZ = "Africa/Cairo";
 
-/** A punch further than this from the clinic is shown in red. */
-export const FAR_M = 300;
+/** A punch further than this from the clinic is shown in red (one number with the clock-in sheet). */
+export const FAR_M = FAR_FROM_CLINIC_M;
 
 /** Today on this computer's clock, as yyyy-mm-dd. */
 export function todayYmd(): string {
@@ -124,7 +125,8 @@ export function todayYmd(): string {
  */
 export const locale = (isAr: boolean) => (isAr ? "ar-EG-u-nu-latn" : "en-GB");
 
-export const money = (n: number) => Math.round(Number(n) || 0).toLocaleString();
+/** Western digits always: an Arabic-language browser otherwise prints ٨٬٠٠٠ beside 173 on the same line. */
+export const money = (n: number) => Math.round(Number(n) || 0).toLocaleString("en-US");
 
 export function timeOf(d: Date | null, isAr: boolean): string {
   if (!d) return isAr ? "لسه" : "still in";

@@ -34,8 +34,8 @@ assert.equal(mapLinesBesideAddress(address, undefined), "");
 // Only the address was pasted there: nothing is left, and the caller prints no empty line.
 assert.equal(mapLinesBesideAddress(address, address), "");
 
-// Both places that print the address beside the map link use it.
-for (const file of ["src/lib/bot/respond.ts", "src/lib/bot/engine.ts"]) {
+// The place that prints the address beside the map link uses it (the menu engine was retired).
+for (const file of ["src/lib/bot/respond.ts"]) {
   const src = fs.readFileSync(path.join(process.cwd(), file), "utf8");
   assert.match(src, /mapLinesBesideAddress\(/, `${file} prints the map link through the helper`);
   assert.doesNotMatch(src, /ctx\.facts\.mapsUrl\.trim\(\)/, `${file} no longer prints the raw field`);

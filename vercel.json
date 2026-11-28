@@ -75,6 +75,10 @@
     {
       "path": "/api/automation/meta-conversions",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/automation/tasks-digest",
+      "schedule": "7 * * * *"
     }
   ]
 }

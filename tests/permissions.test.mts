@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PERMISSIONS_CATALOG, getAllPermissionIds } from "../src/config/permissionsCatalog";
+import { PERMISSIONS_CATALOG, denyMarker, effectivePermissions, getAllPermissionIds, getDefaultOnPermissionIds, listHoldsPermission, withPermission } from "../src/config/permissionsCatalog";
 import { BIN_COLLECTIONS } from "../src/lib/recycleBin";
 import { INVITABLE_ROLES } from "../src/lib/inviteLinks";
 import { staffIdentityPatch } from "../src/lib/server/clinicPermissions";
@@ -518,10 +518,43 @@ assert.ok(
 // The switches were always the admin's to set — sanitizePermissionList stores an edit verbatim.
 // What the preset helpers add is the ability to SEE the starting point and get back to it.
 
-assert.deepEqual(rolePreset("Dentist"), [...ROLE_BASELINE.Dentist].sort());
+// A role starts with its floor plus the permissions that are on for everyone.
+const defaultOn = getDefaultOnPermissionIds();
+assert.deepEqual(rolePreset("Dentist"), [...ROLE_BASELINE.Dentist, ...defaultOn].sort());
 assert.deepEqual(rolePreset("Owner"), ids.slice().sort(), "a full-access role shows every switch on");
 assert.deepEqual(rolePreset("Owner"), rolePreset("Admin"));
-assert.deepEqual(rolePreset("Bookkeeper"), [], "an unknown role starts with nothing");
+assert.deepEqual(rolePreset("Bookkeeper"), [...defaultOn].sort(), "an unknown role starts with only what is on for everyone");
+
+// --- 6d. Default-on permissions --------------------------------------------------------------------
+//
+// A permission added after clinics went live must not take anything away the day it ships: every
+// stored list predates it. So it is held with NOTHING stored, and switching it off stores a marker.
+{
+  assert.ok(defaultOn.includes("insurance.edit") && defaultOn.includes("insurance.send"));
+  const old = ["patients.edit", "access.patients"]; // a list saved before the permission existed
+  for (const id of defaultOn) {
+    assert.ok(listHoldsPermission(old, id), `an existing account lost "${id}" the day it was added`);
+    assert.ok(listHoldsPermission(null, id) && listHoldsPermission(undefined, id) && listHoldsPermission([], id));
+    assert.ok(holdsPermission("Receptionist", old, id));
+    const off = withPermission(old, id, false);
+    assert.deepEqual(off, [...old, denyMarker(id)], "switching it off stores the marker and nothing else changes");
+    assert.ok(!listHoldsPermission(off, id) && !holdsPermission("Receptionist", off, id), "switched off must mean off");
+    assert.ok(holdsPermission("Admin", off, id), "Owner and Admin never consult the list");
+    assert.deepEqual(sanitizePermissionList(off), [...off].sort(), "the save route must keep the off-marker");
+    assert.deepEqual(expandPermissions("Bookkeeper", off), [...off].sort(), "and so must the seeding path");
+    const on = withPermission(off, id, true);
+    assert.ok(listHoldsPermission(on, id) && !on.includes(denyMarker(id)), "switching it back on drops the marker");
+    assert.ok(!sanitizePermissionList([id, denyMarker(id)]).includes(denyMarker(id)), "an id and its own marker are never both stored");
+  }
+  // An ordinary permission is untouched by any of this.
+  assert.ok(!listHoldsPermission(old, "finance.edit") && !listHoldsPermission(null, "patients.edit"));
+  assert.deepEqual(withPermission(old, "patients.edit", false), ["access.patients"]);
+  assert.deepEqual(sanitizePermissionList(["no:patients.edit", "no:made.up", "patients.add"]), ["patients.add"], "a marker for anything else is dropped");
+  assert.ok(effectivePermissions(old).includes("insurance.edit") && !effectivePermissions(old).includes("finance.add"));
+  // The Users screen: someone on their role's switches still "matches the preset" after the update.
+  assert.equal(presetDiff("Receptionist", [...ROLE_BASELINE.Receptionist]).matchesPreset, true);
+  assert.deepEqual(presetDiff("Receptionist", withPermission([...ROLE_BASELINE.Receptionist], "insurance.send", false)).removed, ["insurance.send"]);
+}
 
 // Saving a billed procedure writes the clinical note AND its ledger row, so a dentist without
 // finance.add gets the note saved and a permission error for the charge.
@@ -676,6 +709,15 @@ const ALLOWED_INACTIVE = [
   "finance/recovery/route.ts",            // GET: the unpaid-balances list, read
   "push/register-token/route.ts",         // POST, but writes only the caller's own users/ doc
                                           // (their phone's push token) — no clinic record
+  "tasks/request/route.ts",        // "Ask Alpha for a change" on the Help page. GET reads this
+                                   // clinic's own requests. POST adds one row to the platform
+                                   // owner's task list and touches no clinic record (capped per
+                                   // clinic), so a lapsed clinic can still ask — to renew, say.
+  "stock/route.ts",                // One POST for every stock action. Only the five that read are
+                                   // exempt (the cupboard, a barcode lookup, the history, the saved
+                                   // counts and their comparison): a lapsed clinic may still see
+                                   // what is on its shelves. Every action that changes the cupboard
+                                   // is gated, and the assertion below holds it that way.
 ];
 
 const apiDir = join(REPO, "src/app/api");
@@ -749,6 +791,26 @@ const mcpPost = mcpKeys.slice(mcpKeys.indexOf("export async function POST"));
 assert.ok(
   !mcpPost.slice(0, mcpPost.indexOf("export async function DELETE")).includes("allowInactive: true"),
   "minting an AI connector key must stay behind the expiry gate"
+);
+
+// Stock: one handler serves reads and writes alike, so the exemption is a list of action names
+// rather than a verb. The list is pinned here. An action added to it has to be added here too,
+// which is the moment to check that it writes nothing.
+const stockRoute = readFileSync(join(apiDir, "stock/route.ts"), "utf8");
+assert.equal(
+  (stockRoute.match(/allowInactive/g) || []).length,
+  1,
+  "stock may waive the expiry gate in one place only: the read-only actions"
+);
+assert.ok(
+  stockRoute.includes("{ allowInactive: readOnly }"),
+  "stock must waive the expiry gate for its read-only actions and for nothing else"
+);
+const stockReadOnly = /const readOnly = ([^;]+);/.exec(stockRoute)?.[1] ?? "";
+assert.deepEqual(
+  [...stockReadOnly.matchAll(/action === "([^"]+)"/g)].map((m) => m[1]).sort(),
+  ["count-compare", "counts", "history", "lookup-barcode", "snapshot"],
+  "the stock actions exempt from the expiry gate changed. Only an action that writes nothing may be on this list."
 );
 
 // Nobody should be hand-rolling this decision again. The two local copies that existed read

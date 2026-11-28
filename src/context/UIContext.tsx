@@ -1,8 +1,10 @@
 "use client";
 
+import { registerConfirm } from "@/lib/confirmBridge";
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { X, CheckCircle2, AlertCircle, Info, AlertTriangle, HelpCircle, PenLine } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
+import { cairo } from "@/lib/fonts/arabic";
 import { openWhatsAppWithText, registerWhatsAppManualHandler } from "@/lib/whatsappManual";
 import { auth } from "@/lib/firebase";
 import {
@@ -315,6 +317,12 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Code outside React (lib/moneyApi) asks its questions through this same dialog.
+  useEffect(() => {
+    registerConfirm(confirm);
+    return () => registerConfirm(null);
+  }, [confirm]);
+
   // --- PROMPT LOGIC ---
   const prompt = useCallback((message: string, options?: PromptDialogOptions): Promise<string | null> => {
     return new Promise((resolve) => {
@@ -425,7 +433,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       {/* --- CONFIRM DIALOG --- */}
       {confirmState.isOpen && (
         <div
-          className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className={`fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 ${cairo.variable}${isRTL ? " arabic-ui" : ""}`}
           dir={isRTL ? "rtl" : "ltr"}
           role="dialog"
           aria-modal="true"
@@ -479,7 +487,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       {/* --- PROMPT DIALOG (replaces the browser's own window.prompt) --- */}
       {promptState.isOpen && (
         <div
-          className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className={`fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 ${cairo.variable}${isRTL ? " arabic-ui" : ""}`}
           dir={isRTL ? "rtl" : "ltr"}
           role="dialog"
           aria-modal="true"

@@ -7,7 +7,8 @@ import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
-import { isFullAccessRole } from "@/lib/permissions";
+import { holdsPermission, isFullAccessRole } from "@/lib/permissions";
+import { logActivityServer } from "@/lib/server/systemLog";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings, receiptCounterDocId, receiptPrefixOrClinic } from "@/lib/receiptSettings";
@@ -26,6 +27,7 @@ import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
 import { checkApproval } from "@/lib/insurance/formats";
+import { foldToothDigits, isFdiTooth, sheetTeethOf, withLineTeeth } from "@/lib/insurance/nextcare";
 import { billingFields, isLineRemoved, lineDateOf, lineDatesAfterStates, movesSentMonth, type BillingClaim } from "@/lib/insurance/billingMonth";
 import {
   claimDocId,
@@ -72,7 +74,10 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid", "shareDiscount"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid", "shareDiscount", "sheetMonth", "lineTeeth"]);
+const SHEET_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** How far ahead an approval may be placed. */
+const SHEET_MONTHS_AHEAD = 12;
 const LINE_KEY = /^\d{1,3}$/;
 const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
@@ -362,6 +367,162 @@ async function changeLineMembership(args: { clinicId: string; claimId: string; o
   if (result.created.length) await auditCharges(clinicId, result.created, actor, "insurance/claims:line-restored");
   if (op === "remove") return NextResponse.json({ ok: true, creditKept: round2(result.detached.reduce((sum, p) => sum + p.amount, 0)) });
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Put an approval on a month's closing sheet (`month` null = back to automatic: the month it was
+ * finished). The pick only matters when the page lists "by finish date". The whole approval moves:
+ * the company's sheet has one row per approval number.
+ *
+ * Refused for an approval that is not treated yet (409 `not_treated`: nothing of it is billed)
+ * and for one already sent (409 `sent_locked`: mark it not sent first), as every other edit that
+ * would move a sent approval's month is.
+ */
+async function pickSheetMonth(args: { clinicId: string; claimId: string; month: string | null; actor: Actor }): Promise<NextResponse> {
+  const { clinicId, claimId, month, actor } = args;
+  const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+  type Outcome = { kind: "no_claim" | "unreadable" | "not_treated" | "sent_locked" | "same" } | { kind: "ok"; number: string; patient: string; was: string | null };
+  const result = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
+    const snap = await tx.get(claimRef);
+    if (!snap.exists) return { kind: "no_claim" };
+    const claim = parseClaim(claimId, snap.data());
+    if (!claim) return { kind: "unreadable" };
+    if (claim.status === "sent") return { kind: "sent_locked" };
+    if (claim.status !== "treated") return { kind: "not_treated" };
+    if ((claim.sheetMonth ?? null) === month) return { kind: "same" };
+    tx.update(claimRef, {
+      sheetMonth: month === null ? FieldValue.delete() : month,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actor.uid,
+    });
+    return { kind: "ok", number: claim.approvalNumber, patient: claim.patientName, was: claim.sheetMonth ?? null };
+  });
+  if (result.kind === "no_claim") return fail(404, "That claim was not found.");
+  if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
+  if (result.kind === "not_treated") {
+    return fail(409, "Mark this approval treated first: nothing of it is billed yet. / علّم الموافقة اتعالجت الأول: لسه مفيش حاجة منها بتتحاسب.", { reason: "not_treated" });
+  }
+  if (result.kind === "sent_locked") {
+    return fail(409, "This approval was already sent to the company. Mark it not sent first. / دي اتبعتت للشركة. علّمها ماتبعتتش الأول.", { reason: "sent_locked" });
+  }
+  if (result.kind === "ok") {
+    void logActivityServer({
+      clinicId,
+      user: actor,
+      action: "Approval Sheet Month Picked",
+      details: `Approval ${result.number} (${result.patient}): ${result.was ?? "automatic"} -> ${month ?? "automatic"}`,
+      severity: "LOW",
+      module: "finance",
+    });
+  }
+  return NextResponse.json({ ok: true });
+}
+
+/** The teeth as a charge's description carries them: `Composite (T: 46) | NextCare C-1`. */
+const TOOTH_MARK = /\(T: [^)]*\)/;
+const LINE_TEETH_MESSAGE ="Pick real tooth numbers (11–48, or 51–85 for milk teeth). / اكتب أرقام أسنان صحيحة (11–48، أو 51–85 للأسنان اللبنية).";
+
+/**
+ * The teeth of one service of an approval, typed on the Insurance page. The approval's line is what
+ * the monthly sheet prints; once the treatment rows exist the patient's file and the charge must say
+ * the same, so the note's `tooth` and the charge's `(T: …)` change in the same transaction —
+ * exactly what the clinical editor's own teeth edit writes (clinical/procedures: updateApprovalNote).
+ * A flat insurance price: the teeth never move the money, the dates or the sheet month.
+ *
+ * Typed teeth become the line's own; cleared teeth are remembered as cleared, so the paper's
+ * conditions do not bring them back. "Nothing to do" means the sheet, the line and the patient's
+ * file already say exactly this — teeth the sheet only borrowed from the paper's conditions are
+ * saved (and the file put right) when the desk types them.
+ *
+ * An approval already sent to the company printed its teeth on the sheet the company holds: only
+ * an Owner or Admin may change them, and only after the screen has warned them (`confirmSent`) —
+ * the same lock a sent company sheet has.
+ */
+async function setLineTeeth(args: { clinicId: string; claimId: string; index: number; teeth: string[]; actor: Actor; confirmSent: boolean }): Promise<NextResponse> {
+  const { clinicId, claimId, index, teeth, actor, confirmSent } = args;
+  const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+  type Outcome =
+    | { kind: "no_claim" | "unreadable" | "no_line" | "no_teeth" | "same" | "sent_role" | "sent_confirm" }
+    | { kind: "ok"; number: string; patient: string; service: string; was: string[]; noteId: string | null; fileWas: string };
+  const result = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
+    const snap = await tx.get(claimRef);
+    if (!snap.exists) return { kind: "no_claim" };
+    const claim = parseClaim(claimId, snap.data());
+    if (!claim) return { kind: "unreadable" };
+    const line = claim.lines[index];
+    if (!line || claim.status === "cancelled" || isLineRemoved(claim, index)) return { kind: "no_line" };
+    // MetLife's paper and sheet name no teeth, and its lines do not keep any.
+    if (claim.insurer === "metlife") return { kind: "no_teeth" };
+    // Read before any write: the treatment rows this line wrote, when it has been treated.
+    const link = claim.ledgerIds[index];
+    const noteRef = link?.noteId ? adminClinicDoc(clinicId, "clinical_notes", link.noteId) : null;
+    const ledgerRef = link?.ledgerId ? adminClinicDoc(clinicId, "ledger", link.ledgerId) : null;
+    const noteSnap = noteRef ? await tx.get(noteRef) : null;
+    const ledgerSnap = ledgerRef ? await tx.get(ledgerRef) : null;
+
+    const toothText = teeth.length ? teeth.join(",") : "Gen";
+    // What the company sees for this service today, and what the patient's file says.
+    const was = sheetTeethOf(claim)[index] ?? [];
+    const own = line.teeth ?? [];
+    const fileWas = noteSnap?.exists ? fileTeethText(noteSnap.get("tooth")) : null;
+    const sheetSame = was.join(",") === teeth.join(",");
+    const ownSame = teeth.length === 0 || own.join(",") === teeth.join(",");
+    if (sheetSame && ownSame && (fileWas === null || fileWas === toothText)) return { kind: "same" };
+    if (claim.status === "sent") {
+      if (!isFullAccessRole(actor.role)) return { kind: "sent_role" };
+      if (!confirmSent) return { kind: "sent_confirm" };
+    }
+
+    tx.update(claimRef, { lines: withLineTeeth(claim.lines, index, teeth), updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
+    if (noteRef && noteSnap?.exists) {
+      tx.update(noteRef, { tooth: toothText, updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: FieldValue.serverTimestamp() });
+    }
+    if (ledgerRef && ledgerSnap?.exists) {
+      const d = typeof ledgerSnap.get("description") === "string" ? (ledgerSnap.get("description") as string) : "";
+      if (TOOTH_MARK.test(d)) tx.update(ledgerRef, { description: d.replace(TOOTH_MARK, `(T: ${toothText})`), updatedAt: FieldValue.serverTimestamp() });
+    }
+    return { kind: "ok", number: claim.approvalNumber, patient: claim.patientName, service: line.description || line.code, was, noteId: noteRef && noteSnap?.exists ? noteRef.id : null, fileWas: fileWas ?? "Gen" };
+  });
+  if (result.kind === "no_claim") return fail(404, "That claim was not found.");
+  if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
+  if (result.kind === "no_line") return fail(400, "That names a service line that is not on this approval.", { reason: "no_line" });
+  if (result.kind === "no_teeth") return fail(409, "This insurer's sheet has no tooth numbers. / تقفيلة الشركة دي مفيهاش أرقام أسنان.", { reason: "no_teeth" });
+  if (result.kind === "sent_role") {
+    return fail(409, "This approval was already sent to the company. Only the owner or an admin can change its teeth. / الموافقة دي اتبعتت للشركة. المالك أو المدير بس اللي يقدر يغيّر أسنانها.", { reason: "approval_sent" });
+  }
+  if (result.kind === "sent_confirm") {
+    return fail(409, "This approval was already sent to the company. Confirm to change its teeth. / الموافقة دي اتبعتت للشركة. أكّد عشان تغيّر أسنانها.", { reason: "approval_sent_confirm" });
+  }
+  if (result.kind === "ok") {
+    const was = result.was.join(",") || "none";
+    const now = teeth.join(",") || "none";
+    if (result.noteId) {
+      await recordMoneyChange({
+        entry: {
+          clinicId, action: "update", collection: "clinical_notes", documentId: result.noteId,
+          before: { tooth: result.fileWas }, after: { tooth: teeth.join(",") || "Gen" }, actor, via: "insurance/claims:line-teeth",
+        },
+        action: "Procedure Updated",
+        details: `teeth ${was} -> ${now} on ${result.service} (insurance approval ${result.number}, ${result.patient})`,
+      }).catch((err) => reportServerError("Line teeth audit failed:", err));
+    } else {
+      void logActivityServer({
+        clinicId,
+        user: actor,
+        action: "Approval Teeth Changed",
+        details: `Approval ${result.number} (${result.patient}), ${result.service}: ${was} -> ${now}`,
+        severity: "LOW",
+        module: "finance",
+      });
+    }
+  }
+  return NextResponse.json({ ok: true });
+}
+
+/** A treatment note's `tooth` as the approval writes it: "44,46", or "Gen" for none. */
+function fileTeethText(tooth: unknown): string {
+  const codes = String(tooth ?? "").split(/[,\s]+/).map((t) => t.trim()).filter((t) => t && t.toLowerCase() !== "gen");
+  return codes.length ? codes.join(",") : "Gen";
 }
 
 type DocFacts = InsuranceClaim["doc"];
@@ -944,6 +1105,56 @@ export async function PATCH(req: Request) {
       return await changeLineMembership({ clinicId, claimId, op, index, actor: { uid: authz.uid, name: authz.name, role: authz.role }, branchId: body.branchId });
     }
 
+    // The month of the closing sheet the approval goes on: its own transaction, never mixed.
+    if ("sheetMonth" in patch) {
+      if (keys.length !== 1) return fail(400, "Pick the sheet month on its own, not with another change.");
+      const month = patch.sheetMonth;
+      if (month !== null) {
+        const now = ymdInTimeZone(clinicTimeZone()).slice(0, 7);
+        const [y, m] = now.split("-").map(Number);
+        const ahead = new Date(Date.UTC(y, m - 1 + SHEET_MONTHS_AHEAD, 1));
+        const last = `${ahead.getUTCFullYear()}-${String(ahead.getUTCMonth() + 1).padStart(2, "0")}`;
+        if (typeof month !== "string" || !SHEET_MONTH.test(month) || month > last) {
+          return fail(400, `sheetMonth must be yyyy-mm, no later than ${last}, or null.`, { reason: "bad_month" });
+        }
+      }
+      const authz = await requireStaffPermission(req, clinicId, PERMISSION);
+      if (!authz.ok) return authz.response;
+      // On for everyone until switched off for a person (config/permissionsCatalog).
+      if (!holdsPermission(authz.role, authz.permissions, "insurance.edit")) {
+        return fail(403, "You do not have permission to do this (insurance.edit).", { reason: "no_permission" });
+      }
+      if (!(await clinicHasFeature(clinicId, "insurance"))) {
+        return fail(403, "Insurance is not part of this clinic's subscription.", { reason: "feature_locked" });
+      }
+      return await pickSheetMonth({ clinicId, claimId, month, actor: { uid: authz.uid, name: authz.name, role: authz.role } });
+    }
+
+    // The teeth of one service: its own transaction, never mixed.
+    if ("lineTeeth" in patch) {
+      if (keys.length !== 1) return fail(400, "Change a service's teeth on its own, not with another change.");
+      const picks = isRecord(patch.lineTeeth) ? Object.entries(patch.lineTeeth) : [];
+      if (picks.length !== 1 || !LINE_KEY.test(picks[0][0])) return fail(400, "lineTeeth must map one line index to its teeth.");
+      const index = Number(picks[0][0]);
+      const typed = picks[0][1];
+      if (index >= MAX_LINES || !Array.isArray(typed) || typed.length > 32) return fail(400, LINE_TEETH_MESSAGE, { reason: "bad_teeth" });
+      const teeth: string[] = [];
+      for (const v of typed) {
+        const code = typeof v === "string" ? foldToothDigits(v).trim() : "";
+        if (!isFdiTooth(code)) return fail(400, LINE_TEETH_MESSAGE, { reason: "bad_teeth" });
+        if (!teeth.includes(code)) teeth.push(code);
+      }
+      const authz = await requireStaffPermission(req, clinicId, PERMISSION);
+      if (!authz.ok) return authz.response;
+      if (!holdsPermission(authz.role, authz.permissions, "insurance.edit")) {
+        return fail(403, "You do not have permission to do this (insurance.edit).", { reason: "no_permission" });
+      }
+      if (!(await clinicHasFeature(clinicId, "insurance"))) {
+        return fail(403, "Insurance is not part of this clinic's subscription.", { reason: "feature_locked" });
+      }
+      return await setLineTeeth({ clinicId, claimId, index, teeth, actor: { uid: authz.uid, name: authz.name, role: authz.role }, confirmSent: body?.confirmSent === true });
+    }
+
     // A discount on the patient's share of one service: its own transaction, never mixed.
     if ("shareDiscount" in patch) {
       if (keys.length !== 1) return fail(400, "Discount the patient's share on its own, not with another change.");
@@ -1094,6 +1305,14 @@ export async function PATCH(req: Request) {
       }
       return preData;
     };
+    // Marking an approval sent, or taking that back, is its own permission: on for everyone until
+    // it is switched off for a person (config/permissionsCatalog), so nobody loses it on the update.
+    if (status !== undefined && !holdsPermission(authz.role, authz.permissions, "insurance.send")) {
+      const wasSent = status === "sent" ? false : parseClaim(claimId, await loadPre())?.status === "sent";
+      if (status === "sent" || wasSent) {
+        return fail(403, "You do not have permission to do this (insurance.send).", { reason: "no_permission" });
+      }
+    }
     let writesMoney = paying;
     if (!writesMoney && (status !== undefined || rawLines !== undefined || rawMetlife !== undefined || newPatientId)) {
       const pre = parseClaim(claimId, await loadPre());
@@ -1334,7 +1553,7 @@ export async function PATCH(req: Request) {
       const removedLines = rawLines !== undefined ? onLines(claim.removedLines) : claim.removedLines;
       if (JSON.stringify(lineDates) !== JSON.stringify(claim.lineDates)) update.lineDates = lineDates;
       if (JSON.stringify(removedLines) !== JSON.stringify(claim.removedLines)) update.removedLines = removedLines;
-      const after: BillingClaim = { status: status ?? claim.status, lines, lineStatus, lineDates, removedLines, treatedDate: datesAfter.treatedDate, approvalDate: approvalAfter };
+      const after: BillingClaim = { status: status ?? claim.status, lines, lineStatus, lineDates, removedLines, treatedDate: datesAfter.treatedDate, approvalDate: approvalAfter, sheetMonth: claim.sheetMonth };
       // Already sent to the company: it stays on the month's sheet it went out on (owner, 2026-11-11).
       if (movesSentMonth(claim, after)) return { kind: "sent_locked" };
       Object.assign(update, billingFields(after));
@@ -1438,6 +1657,8 @@ export async function PATCH(req: Request) {
         const written = writeTreatmentRows(tx, clinicId, {
           claimId,
           claim: {
+            insurer: claim.insurer,
+            metlife,
             payerId: claim.payerId,
             approvalNumber: claim.approvalNumber,
             approvalDate: approvalAfter,

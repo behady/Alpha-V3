@@ -36,9 +36,9 @@ import { CHECKUP_IN_OFFER_FACT, CHECKUP_IN_OFFER_RULE, checkupPriceInOffer } fro
  * old text wherever it can be, exact duplicates are collapsed to one copy, and the only new
  * sentences are the ones that make the structure explicit.
  *
- * `answerWithAi` in ./aiReply.ts is the only production caller. Everything it does AFTER the
- * model answers — the invented-number guard, the drug-name guard, the retry ladder, the credit
- * meter — is unchanged by anything in this file.
+ * The old standard brain (aiReply.ts) was retired on 2026-11-07. What remains here is read by
+ * the one brain's prompt (src/lib/botPro/proPrompt.ts): the shared voice, the language rule and
+ * the clinic-and-patient layer.
  */
 
 export interface AiPatientContext {

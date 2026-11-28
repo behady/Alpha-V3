@@ -35,8 +35,10 @@ import { getStoredDeviceId, persistDeviceId } from "@/lib/attendanceDeviceId";
 import { acquireBestPosition, locationFailureMessage } from "@/lib/attendanceLocation";
 import { judgeSites, punchBranchFields, readAttendanceSites, type AttendanceSite } from "@/lib/attendanceSites";
 import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { deviceKind, punchRefusalLog, type PunchRefusal } from "@/lib/attendanceRefusal";
 import { isDeviceRefused, readAttendanceChecks, type AttendanceChecks } from "@/lib/attendanceChecks";
 import { localYmd } from "@/lib/clinicDate";
+import { notifyPunch } from "@/lib/punchAlertClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { MoneyApiError, setPaymentCommission } from "@/lib/moneyApi";
 
@@ -592,7 +594,19 @@ export default function AttendancePage() {
 
   const handlePunch = async (type: 'in' | 'out') => {
       const isAr = language === 'ar';
+
+      // A refused punch used to leave nothing behind but a message that vanished in seconds, so
+      // "it won't let me clock in" could not be answered from the clinic's own records. Each
+      // refusal now writes one line to the activity log. Never awaited and never able to throw
+      // (logActivity swallows its own failures): recording why a punch failed must not be a new
+      // way for a punch to fail.
+      const noteRefusal = (refusal: PunchRefusal) => {
+          const { action, details } = punchRefusalLog(type, refusal, deviceKind(typeof navigator === "undefined" ? "" : navigator.userAgent));
+          void logActivity(user, action, details);
+      };
+
       if (!myProfile?.id || !user?.uid) {
+          noteRefusal({ kind: "noProfile" });
           showToast(
               isAr
                   ? "ملفك الوظيفي مش موجود. اطلب من المدير يتأكد من بريدك الإلكتروني في إعدادات المستخدمين."
@@ -611,6 +625,7 @@ export default function AttendancePage() {
       // clinic's switches (location, phone lock) arrive with the same settings: until they do,
       // nothing below knows which checks apply.
       if (!geofenceLoaded) {
+          noteRefusal({ kind: "settingsLoading" });
           showToast(
               isAr ? "لسه بنحمّل إعدادات العيادة. ثانية وجرّب تاني." : "Still loading clinic settings — try again in a moment.",
               "info"
@@ -660,6 +675,7 @@ export default function AttendancePage() {
               }
 
               if (isDeviceRefused({ checks, registeredDeviceId: liveProfile?.registeredDeviceId, currentDeviceId })) {
+                  noteRefusal({ kind: "wrongDevice" });
                   showToast(
                       isAr
                           ? "الجهاز ده مش المسجّل باسمك. اطلب من المدير يفك ارتباط جهازك من الحضور ← الفريق ← الإعدادات، وبعدين سجّل من الموبايل ده."
@@ -681,6 +697,7 @@ export default function AttendancePage() {
 
           if (checks.location) {
               if (sites.length === 0) {
+                  noteRefusal({ kind: "noLocationSet" });
                   showToast(
                       isAr
                           ? "موقع العيادة مش متسجّل. المدير لازم يحدده من الإعدادات ← الحضور."
@@ -695,6 +712,7 @@ export default function AttendancePage() {
               // coarse one. That wait is the whole reason this stopped failing at random.
               const located = await acquireBestPosition();
               if (!located.ok) {
+                  noteRefusal({ kind: "location", failure: located.failure });
                   showToast(locationFailureMessage(located.failure, isAr), "error");
                   finish();
                   return;
@@ -706,6 +724,14 @@ export default function AttendancePage() {
               const placeAr = verdict.site.branchName ? `فرع ${verdict.site.branchName}` : "العيادة";
               const placeEn = verdict.site.branchName || "the clinic";
               if (!verdict.inside) {
+                  noteRefusal({
+                      kind: "outside",
+                      place: verdict.site.branchName,
+                      distance: verdict.distance,
+                      effectiveDistance: verdict.effectiveDistance,
+                      accuracy: verdict.accuracy,
+                      radius: verdict.site.radius,
+                  });
                   showToast(
                       isAr
                           ? `إنت بعيد عن ${placeAr} بحوالي ${verdict.effectiveDistance} متر (المسموح ${verdict.site.radius} متر). لو إنت جوه العيادة فعلاً، قرّب من شباك وجرّب تاني.`
@@ -737,6 +763,7 @@ export default function AttendancePage() {
                       status: 'completed',
                       ...whereOut,
                   });
+                  notifyPunch(clinicId, sessionForOut.id, "out");
                   showToast(
                       punchedAt
                           ? (isAr ? `تم تسجيل الخروج — فرع ${punchedAt}` : `Clocked out — ${punchedAt}`)
@@ -751,7 +778,7 @@ export default function AttendancePage() {
                       await updateDoc(staffRef, { registeredDeviceId: currentDeviceId });
                   }
 
-                  await addDoc(getClinicCollection("attendance"), {
+                  const punchRef = await addDoc(getClinicCollection("attendance"), {
                       userId: user.uid,
                       userName: user?.name,
                       staffId: myProfile.id,
@@ -764,6 +791,7 @@ export default function AttendancePage() {
                       status: 'active',
                       ...whereIn,
                   });
+                  notifyPunch(clinicId, punchRef.id, "in");
                   showToast(
                       punchedAt
                           ? (isAr ? `تم تسجيل الدخول — فرع ${punchedAt}` : `Clocked in — ${punchedAt}`)
@@ -773,6 +801,7 @@ export default function AttendancePage() {
               }
           } catch (error) {
               console.error(error);
+              noteRefusal({ kind: "saveFailed", error });
               showToast(
                   isAr ? "معرفناش نحفظ التسجيل. اتأكد من الإنترنت وجرّب تاني." : "Could not save. Check your connection and try again.",
                   "error"
@@ -782,6 +811,7 @@ export default function AttendancePage() {
           }
       } catch (error) {
           console.error(error);
+          noteRefusal({ kind: "crashed", error });
           showToast(
               isAr ? "حصلت مشكلة أثناء التسجيل. جرّب تاني." : "Something went wrong while recording your punch. Try again.",
               "error"

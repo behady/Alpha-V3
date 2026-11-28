@@ -18,7 +18,9 @@
  */
 
 import { useMemo, useState } from "react";
-import { FileSpreadsheet, Loader2, Send } from "lucide-react";
+import { Eye, FileSpreadsheet, Loader2, Send } from "lucide-react";
+import Protect from "@/components/Protect";
+import ClaimsSheetPreview from "./ClaimsSheetPreview";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import type { InsuranceClaim } from "@/lib/insurance/claims";
@@ -100,6 +102,14 @@ export default function ClaimsExportBar({
     }
     return [...codes].sort();
   }, [ncStatement, ncSource, wording, statement.missingWording]);
+  // The approvals the sheet prints, for "What goes on this sheet?".
+  const printedIds = useMemo(() => {
+    if (inverted) return new Set<string>();
+    if (ncStatement) return new Set(ncStatement.cases.flatMap((k) => k.lines.map((l) => l.rowId.split("#")[0])));
+    const numbers = new Set(statement.cases.map((c) => c.approvalNumber));
+    return new Set(claims.filter((c) => numbers.has(c.approvalNumber)).map((c) => c.id));
+  }, [claims, inverted, statement.cases, ncStatement]);
+  const [preview, setPreview] = useState(false);
   const sheetCases = ncStatement ? ncStatement.cases.length : statement.cases.length;
   const sheetTotal = ncStatement ? ncStatement.total : statement.total;
 
@@ -133,7 +143,7 @@ export default function ClaimsExportBar({
 
   const markAllSent = async () => {
     if (marking || toSend.length === 0) return;
-    const ok = await confirm(t("markAllSentConfirm").replace("{n}", String(toSend.length)), { confirmLabel: t("markAllSent") });
+    const ok = await confirm(t("markAllSentConfirm").replace("{n}", String(toSend.length)).replace("{insurer}", payerName || "—"), { confirmLabel: t("markAllSent") });
     if (!ok) return;
     setMarking(true);
     let failed = 0;
@@ -219,6 +229,16 @@ export default function ClaimsExportBar({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            onClick={() => setPreview(true)}
+            disabled={inverted}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-ink px-3 py-2 text-[12.5px] font-black text-ink transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Eye size={14} />
+            {t("dwPreview")}
+          </button>
+          <Protect permission="insurance.send">
+          <button
+            type="button"
             onClick={markAllSent}
             disabled={marking || toSend.length === 0}
             className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-2 text-[12.5px] font-black text-ink-body transition-colors hover:bg-surface-subtle hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
@@ -226,6 +246,7 @@ export default function ClaimsExportBar({
             {marking ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {marking ? t("markingSent") : `${t("markAllSent")}${toSend.length ? ` (${toSend.length})` : ""}`}
           </button>
+          </Protect>
           <button
             type="button"
             onClick={download}
@@ -239,6 +260,23 @@ export default function ClaimsExportBar({
         </div>
       </div>
       {error && <p className="text-[12.5px] font-bold text-rose-700">{error}</p>}
+      {preview && (
+        <ClaimsSheetPreview
+          payerName={payerName}
+          from={from}
+          to={to}
+          mode={mode}
+          claims={claims}
+          printedIds={printedIds}
+          total={inverted ? 0 : sheetTotal}
+          toSendCount={toSend.length}
+          onMarkAllSent={() => void markAllSent()}
+          marking={marking}
+          onExcel={() => void download()}
+          exporting={busy}
+          onClose={() => setPreview(false)}
+        />
+      )}
     </section>
   );
 }

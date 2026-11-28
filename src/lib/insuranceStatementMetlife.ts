@@ -19,7 +19,7 @@
  */
 
 import { claimStatementName, isLineRemoved, type InsuranceClaim } from "@/lib/insurance/claims";
-import { claimFinishedDate, inSheetRange, type SheetDateMode } from "@/lib/insurance/billingMonth";
+import { claimSheetMonth, inSheetRange, type SheetDateMode } from "@/lib/insurance/billingMonth";
 
 export type MetlifeStatementLine = { text: string; count: number; requested: number; approved: number };
 
@@ -85,7 +85,7 @@ export function buildMetlifeStatement(args: {
   const heldBack =
     mode === "approval"
       ? args.claims.filter((c) => c.status === "approved" && c.approvalDate >= from && c.approvalDate <= to).length
-      : args.claims.filter((c) => c.status === "approved" || ((c.status === "treated" || c.status === "sent") && claimFinishedDate(c) === null)).length;
+      : args.claims.filter((c) => c.status === "approved" || ((c.status === "treated" || c.status === "sent") && claimSheetMonth(c) === null)).length;
 
   const missing = new Set<string>();
   const cases: MetlifeStatementCase[] = [];

@@ -34,8 +34,12 @@ import { normalizeForMatch, PRO_TOOL_DECLARATIONS, runTool, slotIdFor, type Tool
 export { PRO_CREDITS_PER_REPLY };
 export type { ProArgs };
 
-/** The whole turn, context load included. Past it the standard brain answers instead. */
-const DEADLINE_MS = 25_000;
+/**
+ * The whole turn, context load included. Past it the turn is unavailable: the patient is asked to
+ * resend, then handed to the desk. 35 s by the owner 2026-11-21: at 25 s one turn in six timed out
+ * (44 of 264 over four days) while answered turns ran median 12 s, p95 23 s.
+ */
+const DEADLINE_MS = 35_000;
 /** Model calls per turn, corrective rounds included. */
 const MAX_ROUNDS = 4;
 /** Slots that may be offered and booked by id in one turn (same cap as find_slots). */

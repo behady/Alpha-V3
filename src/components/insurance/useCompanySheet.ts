@@ -2,11 +2,11 @@
 
 /**
  * The live inputs the company's monthly sheet is worked out from, read in the browser:
- * the treatment cards behind the charges (and every card that continues one), the dentist's
- * per-patient switches, and the months already sent. `companyStatement` does the rest.
+ * the treatment cards behind the charges (and every card that continues one) and the months
+ * already sent. `companyStatement` does the rest.
  *
- * Everything here is a listener, so a card marked Done, a switch or a Mark as sent on another
- * screen moves the sheet at once. `inputs` stays null until the three have each answered once.
+ * Everything here is a listener, so a card marked Done, a finish date changed or a Mark as sent on
+ * another screen moves the sheet at once. `inputs` stays null until both have answered once.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -16,12 +16,11 @@ import { toYmd } from "@/lib/reports/patientStats";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import {
   COMPANY_SHEET_START,
-  marksDocId,
+  monthsDocId,
   sentDocId,
   type SentMonth,
   type SheetCard,
   type SheetCharge,
-  type SheetChoice,
   type SheetInputs,
 } from "@/lib/insurance/companySheet";
 
@@ -34,7 +33,16 @@ function chunksOf<T>(list: readonly T[], size: number): T[][] {
 }
 
 function cardOf(id: string, d: DocumentData): SheetCard {
-  return { id, status: d.status, date: d.date, completedDate: d.completedDate, continuedFromNoteId: d.continuedFromNoteId };
+  return {
+    id,
+    status: d.status,
+    date: d.date,
+    completedDate: d.completedDate,
+    continuedFromNoteId: d.continuedFromNoteId,
+    doctor: d.doctor,
+    createdByName: d.createdByName,
+    finishLog: d.finishLog,
+  };
 }
 
 function sentOf(d: QueryDocumentSnapshot<DocumentData>, payerId: string): SentMonth | null {
@@ -51,7 +59,7 @@ function sentOf(d: QueryDocumentSnapshot<DocumentData>, payerId: string): SentMo
   return sent;
 }
 
-/** Live cards, marks and sent months for a company's charges. `charges`: every charge of the company, all branches. */
+/** Live cards and sent months for a company's charges. `charges`: every charge of the company, all branches. */
 export function useCompanySheet(
   clinicId: string | null,
   payerId: string,
@@ -62,7 +70,7 @@ export function useCompanySheet(
   const [cardsFor, setCardsFor] = useState<string | null>(null);
   const [extra, setExtra] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
   // Each answer carries the scope it was read for, so a clinic or company switch shows "not loaded" with no reset in an effect.
-  const [marksAt, setMarksAt] = useState<{ key: string; marks: Readonly<Record<string, SheetChoice>> } | null>(null);
+  const [monthsAt, setMonthsAt] = useState<{ key: string; months: Readonly<Record<string, string>> } | null>(null);
   const [sentAt, setSentAt] = useState<{ key: string; sent: readonly SentMonth[] } | null>(null);
   const [failedAt, setFailedAt] = useState<string | null>(null);
 
@@ -77,17 +85,17 @@ export function useCompanySheet(
   );
   const scopeKey = `${clinicId ?? ""}|${payerId}`;
 
-  // Marks and sent months.
+  // Picked months and sent months.
   useEffect(() => {
     if (!clinicId) return;
     const stops = [
       onSnapshot(
-        getClinicDoc("settings", marksDocId(payerId)),
+        getClinicDoc("settings", monthsDocId(payerId)),
         (snap) => {
-          const raw = (snap.data()?.marks ?? {}) as Record<string, unknown>;
-          const next: Record<string, SheetChoice> = {};
-          for (const [k, v] of Object.entries(raw)) if (v === "include" || v === "hold") next[k] = v;
-          setMarksAt({ key: scopeKey, marks: next });
+          const raw = (snap.data()?.months ?? {}) as Record<string, unknown>;
+          const next: Record<string, string> = {};
+          for (const [k, v] of Object.entries(raw)) if (typeof v === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) next[k] = v;
+          setMonthsAt({ key: scopeKey, months: next });
         },
         () => setFailedAt(scopeKey),
       ),
@@ -151,14 +159,14 @@ export function useCompanySheet(
     // `extra` is read for its ids only when it belongs to this key; growing it re-subscribes with the larger set.
   }, [clinicId, scopeKey, noteKey, extra]);
 
-  const marks = marksAt?.key === scopeKey ? marksAt.marks : null;
+  const months = monthsAt?.key === scopeKey ? monthsAt.months : null;
   const sent = sentAt?.key === scopeKey ? sentAt.sent : null;
   const failed = failedAt === scopeKey;
   const cardsRead = noteKey === "" || cardsFor === `${scopeKey}|${noteKey}`;
-  const ready = sheetCharges !== null && noteKey !== null && cardsRead && marks !== null && sent !== null;
+  const ready = sheetCharges !== null && noteKey !== null && cardsRead && months !== null && sent !== null;
   const inputs = useMemo<SheetInputs | null>(
-    () => (ready && charges && marks && sent ? { charges, cards: noteKey === "" ? [] : [...cards.values()], marks, sent } : null),
-    [ready, charges, cards, noteKey, marks, sent],
+    () => (ready && charges && months && sent ? { charges, cards: noteKey === "" ? [] : [...cards.values()], months, sent } : null),
+    [ready, charges, cards, noteKey, months, sent],
   );
   return { inputs, failed };
 }

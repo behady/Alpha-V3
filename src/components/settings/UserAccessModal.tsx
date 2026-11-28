@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
-import { X, Search, ChevronDown, ChevronRight, Info, Shield, Crown, RotateCcw, ArrowRightLeft } from "lucide-react";
-import { PERMISSIONS_CATALOG, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
+import { X, Search, ChevronDown, ChevronRight, Info, Shield, Crown, RotateCcw, ArrowRightLeft, Copy } from "lucide-react";
+import { PERMISSIONS_CATALOG, listHoldsPermission, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { ASSIGNABLE_ROLES, isFullAccessRole, isOwnerRole, presetDiff, rolePreset } from "@/lib/permissions";
 import { formatStaffRoleLabel } from "@/lib/staffRoles";
 
@@ -33,6 +33,9 @@ type Props = {
   togglePermissionGroup: (userId: string, currentPerms: string[], keys: string[], targetUser: UserRow, setAll: boolean) => void;
   applyRolePreset: (userId: string, targetUser: UserRow) => void;
   transferOwnership: (targetUser: UserRow) => void;
+  /** The colleagues whose switches can be copied onto this person (never Owner/Admin: theirs are not a list). */
+  copyFrom: UserRow[];
+  copyPermissionsFrom: (userId: string, targetUser: UserRow, source: UserRow) => void;
 };
 
 export default function UserAccessModal({
@@ -49,6 +52,8 @@ export default function UserAccessModal({
   togglePermissionGroup,
   applyRolePreset,
   transferOwnership,
+  copyFrom,
+  copyPermissionsFrom,
 }: Props) {
   const isAr = language === "ar";
   const [permissionSearch, setPermissionSearch] = useState("");
@@ -281,6 +286,38 @@ export default function UserAccessModal({
               </div>
             )}
 
+            {/* Copy another person's switches: one pick instead of a dozen toggles. */}
+            {!bypassesEverything && copyFrom.length > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-surface rounded-[1.25rem] border border-line shadow-sm p-4">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-9 h-9 rounded-xl bg-surface-muted text-ink-body flex items-center justify-center shrink-0">
+                    <Copy size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-ink">{isAr ? "انسخ الصلاحيات من مستخدم تاني" : "Copy permissions from another user"}</p>
+                    <p className="text-[11px] font-semibold text-ink-muted mt-0.5">{isAr ? "هيبقى عنده نفس الصلاحيات بالظبط. الدور مش بيتغيّر." : "They get exactly the same switches. The role does not change."}</p>
+                  </div>
+                </div>
+                <select
+                  value=""
+                  disabled={isUpdating}
+                  onChange={(e) => {
+                    const source = copyFrom.find((u) => u.id === e.target.value);
+                    if (source) copyPermissionsFrom(user.id, user, source);
+                  }}
+                  aria-label={isAr ? "انسخ الصلاحيات من" : "Copy permissions from"}
+                  className="shrink-0 sm:w-56 py-2.5 px-3 rounded-xl border border-line text-sm font-bold text-ink bg-surface-subtle outline-none focus:border-accent-soft cursor-pointer disabled:opacity-50"
+                >
+                  <option value="">{isAr ? "اختار مستخدم…" : "Choose a user…"}</option>
+                  {copyFrom.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} · {roleText(u.role || "Assistant")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="relative mb-4">
               <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`} />
               <input
@@ -299,7 +336,7 @@ export default function UserAccessModal({
                 const collapsed = collapsedGroups[group.id];
                 const groupItems = group.items;
                 const groupKeys = groupItems.map(it => it.id);
-                const isAllSelected = groupKeys.every(k => perms.includes(k));
+                const isAllSelected = groupKeys.every(k => listHoldsPermission(perms, k));
 
                 return (
                   <div key={group.id} className="bg-surface rounded-[1.5rem] border border-line shadow-sm overflow-hidden transition-all duration-300">
@@ -345,7 +382,7 @@ export default function UserAccessModal({
                     {!collapsed && (
                       <div className="p-2 sm:p-3 divide-y divide-line">
                         {group.items.map((pk) => {
-                          const isSet = bypassesEverything || perms.includes(pk.id);
+                          const isSet = bypassesEverything || listHoldsPermission(perms, pk.id);
                           const inPreset = presetKeys.has(pk.id);
                           const hint = isAr ? pk.hintAr : pk.hintEn;
                           return (

@@ -5,6 +5,7 @@ import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/li
 import { adminDb } from "@/lib/firebaseAdmin";
 import { conversationKey, markHumanActive } from "@/lib/bot/conversation";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
+import { isWaUserId } from "@/lib/waUserId";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import {
   followupTemplateText,
@@ -111,8 +112,11 @@ export async function POST(request: Request) {
   };
 
   // A hidden-number chat (`…@lid`) has no phone to normalise; the gateway delivers to the id itself.
+  // The official channel's hidden sender is Meta's user id, which must go back out untouched.
   const rawTo = String(body.phone || "").trim();
-  const phone = /^\d{6,20}@lid$/i.test(rawTo) ? rawTo.toLowerCase() : normalizeToE164AssumingCountry(rawTo);
+  const phone = isWaUserId(rawTo)
+    ? rawTo
+    : /^\d{6,20}@lid$/i.test(rawTo) ? rawTo.toLowerCase() : normalizeToE164AssumingCountry(rawTo);
   if (!phone) return NextResponse.json({ ok: false, error: "A valid phone number is required" }, { status: 400 });
 
   const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";

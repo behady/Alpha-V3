@@ -130,7 +130,7 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
             );
           })}
           {!locationOn && clinicData.attendanceRequireDevice === false && (
-            <p className="text-sm font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">{txt.bothOffWarning}</p>
+            <p className="text-sm font-bold text-warn bg-warn-tint border border-warn/25 rounded-xl px-4 py-3">{txt.bothOffWarning}</p>
           )}
       </div>
 

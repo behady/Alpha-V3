@@ -47,6 +47,7 @@ import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord, StaffRecord } from "@/lib/automation/briefing/data";
 import { expectedScheduleFor, punchRecordFrom, staffRecordFrom, type Schedule } from "@/lib/hrClient";
 import { commissionByStaff, NO_COMMISSION, type StaffCommission } from "@/lib/staffCommission";
+import { buildAttendanceSheet, type AttendanceSheet } from "@/lib/attendanceSheet";
 import { insuranceWorkByStaff, NO_INSURANCE_WORK, type StaffInsuranceWork } from "@/lib/staffInsurance";
 import { monthsBetween } from "@/lib/insurance/billingMonth";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
@@ -468,6 +469,66 @@ function TeamPage() {
     [punches, selectedDoc],
   );
 
+  /**
+   * The clock-in sheet for one person: a line per shift and per missed day, each shift's pay. Built
+   * on the same clock (today, now) as `hrRows` above, so its total is the engine's estimated pay.
+   */
+  const sheetFor = useCallback(
+    (doc: StaffDoc): { sheet: AttendanceSheet; assumed: boolean; baseSalary: number; overtimeMultiplier: number } => {
+      const d = doc as Record<string, unknown>;
+      const { schedule, assumed } = expectedScheduleFor(d.attendanceSchedule);
+      const own = punches.filter((p) => p.userId === (String(d.uid ?? "") || doc.id) || p.staffId === doc.id);
+      const baseSalary = Number(d.baseSalary) || 0;
+      const overtimeMultiplier = Number(d.overtimeMultiplier) || 1.5;
+      const now = new Date();
+      return {
+        sheet: buildAttendanceSheet({
+          punches: own,
+          schedule,
+          assumed,
+          baseSalary,
+          overtimeMultiplier,
+          startDate: range.start,
+          endDate: range.end,
+          today: localYmd(now),
+          nowMinutes: now.getHours() * 60 + now.getMinutes(),
+          timeZone: "Africa/Cairo",
+        }),
+        assumed,
+        baseSalary,
+        overtimeMultiplier,
+      };
+    },
+    [punches, range.start, range.end],
+  );
+  const selectedSheet = useMemo(() => (selectedDoc ? sheetFor(selectedDoc).sheet : null), [selectedDoc, sheetFor]);
+
+  /** The clock-in sheet as Excel: the person on screen, or everyone with a line in the period. */
+  const exportAttendance = useCallback(
+    async (team: boolean) => {
+      const docs = team ? [...staffDocs].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""), isAr ? "ar" : "en")) : selectedDoc ? [selectedDoc] : [];
+      const people = docs
+        .map((doc) => ({ name: String(doc.name ?? "") || (isAr ? "بدون اسم" : "Unnamed"), ...sheetFor(doc) }))
+        .filter((p) => !team || p.sheet.rows.length > 0);
+      if (people.length === 0) {
+        showToast(isAr ? "مفيش حضور في الفترة دي." : "No clock-ins in this period.", "info");
+        return;
+      }
+      try {
+        const [{ default: XLSX }, { attendanceWorkbook, attendanceFileName }] = await Promise.all([
+          import("xlsx-js-style"),
+          import("@/lib/attendanceSheetXlsx"),
+        ]);
+        const wb = attendanceWorkbook({ people, start: range.start, end: range.end, isAr, team, timeZone: "Africa/Cairo" });
+        XLSX.writeFile(wb, attendanceFileName(team ? "team" : people[0].name, range.start, range.end), { compression: true });
+      } catch (err) {
+        console.error("Attendance export failed:", err);
+        showToast(isAr ? "مقدرناش نجهّز ملف الإكسل" : "Could not make the Excel file", "error");
+      }
+    },
+    [staffDocs, selectedDoc, sheetFor, range.start, range.end, isAr, showToast],
+  );
+
   /* --- writes ------------------------------------------------------------------------------- */
 
   const savePay = useCallback(
@@ -812,6 +873,8 @@ function TeamPage() {
                   onSetRate={setRate}
                   branches={branches}
                   onSaveBranchIds={saveBranchIds}
+                  attendanceSheet={selectedSheet ?? sheetFor(selectedDoc as StaffDoc).sheet}
+                  onExportAttendance={exportAttendance}
                 />
               </div>
             )}

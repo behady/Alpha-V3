@@ -284,6 +284,24 @@ console.log("the dentist marks a service done from the clinical tab");
   check("and its service is still Completed", (await notes.doc("metlife_k2-N2").get()).data()?.status === "Completed" && (await claimOf("metlife_k2")).lineStatus[2] !== "Planned");
 }
 
+console.log("the Treatments report's dropdown changes a service's state the same way");
+{
+  await seed("metlife_k3", { lineStatus: { 2: "Planned" } });
+  const done = await clinicalUpdate("metlife_k3-N2", { action: "status", status: "Completed" });
+  check("the save is accepted", done.status === 200, done.json);
+  let c = await claimOf("metlife_k3");
+  check("the approval's service is Completed, done today", c.lineStatus[2] === "Completed" && c.lineDates[2] === TODAY, c);
+  check("its rows are dated today", same((await rowDates("metlife_k3"))[2], [TODAY, TODAY]), await rowDates("metlife_k3"));
+  const back = await clinicalUpdate("metlife_k3-N2", { action: "status", status: "Planned" });
+  c = await claimOf("metlife_k3");
+  check("back to Planned reopens the approval", back.status === 200 && same(c.lineDates, {}) && c.finishedDate === null, c);
+
+  await seed("metlife_k4", { status: "sent" });
+  const locked = await clinicalUpdate("metlife_k4-N2", { action: "status", status: "Planned" });
+  check("a sent approval is refused from the dropdown too", locked.status === 409, locked.json);
+  check("and its service is still Completed", (await notes.doc("metlife_k4-N2").get()).data()?.status === "Completed");
+}
+
 console.log("the paper is edited to fewer services");
 {
   await seed("metlife_r1", { approvalNumber: "D7000009", lineDates: { 1: "2026-10-22", 2: "2026-11-05" } });
@@ -424,6 +442,67 @@ console.log("a deleted service stays deleted when the approval is treated again"
   const c = await claimOf("metlife_x5");
   check("rows are written for the two services left, none for the deleted one", same(Object.keys(c.ledgerIds), ["0", "1"]), c.ledgerIds);
   check("and it is finished today", c.finishedDate === TODAY, c.finishedDate);
+}
+
+console.log("the month picked for an approval's closing sheet");
+{
+  const patchAs = async (token: string, claimId: string, p: Json) => {
+    const res = await route.PATCH(
+      new Request("http://localhost/api/insurance/claims", {
+        method: "PATCH",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ clinicId: CLINIC, claimId, patch: p }),
+      }),
+    );
+    return { status: res.status, json: (await res.json()) as Json };
+  };
+  await seed("metlife_m1", { lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-05" } });
+  const before = await frozen("metlife_m1");
+  let r = await patch("metlife_m1", { sheetMonth: "2026-12" });
+  check("picking a month is accepted", r.status === 200, r);
+  const d = await raw("metlife_m1");
+  check("the approval carries it", d.sheetMonth === "2026-12", d.sheetMonth);
+  check("and nothing else on it or its rows changed", JSON.stringify([{ ...d, sheetMonth: undefined, updatedAt: undefined, updatedBy: undefined }, await rowDates("metlife_m1")]) === JSON.stringify([{ ...JSON.parse(before)[0], sheetMonth: undefined, updatedAt: undefined, updatedBy: undefined }, JSON.parse(before)[1]]));
+  check("it parses as the approval's sheet month", (await claimOf("metlife_m1")).sheetMonth === "2026-12");
+  r = await patch("metlife_m1", { sheetMonth: null });
+  check("null puts it back to automatic", r.status === 200 && !("sheetMonth" in (await raw("metlife_m1"))), await raw("metlife_m1"));
+  check("a month that is not a month is refused", (await patch("metlife_m1", { sheetMonth: "2026-13" })).json.reason === "bad_month");
+  check("a month years ahead is refused", (await patch("metlife_m1", { sheetMonth: "2999-01" })).json.reason === "bad_month");
+  check("it travels alone", (await patch("metlife_m1", { sheetMonth: "2026-12", status: "sent" })).status === 400);
+
+  await seed("metlife_m2", { status: "approved", treatedDate: null });
+  r = await patch("metlife_m2", { sheetMonth: "2026-12" });
+  check("an approval not treated yet has no sheet to go on", r.status === 409 && r.json.reason === "not_treated", r);
+
+  await seed("metlife_m3", { status: "sent" });
+  r = await patch("metlife_m3", { sheetMonth: "2026-12" });
+  check("a sent approval's month is locked", r.status === 409 && r.json.reason === "sent_locked" && !("sheetMonth" in (await raw("metlife_m3"))), r);
+
+  // A sent approval that was picked stays on its month when a service is re-dated.
+  await seed("metlife_m4", { status: "sent", sheetMonth: "2026-12", lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-05" } });
+  r = await patch("metlife_m4", { lineDates: { 2: "2026-11-20" } });
+  check("re-dating a service of a picked, sent approval is allowed: its month does not move", r.status === 200, r);
+
+  // Who: the page's permission plus insurance.edit / insurance.send, both on until switched off.
+  const STAFF = "desk-1";
+  const asStaff = idToken(STAFF);
+  const staff = db.collection("users").doc(STAFF);
+  await staff.set({ name: "Sara Desk", clinicRoles: { [CLINIC]: "Receptionist" }, clinicPermissions: { [CLINIC]: ["patients.edit"] } });
+  r = await patchAs(asStaff, "metlife_m1", { sheetMonth: "2026-12" });
+  check("an account from before the insurance permissions can pick a month", r.status === 200, r);
+  r = await patchAs(asStaff, "metlife_m1", { status: "sent" });
+  check("and mark an approval sent", r.status === 200 && (await raw("metlife_m1")).status === "sent", r);
+  r = await patchAs(asStaff, "metlife_m1", { status: "treated" });
+  check("and take that back", r.status === 200 && (await raw("metlife_m1")).status === "treated", r);
+  await staff.update({ [`clinicPermissions.${CLINIC}`]: ["patients.edit", "no:insurance.edit", "no:insurance.send"] });
+  r = await patchAs(asStaff, "metlife_m1", { sheetMonth: "2026-11" });
+  check("insurance.edit switched off: the month pick is refused", r.status === 403 && r.json.reason === "no_permission" && (await raw("metlife_m1")).sheetMonth === "2026-12", r);
+  r = await patchAs(asStaff, "metlife_m1", { status: "sent" });
+  check("insurance.send switched off: marking sent is refused", r.status === 403 && r.json.reason === "no_permission" && (await raw("metlife_m1")).status === "treated", r);
+  r = await patchAs(asStaff, "metlife_m3", { status: "treated" });
+  check("and so is marking a sent approval not sent", r.status === 403 && r.json.reason === "no_permission" && (await raw("metlife_m3")).status === "sent", r);
+  r = await patchAs(asStaff, "metlife_m1", { lineDates: { 2: "2026-11-06" } });
+  check("everything else she could do before, she still can", r.status === 200, r);
 }
 
 authServer.close();

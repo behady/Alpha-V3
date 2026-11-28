@@ -46,6 +46,19 @@ const OPTIONAL_LOST_AFTER_MS = 2500;
 const POLL_MS = 250;
 /** Breathing room between the element's edge and the ring. */
 const RING_PAD = 8;
+/**
+ * How long a found element may sit wholly off the screen before the page is scrolled to it. The
+ * wait is for the app's own scrolling: a form that has just opened usually brings itself into
+ * view, and two scrolls started together fight.
+ */
+const SCROLL_AFTER_MS = 600;
+/**
+ * The one second try. A page that is still arriving scrolls itself back to the top when it lands,
+ * which cancels a scroll already under way and leaves the element below the fold again. Only
+ * inside this window, so that someone who later scrolls away on purpose is left alone.
+ */
+const SCROLL_RETRY_FROM_MS = 1500;
+const SCROLL_RETRY_UNTIL_MS = 5000;
 
 /*
  * Anchor finding lives in lib/tourDom.ts, shared with Sara's tour spotlight. The rules — first
@@ -66,6 +79,14 @@ export default function TutorialOverlay() {
 
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [lost, setLost] = useState(false);
+  /**
+   * The card lives along the bottom so it does not cover what the ring marks. That stops being
+   * true for a button at the very end of a page: scrolled as far as the page goes, it sits exactly
+   * where the card is, and a card over the button means the step cannot be done. Then the card
+   * moves to the top instead.
+   */
+  const [cardOnTop, setCardOnTop] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
   const lostTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Set the moment the watched element is clicked, cleared when the step changes. Guards against
@@ -74,6 +95,15 @@ export default function TutorialOverlay() {
    * "acknowledged" state during the beat before the next step appears.
    */
   const advancing = useRef(false);
+  /**
+   * A ring nobody can see teaches nothing: "press Add an item here" under a long list is below
+   * the fold. So the step's element is scrolled into view: once, and once more only if that
+   * first scroll was cancelled. After that the person may scroll wherever they like and is not
+   * pulled back.
+   */
+  const offScreenSince = useRef(0);
+  const scrollTries = useRef(0);
+  const lastScrollAt = useRef(0);
 
   const step = activeTutorial?.steps[stepIndex] ?? null;
   const isLastStep = !!activeTutorial && stepIndex === activeTutorial.steps.length - 1;
@@ -108,8 +138,12 @@ export default function TutorialOverlay() {
   useEffect(() => {
     if (!step) return;
     advancing.current = false;
+    offScreenSince.current = 0;
+    scrollTries.current = 0;
+    lastScrollAt.current = 0;
     setRect(null);
     setLost(false);
+    setCardOnTop(false);
     // "Open the Patients page" is pointless teaching when the user is already on it.
     // finishOrAdvance, not advanceStep: a skipped LAST step must still end the lesson —
     // a bare increment past the end would leave the tutorial active forever with no card.
@@ -157,6 +191,34 @@ export default function TutorialOverlay() {
       if (lostTimer.current) {
         clearTimeout(lostTimer.current);
         lostTimer.current = null;
+      }
+      const card = cardRef.current?.getBoundingClientRect();
+      if (card) {
+        // Where the card sits when it is at the bottom, whichever place it is in right now.
+        const gap = window.matchMedia("(min-width: 1024px)").matches ? 16 : 96;
+        const zoneTop = window.innerHeight - gap - card.height - RING_PAD;
+        setCardOnTop(
+          found.rect.bottom > zoneTop &&
+            found.rect.top < window.innerHeight &&
+            found.rect.right > card.left &&
+            found.rect.left < card.right,
+        );
+      }
+      if (scrollTries.current >= 2) return;
+      const offScreen = found.rect.bottom <= 0 || found.rect.top >= window.innerHeight;
+      if (!offScreen) {
+        offScreenSince.current = 0;
+        return;
+      }
+      const now = Date.now();
+      if (!offScreenSince.current) offScreenSince.current = now;
+      const sinceLast = now - lastScrollAt.current;
+      const first = scrollTries.current === 0 && now - offScreenSince.current >= SCROLL_AFTER_MS;
+      const again = scrollTries.current === 1 && sinceLast >= SCROLL_RETRY_FROM_MS && sinceLast <= SCROLL_RETRY_UNTIL_MS;
+      if (first || again) {
+        scrollTries.current += 1;
+        lastScrollAt.current = now;
+        found.el.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     };
     measure();
@@ -234,9 +296,11 @@ export default function TutorialOverlay() {
         </div>
       )}
 
-      {/* The instruction card — fixed to the bottom so it never covers what the ring marks. */}
+      {/* The instruction card — along the bottom, or at the top when the ring is down there. */}
       <div
-        className="fixed bottom-24 lg:bottom-4 left-1/2 -translate-x-1/2 z-[9981] w-[calc(100vw-2rem)] max-w-md"
+        ref={cardRef}
+        className={`fixed ${cardOnTop ? "" : "bottom-24 lg:bottom-4"} left-1/2 -translate-x-1/2 z-[9981] w-[calc(100vw-2rem)] max-w-md`}
+        style={cardOnTop ? { top: 112 } : undefined}
         dir={isRTL ? "rtl" : "ltr"}
       >
         <div className="bg-white/90 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[1.5rem] px-5 py-4 animate-in slide-in-from-bottom-4 duration-300">

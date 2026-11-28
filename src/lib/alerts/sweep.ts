@@ -8,6 +8,7 @@ import { clinicHourNow, deliverClinicNotification, readAlertPreferences } from "
 import { getAiCreditLimit } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import { sendDueCallReminders, sendMissedCalls } from "@/lib/alerts/callReminderSweep";
+import { attendanceAlertsDue, type RosterRow } from "@/lib/alerts/attendanceAlerts";
 
 /**
  * The alerts that nobody's click raises: they are true for a while before anyone notices.
@@ -41,11 +42,6 @@ function clinicMinutesNow(now: Date): number {
   return (get("hour") % 24) * 60 + get("minute");
 }
 
-function hhmmToMinutes(v: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})/.exec(v);
-  if (!m) return null;
-  return Number(m[1]) * 60 + Number(m[2]);
-}
 
 /** Claim a marker; false when this subject was already alerted. */
 async function once(clinicId: string, key: string): Promise<boolean> {
@@ -97,12 +93,10 @@ async function waitingPatients(clinicId: string, prefs: AlertPreferences, today:
   }
 }
 
-type StaffRow = { uid: string; name: string; start: string | null };
-
-async function rosteredToday(clinicId: string, today: string): Promise<StaffRow[]> {
+async function rosteredToday(clinicId: string, today: string): Promise<RosterRow[]> {
   const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
   const snap = await adminClinicCollection(clinicId, "staff").get();
-  const rows: StaffRow[] = [];
+  const rows: RosterRow[] = [];
   for (const doc of snap.docs) {
     const d = doc.data() || {};
     const uid = str(d.uid);
@@ -131,29 +125,18 @@ async function staffAttendance(clinicId: string, prefs: AlertPreferences, today:
   const roster = await rosteredToday(clinicId, today);
   if (roster.length === 0) return;
   const punched = await punchedToday(clinicId, today);
-  const minutesNow = clinicMinutesNow(now);
-  const hourNow = clinicHourNow(now);
-
-  if (late) {
-    const grace = notifyTiming("staffLate", "minutes", prefs);
-    for (const s of roster) {
-      if (punched.has(s.uid) || !s.start) continue;
-      const startMin = hhmmToMinutes(s.start);
-      if (startMin === null || minutesNow < startMin + grace) continue;
-      // Past the absent hour this is the other alert's business.
-      if (absent && hourNow >= notifyTiming("staffAbsent", "hour", prefs)) continue;
-      if (!(await once(clinicId, `staffLate_${s.uid}_${today}`))) continue;
-      await raise(clinicId, "staffLate", `⏰ ${s.name} has not clocked in`, `Shift started ${s.start} · ${minutesNow - startMin} min ago`, { screen: "settings" });
-      out.push(`staffLate:${s.uid}`);
-    }
-  }
-  if (absent && hourNow >= notifyTiming("staffAbsent", "hour", prefs)) {
-    for (const s of roster) {
-      if (punched.has(s.uid)) continue;
-      if (!(await once(clinicId, `staffAbsent_${s.uid}_${today}`))) continue;
-      await raise(clinicId, "staffAbsent", `🚫 ${s.name} is absent today`, `Rostered${s.start ? ` from ${s.start}` : ""}, no clock-in by ${String(notifyTiming("staffAbsent", "hour", prefs)).padStart(2, "0")}:00`, { screen: "settings" });
-      out.push(`staffAbsent:${s.uid}`);
-    }
+  // Each person measured from their own shift start — see attendanceAlerts.ts.
+  const due = attendanceAlertsDue({
+    roster,
+    punched,
+    minutesNow: clinicMinutesNow(now),
+    late: { on: late, graceMinutes: notifyTiming("staffLate", "minutes", prefs) },
+    absent: { on: absent, hours: notifyTiming("staffAbsent", "hours", prefs) },
+  });
+  for (const a of due) {
+    if (!(await once(clinicId, `${a.event}_${a.uid}_${today}`))) continue;
+    await raise(clinicId, a.event, a.title, a.body, { screen: "settings" });
+    out.push(`${a.event}:${a.uid}`);
   }
 }
 

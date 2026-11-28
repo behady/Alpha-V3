@@ -198,6 +198,10 @@ function asNumber(v: unknown): number | null {
   return Number(cleaned);
 }
 
+/** A column header naming the price, and one naming the row number. */
+const PRICE_HEADER = /سعر|تكلف|قيم|تعريف|price|cost|fee|tariff|amount/i;
+const SERIAL_HEADER = /^(م|#|مسلسل|رقم|no\.?|s\/?n|sr\.?|serial)$/i;
+
 function asText(v: unknown): string {
   return typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
 }
@@ -212,10 +216,19 @@ function asText(v: unknown): string {
 export function parsePriceSheet(rows: readonly (readonly unknown[])[]): ImportedItem[] {
   const out: ImportedItem[] = [];
   let section = "";
+  // Many sheets number their rows ("م | الخدمة | السعر"). The column header names the price column;
+  // without one, a row carrying two numbers has its serial first and its price after it.
+  let priceCol = -1;
+  let serialCol = -1;
   rows.forEach((cells, index) => {
     const numbers = cells.map(asNumber);
     const texts = cells.map(asText);
-    const priceAt = numbers.findIndex((n) => n !== null && n > 0);
+    const positive = numbers.map((n, i) => (n !== null && n > 0 && i !== serialCol ? i : -1)).filter((i) => i >= 0);
+    const priceAt =
+      priceCol >= 0 && positive.includes(priceCol) ? priceCol
+      : positive.length > 1 ? positive[positive.length - 1]
+      : positive.length === 1 ? positive[0]
+      : -1;
     const nameAt = texts.findIndex((t, i) => i !== priceAt && t !== "" && asNumber(t) === null);
     if (priceAt >= 0 && nameAt >= 0) {
       const rawName = texts[nameAt];
@@ -233,6 +246,12 @@ export function parsePriceSheet(rows: readonly (readonly unknown[])[]): Imported
       // A column header ("التكلفة | نوع الخدمة") has text in two cells; a heading has it in one.
       const textCells = texts.filter((t) => t !== "").length;
       if (textCells === 1) section = heading;
+      else {
+        const price = texts.findIndex((t) => PRICE_HEADER.test(t));
+        const serial = texts.findIndex((t) => SERIAL_HEADER.test(t));
+        if (price >= 0) priceCol = price;
+        if (serial >= 0 && serial !== price) serialCol = serial;
+      }
     }
   });
   // A title above the first heading only ever names items that come before any heading; the

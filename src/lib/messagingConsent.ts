@@ -3,6 +3,7 @@ import { conversationKey } from "@/lib/bot/conversation";
 import { isWhatsAppBlocked } from "@/lib/patientMessaging";
 import { phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
 import { normalizeToInternationalDigits } from "@/lib/whatsapp";
+import { isHiddenSender } from "@/lib/waUserId";
 
 /**
  * "May the clinic message this number?" — asked once, in one place, for every automated sender.
@@ -40,8 +41,9 @@ export async function whatsappOptOutReason(
 ): Promise<OptOutReason | null> {
   const raw = String(phone || "").trim();
   if (!raw) return null;
-  // A lid has no digits worth looking up under; only the conversation flag can know about it.
-  const isLid = /@lid$/i.test(raw);
+  // A hidden sender (gateway lid, Meta user id) has no digits worth looking up under; only the
+  // conversation flag can know about it.
+  const isLid = isHiddenSender(raw);
   const digits = isLid ? "" : normalizeToInternationalDigits(raw) || raw.replace(/\D/g, "");
 
   try {

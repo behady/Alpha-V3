@@ -318,3 +318,81 @@ export function shiftOvertimeMinutes(
   );
   return Math.max(0, worked - overlap);
 }
+
+/**
+ * The price of one hour for a person on a fixed salary: the monthly salary over the hours their
+ * roster asks for in a month (a week's hours × 52 ÷ 12). Exactly the figure `buildHrSection` pays
+ * by; 0 when there is no salary or no roster, never a division by zero.
+ */
+export function hourlyRateFor(baseSalary: number, schedule: StaffRecord["schedule"]): number {
+  const weekly = schedule
+    ? Object.values(schedule).reduce(
+        (sum, day) => (day.active ? sum + Math.max(0, timeToMinutes(day.end) - timeToMinutes(day.start)) : sum),
+        0
+      )
+    : 0;
+  const monthlyHours = (weekly * 52) / (12 * 60);
+  return monthlyHours > 0 && baseSalary > 0 ? baseSalary / monthlyHours : 0;
+}
+
+/**
+ * ONE shift, split the way `buildHrSection` splits it when it works out the wage: the minutes worked
+ * (a shift still running today counts up to now; one left open on a past day counts what is stored,
+ * usually nothing), the part inside the roster (paid at the hour price), and the rest (extra time,
+ * paid only once approved).
+ *
+ * The team page's clock-in sheet shows a day's pay beside every shift with this, and a test holds
+ * the sum of those days to the engine's estimated pay, so the sheet and the "Owed" figure above it
+ * cannot drift apart.
+ */
+export function shiftPaySplit(
+  punch: Pick<PunchRecord, "date" | "checkIn" | "checkOut" | "durationMinutes" | "status">,
+  schedule: StaffRecord["schedule"],
+  timeZone: string,
+  now: { today: string; nowMinutes: number },
+): { worked: number; regular: number; overtime: number } {
+  if (!punch.checkIn) return { worked: 0, regular: 0, overtime: 0 };
+  const inMinutes = minutesInZone(punch.checkIn, timeZone);
+  const worked =
+    punch.status === "active" && punch.date === now.today ? Math.max(0, now.nowMinutes - inMinutes) : punch.durationMinutes;
+  const dayConfig = schedule?.[weekdayOf(punch.date)];
+  if (!dayConfig || !dayConfig.active) return { worked, regular: 0, overtime: worked };
+  let outMinutes = punch.checkOut ? minutesInZone(punch.checkOut, timeZone) : inMinutes + worked;
+  if (outMinutes < inMinutes) outMinutes += 24 * 60;
+  const overlap = Math.max(
+    0,
+    Math.min(timeToMinutes(dayConfig.end), outMinutes) - Math.max(timeToMinutes(dayConfig.start), inMinutes),
+  );
+  return { worked, regular: overlap, overtime: Math.max(0, worked - overlap) };
+}
+
+/**
+ * How late a rostered day began, judged on its FIRST clock-in, as `buildHrSection` judges it: the
+ * minutes past the roster's start, or 0 within the five-minute grace or on a day off.
+ */
+export function dayLateMinutes(
+  firstCheckIn: Date,
+  date: string,
+  schedule: StaffRecord["schedule"],
+  timeZone: string,
+): number {
+  const dayConfig = schedule?.[weekdayOf(date)];
+  if (!dayConfig?.active) return 0;
+  const late = minutesInZone(firstCheckIn, timeZone) - timeToMinutes(dayConfig.start);
+  return late > LATE_GRACE_MINUTES ? late : 0;
+}
+
+/**
+ * Whether a rostered day with no clock-in counts as missed, by the engine's rule: a day that is
+ * over, or today once the shift is half an hour old. A day off is never missed.
+ */
+export function dayCountsAbsent(
+  date: string,
+  schedule: StaffRecord["schedule"],
+  now: { today: string; nowMinutes: number },
+): boolean {
+  const dayConfig = schedule?.[weekdayOf(date)];
+  if (!dayConfig?.active || date > now.today) return false;
+  if (date < now.today) return true;
+  return now.nowMinutes > timeToMinutes(dayConfig.start) + ABSENT_GRACE_MINUTES;
+}

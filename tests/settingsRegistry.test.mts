@@ -979,7 +979,9 @@ const CONVERTED = [
   "src/components/settings/AttendanceSettings.tsx",
   "src/components/settings/AppearanceSettings.tsx",
   "src/components/settings/RecentlyDeleted.tsx",
-  "src/components/settings/hosts/UsersHost.tsx",
+  // The invite form, and its labels with it, moved out of hosts/UsersHost.tsx into the modal the
+  // Team page shares. The host now renders no text of its own.
+  "src/components/settings/AddUserModal.tsx",
 ];
 for (const file of CONVERTED) {
   const text = stripComments(readFileSync(join(REPO, file), "utf8"));

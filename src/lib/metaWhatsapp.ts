@@ -1,5 +1,6 @@
 import { adminDb } from "@/lib/firebaseAdmin";
 import { CLINIC_SECRETS_COLLECTION } from "@/types/wapilot";
+import { metaRecipient } from "@/lib/waUserId";
 
 /**
  * The official WhatsApp Cloud API, per clinic.
@@ -123,8 +124,8 @@ export interface MetaSendResult {
 /**
  * Send a plain text message through the Cloud API.
  *
- * `to` is a real phone number in international digits — the official API has no `@lid` to contend
- * with. A message outside the 24-hour service window will be rejected by Meta unless it is a
+ * `to` is a phone number in international digits, or — for a sender whose number WhatsApp hid —
+ * Meta's user id, which goes out as `recipient` instead (see lib/waUserId). A message outside the 24-hour service window will be rejected by Meta unless it is a
  * template; that policy lives with the caller, which knows whether it is answering the patient
  * (free-form, in-window) or starting a conversation (must be a template).
  */
@@ -154,8 +155,8 @@ export async function sendMetaWhatsappText(args: {
   to: string;
   text: string;
 }): Promise<MetaSendResult> {
-  const digits = String(args.to || "").replace(/\D/g, "");
-  if (!digits) return { ok: false, error: "invalid_phone" };
+  const address = metaRecipient(args.to);
+  if (!address) return { ok: false, error: "invalid_phone" };
 
   try {
     const res = await fetch(`${GRAPH}/${args.config.phoneNumberId}/messages`, {
@@ -167,7 +168,7 @@ export async function sendMetaWhatsappText(args: {
       body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: digits,
+        ...address,
         type: "text",
         text: { preview_url: false, body: args.text },
       }),
@@ -202,8 +203,8 @@ export async function sendMetaWhatsappMedia(args: {
   /** Documents only: the name the patient sees and saves. */
   filename?: string;
 }): Promise<MetaSendResult> {
-  const digits = String(args.to || "").replace(/\D/g, "");
-  if (!digits) return { ok: false, error: "invalid_phone" };
+  const address = metaRecipient(args.to);
+  if (!address) return { ok: false, error: "invalid_phone" };
 
   const media: Record<string, string> = { link: args.link };
   // Audio takes no caption on WhatsApp; the API rejects one rather than ignoring it.
@@ -220,7 +221,7 @@ export async function sendMetaWhatsappMedia(args: {
       body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: digits,
+        ...address,
         type: args.kind,
         [args.kind]: media,
       }),
@@ -268,8 +269,8 @@ export async function sendMetaWhatsappInteractive(args: {
   to: string;
   message: MetaInteractive;
 }): Promise<MetaSendResult> {
-  const digits = String(args.to || "").replace(/\D/g, "");
-  if (!digits) return { ok: false, error: "invalid_phone" };
+  const address = metaRecipient(args.to);
+  if (!address) return { ok: false, error: "invalid_phone" };
   const { body, buttons, list } = args.message;
 
   // WhatsApp rejects over-length parts with an opaque 400; trim here so a long clinic name can
@@ -319,7 +320,7 @@ export async function sendMetaWhatsappInteractive(args: {
       body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: digits,
+        ...address,
         type: "interactive",
         interactive,
       }),
@@ -379,8 +380,8 @@ export async function sendMetaTemplate(args: {
   templateName: string;
   params: string[];
 }): Promise<MetaSendResult> {
-  const digits = String(args.to || "").replace(/\D/g, "");
-  if (!digits) return { ok: false, error: "invalid_phone" };
+  const address = metaRecipient(args.to);
+  if (!address) return { ok: false, error: "invalid_phone" };
 
   try {
     const res = await fetch(`${GRAPH}/${args.config.phoneNumberId}/messages`, {
@@ -391,7 +392,7 @@ export async function sendMetaTemplate(args: {
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
-        to: digits,
+        ...address,
         type: "template",
         template: {
           name: args.templateName,

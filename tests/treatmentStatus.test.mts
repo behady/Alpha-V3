@@ -15,11 +15,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   NO_TREATMENT_FILTERS,
+  applyStatePicks,
   buildTreatmentStatus,
+  picksAfterReload,
   dentistOptions,
   filterTreatments,
   inheritBranch,
   nextVisits,
+  payerOptions,
   treatmentLabel,
 } from "../src/lib/reports/treatmentStatus";
 
@@ -151,5 +154,48 @@ const reportsPage = readFileSync(join(REPO, "src/app/(dashboard)/reports/page.ts
 ok(/\{addressReady \? <ReportsPage \/> : null\}/.test(reportsPage), "the Reports page reads its address after an in-app link has landed");
 const numbersCard = readFileSync(join(REPO, "src/components/dashboard/TreatmentNumbersCard.tsx"), "utf8");
 ok(/report=treatments&preset=\$\{preset\}/.test(numbersCard), "and the home's numbers name the report and the period they were counted over");
+
+// --- who pays ---------------------------------------------------------------------------------------
+{
+  const notes = [
+    { id: "q1", patientId: "p1", procedures: ["Crown"], status: "Ongoing", date: "2026-11-04", cost: 2000, payerId: "metlife", payerName: "MetLife", claimId: "c1" },
+    { id: "q2", patientId: "p2", procedures: ["Filling"], status: "Planned", date: "2026-11-05", cost: 400, payerId: "gasco", payerName: "GASCO" },
+    { id: "q3", patientId: "p3", procedures: ["Scaling"], status: "Planned", date: "2026-11-06", cost: 300, payerId: "private", payerName: "Private" },
+    { id: "q4", patientId: "p3", procedures: ["Old"], status: "Planned", date: "2026-11-07", cost: 100 },
+    // A continuation carries no charge and no payer: the first card's payer still shows.
+    { id: "q1b", patientId: "p1", procedures: ["Crown"], status: "Ongoing", date: "2026-11-09", cost: 0, continuedFromNoteId: "q1", isContinued: true },
+  ];
+  const payer = (id: string) => buildTreatmentStatus(notes, PATIENTS, [], NOVEMBER, TODAY).lines.find((l) => l.id === id)?.payerName;
+  eq(payer("q1"), "MetLife", "an insurance approval's treatment names its insurer, even after it is continued");
+  eq(payer("q2"), "GASCO", "a company's treatment names the company");
+  eq(payer("q3"), "", "private work carries no label");
+  eq(payer("q4"), "", "nor does a card from before payers existed");
+
+  // The payer filter.
+  const lines = buildTreatmentStatus(notes, PATIENTS, [], NOVEMBER, TODAY).lines;
+  const ids = (payerId: string) => filterTreatments(lines, { ...NO_TREATMENT_FILTERS, payerId }).map((l) => l.id).sort();
+  eq(ids(""), ["q1", "q2", "q3", "q4"], "no payer picked shows everything");
+  eq(ids("gasco"), ["q2"], "a company shows its own work only");
+  eq(ids("metlife"), ["q1"], "an insurer shows its own, the continued treatment once");
+  eq(ids("private"), ["q3", "q4"], "private is what carries no payer, old cards included");
+  eq(payerOptions(lines).map((o) => o.value), ["private", "gasco", "metlife"], "the dropdown lists private first, then each payer by name");
+  eq(payerOptions(lines.filter((l) => !l.payerId)).map((o) => o.value), ["private"], "a list of private work alone has no payer to offer");
+}
+
+// --- a state picked on the dropdown, before the page reads again ------------------------------------
+{
+  const card = (status: string, extra: Record<string, unknown> = {}) => [{ id: "k1", patientId: "p1", procedures: ["Crown"], status, date: "2026-11-04", cost: 900, ...extra }];
+  const pick = (to: "Planned" | "Ongoing" | "Completed", from: string, fresh = false) => ({ k1: { to, from, fresh } });
+  const shown = (notes: ReturnType<typeof card>, picks: ReturnType<typeof pick>) => applyStatePicks(notes, picks, TODAY)[0] as Record<string, unknown>;
+
+  eq(shown(card("Ongoing"), pick("Completed", "Ongoing")).status, "Completed", "a saved pick shows at once");
+  eq(shown(card("Ongoing"), pick("Completed", "Ongoing")).completedDate, TODAY, "finishing stamps today, as the server does");
+  ok(!("completedDate" in shown(card("Completed", { completedDate: "2026-11-05" }), pick("Ongoing", "Completed"))), "reopening clears the finish day");
+  eq(shown(card("Completed", { completedDate: "2026-11-09" }), pick("Completed", "Ongoing")).completedDate, "2026-11-09", "data that has caught up is shown as it is");
+  eq(shown(card("Planned"), pick("Completed", "Ongoing")).status, "Planned", "a card somebody else changed since shows their state, not the old pick");
+  const untouched = card("Ongoing");
+  ok(applyStatePicks(untouched, {}, TODAY) === untouched, "with no picks the page's data is passed through as it is");
+  eq(Object.keys(picksAfterReload({ a: { to: "Planned", from: "Ongoing", fresh: true }, b: { to: "Planned", from: "Ongoing", fresh: false } })), ["a"], "a reload keeps only the picks saved moments ago");
+}
 
 console.log(`treatment status: ${checks} checks passed`);

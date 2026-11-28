@@ -31,6 +31,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
 import { cardIdentifiesPatient, checkApproval, linesHaveTeeth } from "@/lib/insurance/formats";
+import { foldToothDigits } from "@/lib/insurance/nextcare";
 import { DEFAULT_NEXTCARE_WORDING } from "@/lib/insuranceStatementNextcare";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
@@ -62,7 +63,7 @@ function round2(n: number): number {
 /** "44, 46" as typed → ["44", "46"]: two-digit codes only, each once. A half-typed "4" waits. */
 function parseTeeth(typed: string): string[] {
   const out: string[] = [];
-  for (const t of typed.split(/[^0-9]+/)) if (/^\d{2}$/.test(t) && !out.includes(t)) out.push(t);
+  for (const t of foldToothDigits(typed).split(/[^0-9]+/)) if (/^\d{2}$/.test(t) && !out.includes(t)) out.push(t);
   return out;
 }
 

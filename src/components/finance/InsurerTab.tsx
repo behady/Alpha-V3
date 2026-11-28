@@ -40,7 +40,8 @@ import { insurerRows, insurerTotals, treatmentHasDentist, type InsurerRow, type 
 import { MoneyApiError } from "@/lib/moneyApi";
 import { buildInsuranceStatement, type StatementRowLite } from "@/lib/insuranceStatement";
 import { useStatementHeader } from "@/lib/insuranceStatementHeader";
-import { companyStatement, type SheetCharge } from "@/lib/insurance/companySheet";
+import { buildCompanySheets, companyStatement, scopeSheets, type SheetCharge } from "@/lib/insurance/companySheet";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { useCompanySheet } from "@/components/insurance/useCompanySheet";
 import CompanySheetPanel from "@/components/insurance/CompanySheetPanel";
 import { tr } from "@/components/insurance/text";
@@ -83,7 +84,7 @@ export default function InsurerTab({
   collectClaim: (claimId: string, branchId: string | null) => Promise<string | null>;
   /** The page's period, for the Excel statement; absent = no statement for this company (approval insurers). */
   statementPeriod?: { start: string; end: string };
-  /** Show the monthly sheet (who prints, the switch, Mark as sent) above the figures. The Insurance page sets it; Finance does not. */
+  /** Show the monthly sheet (patients, their procedures, Mark as sent) INSTEAD of the money account. The Insurance page sets it; Finance does not. */
   sheetPanel?: boolean;
 }) {
   const { language } = useLanguage();
@@ -230,11 +231,17 @@ export default function InsurerTab({
       keep: (c) => rowInScope(c as Record<string, unknown>, scopeBranchId),
     });
   }, [statementPeriod, useBacklog, charges, inputs, payerId, payerName, scopeBranchId]);
-  // Mark as sent freezes the whole company month, so the panel judges it on every branch's sheet.
-  const allBranchSheets = useMemo(() => {
-    if (!built || !statementPeriod || !inputs || !useBacklog || scopeBranchId === "") return null;
-    return companyStatement({ ...inputs, payerId, payerName, range: statementPeriod, memberNumbers: new Map() }).sheets;
-  }, [built, statementPeriod, inputs, useBacklog, scopeBranchId, payerId, payerName]);
+  // The patient list walks from the start month through today or the end of the dates, whichever is
+  // later, so a patient finished after the dates still shows where he goes. Mark as sent freezes the
+  // whole company month, so it is judged on every branch's walk; the list shows the branch on screen.
+  const walks = useMemo(() => {
+    if (!sheetPanel || !statementPeriod || !inputs || !useBacklog) return null;
+    const today = ymdInTimeZone(clinicTimeZone()).slice(0, 7);
+    const end = statementPeriod.end.slice(0, 7);
+    const all = buildCompanySheets({ ...inputs, payerId, through: end > today ? end : today });
+    const keep = (c: SheetCharge) => rowInScope(c as Record<string, unknown>, scopeBranchId);
+    return { all, scoped: scopeBranchId === "" ? all : scopeSheets(all, keep), charges: inputs.charges.filter(keep) };
+  }, [sheetPanel, statementPeriod, inputs, useBacklog, payerId, scopeBranchId]);
   const statement = built?.statement ?? null;
   const sheetFailedText = sheetFailed && useBacklog && statementPeriod ? tr(ar)("sheetLoadFailed") : "";
   const exportStatement = async () => {
@@ -386,19 +393,37 @@ export default function InsurerTab({
     { label: ar ? "المتبقي" : "Outstanding", value: totals.outstanding, tone: "text-white" },
   ];
 
+  if (sheetPanel) {
+    return (
+      <div className="flex flex-col gap-5">
+        {statementPeriod && walks && inputs && clinicId ? (
+          <CompanySheetPanel
+            clinicId={clinicId}
+            payerId={payerId}
+            payerName={payerName}
+            range={statementPeriod}
+            charges={walks.charges}
+            walked={walks.scoped}
+            allBranchWalked={walks.all}
+            inputs={inputs}
+            scoped={scopeBranchId !== ""}
+            onExcel={() => void exportStatement()}
+            exporting={exporting}
+            excelReady={!loading && !!statement && statement.cases.length > 0}
+          />
+        ) : sheetFailedText ? (
+          <p className="text-sm text-ink-muted">{sheetFailedText}</p>
+        ) : (
+          <div className="flex justify-center py-16">
+            <Loader2 className="animate-spin text-ink-muted" size={22} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {sheetPanel && statementPeriod && built && clinicId && (
-        <CompanySheetPanel
-          clinicId={clinicId}
-          payerId={payerId}
-          payerName={payerName}
-          sheets={built.sheets}
-          allBranchSheets={allBranchSheets ?? undefined}
-          scoped={scopeBranchId !== ""}
-        />
-      )}
-      {sheetPanel && sheetFailedText && <p className="text-sm text-ink-muted">{sheetFailedText}</p>}
 
       {/* The company's account, on the slab: four figures, the debt last. */}
       <div className="rounded-2xl xl:rounded-3xl bg-ink-slab text-white p-5 xl:p-7 border border-slate-800">

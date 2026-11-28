@@ -14,6 +14,7 @@ import {
   billingFields,
   billingFieldsToStore,
   claimFinishedDate,
+  claimSheetMonth,
   claimWorkMonths,
   inSheetRange,
   isLineRemoved,
@@ -256,5 +257,56 @@ assert.equal(billingFieldsToStore(claim({ finishedDate: "2026-10-20", workMonths
 assert.equal(billingFieldsToStore(approved), null, "not treated: nothing to store");
 assert.deepEqual(billingFieldsToStore(open), { finishedDate: null, workMonths: ["2026-10"] }, "still open: its work months, no finish day");
 assert.deepEqual(billingFieldsToStore(claim({ finishedDate: "2026-09-01", workMonths: ["2026-09"] })), { finishedDate: "2026-10-20", workMonths: ["2026-10"] }, "a stale stored value is corrected");
+
+// --- the month the clinic picks for an approval's closing sheet ------------------------------------------
+// The whole approval moves, and only when the page lists "by finish date".
+{
+  const finishedNov = claim({ lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-05" } });
+  assert.equal(claimSheetMonth(finishedNov), "2026-11", "no pick: the month it was finished");
+  assert.equal(claim().sheetMonth, null, "an approval saved before the pick existed has none");
+  assert.equal(claim({ sheetMonth: "2026-13" }).sheetMonth, null, "a month that is not a month is not a pick");
+
+  const moved = claim({ lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-05" }, sheetMonth: "2026-12" });
+  assert.equal(claimSheetMonth(moved), "2026-12", "the pick wins over the finish month");
+  assert.equal(claimFinishedDate(moved), "2026-11-05", "and the finish day itself is untouched");
+  assert.equal(inSheetRange(moved, "finish", "2026-11-01", "2026-11-30"), false, "by finish date it leaves November's sheet");
+  assert.equal(inSheetRange(moved, "finish", "2026-12-01", "2026-12-31"), true, "and is on December's");
+  assert.equal(inSheetRange(moved, "finish", "2026-12-10", "2026-12-12"), true, "a part of the month is still that month");
+  assert.equal(inSheetRange(moved, "finish", "2026-10-01", "2027-01-31"), true, "a range that spans the picked month holds it");
+  assert.equal(inSheetRange(moved, "approval", "2026-10-01", "2026-10-31"), true, "by approval date the pick changes nothing");
+  assert.equal(inSheetRange(moved, "approval", "2026-12-01", "2026-12-31"), false);
+
+  // Placed before all of it is done: the whole approval goes on the picked month.
+  const openPicked = claim({ lineStatus: { 2: "Planned" }, sheetMonth: "2026-11" });
+  assert.equal(claimFinishedDate(openPicked), null);
+  assert.equal(claimSheetMonth(openPicked), "2026-11");
+  assert.equal(inSheetRange(openPicked, "finish", "2026-11-01", "2026-11-30"), true);
+  assert.equal(claimSheetMonth(claim({ lineStatus: { 2: "Planned" } })), null, "open and not placed: on no sheet");
+
+  // Not treated yet: nothing of it is billed, pick or no pick.
+  const notTreated = claim({ status: "approved", treatedDate: null, sheetMonth: "2026-11" });
+  assert.equal(claimSheetMonth(notTreated), null);
+  assert.equal(inSheetRange(notTreated, "finish", "2026-11-01", "2026-11-30"), false);
+
+  // The statements read the same rule.
+  const wording = { D1: "x", D2: "y", D3: "z" };
+  const dec = buildMetlifeStatement({ claims: [moved], from: "2026-12-01", to: "2026-12-31", wording, mode: "finish" });
+  const nov = buildMetlifeStatement({ claims: [moved], from: "2026-11-01", to: "2026-11-30", wording, mode: "finish" });
+  assert.equal(dec.cases.length, 1, "MetLife's December sheet prints the moved approval");
+  assert.equal(nov.cases.length, 0, "and November's does not");
+  assert.equal(buildMetlifeStatement({ claims: [moved], from: "2026-10-01", to: "2026-10-31", wording }).cases.length, 1, "by approval date (the default) it stays on October's");
+  const nc = (from: string, to: string) =>
+    buildNextcareStatement({ claims: [{ ...moved, payerId: "nextcare", insurer: "nextcare" as const }], payerId: "nextcare", payerName: "NextCare", from, to, wording, mode: "finish" });
+  assert.equal(nc("2026-12-01", "2026-12-31").cases.length, 1, "NextCare's December sheet prints it too");
+  assert.equal(nc("2026-11-01", "2026-11-30").cases.length, 0);
+
+  // A sent approval's month is locked: nothing may move it, the pick included.
+  const sentNov = claim({ status: "sent", lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-05" } });
+  assert.equal(movesSentMonth(sentNov, { ...sentNov, sheetMonth: "2026-12" }), true, "picking another month would move a sent approval");
+  assert.equal(movesSentMonth(sentNov, { ...sentNov, sheetMonth: "2026-11" }), false, "picking the month it is already on moves nothing");
+  const sentPicked = claim({ status: "sent", lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-05" }, sheetMonth: "2026-12" });
+  assert.equal(movesSentMonth(sentPicked, { ...sentPicked, lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-20" } }), false, "a picked approval stays put when a service is re-dated");
+  assert.equal(movesSentMonth(sentPicked, { ...sentPicked, sheetMonth: null }), true, "taking the pick off would move it back");
+}
 
 console.log("insuranceBillingMonth: all checks passed");

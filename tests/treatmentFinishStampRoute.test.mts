@@ -168,6 +168,30 @@ const contNote = await noteOf(String(cont.json.noteId));
 check("the continuation is in progress, with no finish day", cont.status === 200 && contNote.status === "Ongoing" && !("completedDate" in contNote), contNote);
 check("and the first card keeps its own", (await noteOf(done.json.noteId)).completedDate === OLD_DAY);
 
+console.log("\nThe report's dropdown: state only");
+await col("appointments").doc("A3").set({ patientId: "P1", patientName: "Mona Adel", date: OLD_DAY, time: "06:00 PM", status: "Confirmed", services: [] });
+const dd = await call("create", crown({ appointmentId: "A3", unitCost: 1200, discountMode: "amount", discountValue: 200 }));
+const ddId = String(dd.json.noteId);
+const ddBefore = await noteOf(ddId);
+const ledgerBefore = (await col("ledger").doc(String(dd.json.ledgerId)).get()).data() || {};
+const toDone = await call("status", { noteId: ddId, status: "Completed" });
+const ddDone = await noteOf(ddId);
+check("Completed is accepted", toDone.status === 200 && toDone.json.ok === true, toDone);
+check("and stamps today as the finish day", ddDone.status === "Completed" && ddDone.completedDate === TODAY, ddDone);
+check("price, discount, dentist and date stay as they were",
+  ddDone.cost === ddBefore.cost && ddDone.discountAmount === ddBefore.discountAmount && ddDone.doctorId === "D1" && ddDone.date === OLD_DAY,
+  { before: ddBefore.cost, after: ddDone.cost });
+const ledgerAfter = (await col("ledger").doc(String(dd.json.ledgerId)).get()).data() || {};
+check("the charge is not touched", JSON.stringify(ledgerAfter) === JSON.stringify(ledgerBefore));
+const visit = (await col("appointments").doc("A3").get()).data() || {};
+check("the visit's list shows the new state", visit.services?.find((s: Json) => s.clinicalNoteId === ddId)?.status === "Completed", visit.services);
+const back = await call("status", { noteId: ddId, status: "Planned" });
+check("reopening clears the finish day", back.status === 200 && (await noteOf(ddId)).status === "Planned" && !("completedDate" in (await noteOf(ddId))), await noteOf(ddId));
+const junk = await call("status", { noteId: ddId, status: "Paid" });
+check("a made-up state is refused", junk.status === 400, junk);
+const gone = await call("status", { noteId: "nope", status: "Completed" });
+check("a missing card answers 404", gone.status === 404, gone);
+
 await wipe();
 authServer.close();
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,16 +1,28 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Columns3, List, PhoneCall, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronDown, Columns3, List, PhoneCall, Search, ShieldCheck, X } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
+import { useUI } from "@/context/UIContext";
+import { setProcedureStatus } from "@/lib/moneyApi";
+import { onSnapshot } from "firebase/firestore";
+import { getClinicDoc } from "@/lib/db-utils";
+import { findPayer, parsePayers, type Payer } from "@/lib/payers";
 import { DataTable, Note, Num, PatientLink, Phone, fmt } from "@/components/reports/reportKit";
 import type { ReportProps } from "@/components/reports/types";
 import { dayText } from "@/lib/reportHelpers";
 import {
   NO_TREATMENT_FILTERS,
+  PRIVATE_FILTER,
   TREATMENT_STATES,
+  applyStatePicks,
   buildTreatmentStatus,
+  picksAfterReload,
+  type StatePick,
   dentistOptions,
   filterTreatments,
+  payerOptions,
   type TreatmentFilters,
   type TreatmentLine,
   type TreatmentState,
@@ -29,9 +41,10 @@ import {
  * everything. They always describe the period on screen and never move with the filters below,
  * so a figure read out loud means the same thing whoever is looking.
  *
- * The same rows can be read two ways — a list, or a board with one column per state. The board
- * only looks: a treatment's state is changed on its card in the patient's file, where its price
- * and its dentist are, not by dragging it here.
+ * The same rows can be read two ways — a list, or a board with one column per state. In the list
+ * the state is a dropdown: picking another one saves it to the treatment's card (state only — its
+ * price and dentist stay as they are), so the patient's file, the visit and the home numbers all
+ * read the new state. The board only looks.
  *
  * Every rule about which month a treatment belongs to is in lib/reports/treatmentStatus.
  */
@@ -40,6 +53,8 @@ type View = "list" | "board";
 const VIEW_KEY = "alpha.treatments.view";
 /** Cards drawn per board column before "Show more": a month of finished work is hundreds. */
 const BOARD_STEP = 20;
+/** How long a saved pick outlives a reload of the page's data (see StatePick). */
+const FRESH_MS = 5000;
 
 /** What the address bar asked for: the home's three numbers open this screen on one state. */
 function fromUrl(): { state: TreatmentState | ""; view: View | null } {
@@ -62,10 +77,60 @@ function rememberedView(): View {
 }
 
 export default function TreatmentStatusReport({ data, allPatients, range, today, isAr }: ReportProps) {
+  const { user } = useAuth();
+  const { isAdmin } = useClinic();
+  const canEdit = isAdmin || Boolean(user?.permissions?.includes("clinical.edit"));
+  // States changed on this screen, by card id: the page's data was read once, and the change should
+  // show at once without reading it all again. The server writes the same thing (route `status`).
+  // Kept with the data they were made on: once the page reads fresh data (Refresh, another period)
+  // that data is the truth, and an old pick must not paint over what somebody changed since. Only
+  // a pick saved moments ago outlives a reload — that read may have left before the write landed.
+  const [picks, setPicks] = useState<{ on: ReportProps["data"]["treatmentNotes"]; map: Record<string, StatePick> }>(() => ({ on: data.treatmentNotes, map: {} }));
+  if (picks.on !== data.treatmentNotes) setPicks({ on: data.treatmentNotes, map: picksAfterReload(picks.map) });
+  const [saving, setSaving] = useState<string | null>(null);
+  const { showToast, confirm } = useUI();
+  // The clinic's payer list names the insurer: some approval cards stored only its id.
+  const [payers, setPayers] = useState<Payer[]>([]);
+  useEffect(() => onSnapshot(getClinicDoc("settings", "payers"), (s) => setPayers(parsePayers(s.data())), () => setPayers([])), []);
+  const payerName = (l: TreatmentLine) => {
+    if (!l.payerId) return "";
+    const p = findPayer(payers, l.payerId);
+    return (p && (isAr && p.nameAr ? p.nameAr : p.name)) || l.payerName;
+  };
+  const notes = useMemo(() => applyStatePicks(data.treatmentNotes || [], picks.map, today), [data.treatmentNotes, picks.map, today]);
   const status = useMemo(
-    () => buildTreatmentStatus(data.treatmentNotes || [], allPatients, data.appointmentsAhead || [], range, today),
-    [data.treatmentNotes, data.appointmentsAhead, allPatients, range, today],
+    () => buildTreatmentStatus(notes, allPatients, data.appointmentsAhead || [], range, today),
+    [notes, data.appointmentsAhead, allPatients, range, today],
   );
+  const changeState = async (l: TreatmentLine, to: TreatmentState) => {
+    if (to === l.state || saving) return;
+    // Reopening finished work wipes the day it was finished; finishing it again stamps today, which
+    // can move it to another month (and an insurance service to another month's sheet). Ask first.
+    if (l.state === "Completed") {
+      const yes = await confirm(
+        isAr
+          ? `«${l.treatment}» لـ ${l.patientName} متسجّل إنه اتعمل. ترجّعه «${word(to)}»؟ تاريخ الانتهاء هيتمسح.`
+          : `"${l.treatment}" for ${l.patientName} is marked done. Move it back to "${word(to)}"? Its finish date will be cleared.`,
+        { title: isAr ? "ترجيع علاج خلصان" : "Reopen a finished treatment", confirmLabel: isAr ? "رجّعه" : "Reopen", cancelLabel: isAr ? "لا" : "No" },
+      );
+      if (!yes) return;
+    }
+    const id = l.stateNoteId;
+    setSaving(id);
+    try {
+      await setProcedureStatus(id, to);
+      // `from` is what the data on the page says for this card NOW — a reload may have landed while
+      // the save was on its way, and a second change of the same row starts from the same data.
+      setPicks((p) => ({ ...p, map: { ...p.map, [id]: { to, from: String(p.on?.find((n) => n.id === id)?.status ?? l.state), fresh: true } } }));
+      window.setTimeout(() => setPicks((p) => (p.map[id]?.to === to ? { ...p, map: { ...p.map, [id]: { ...p.map[id], fresh: false } } } : p)), FRESH_MS);
+      // Said out loud: with a tile pressed, the row leaves the list the moment it changes.
+      showToast(isAr ? `اتحفظ: ${l.treatment} — ${l.patientName} ← ${word(to)}` : `Saved: ${l.treatment} — ${l.patientName} → ${word(to)}`, "success");
+    } catch (e) {
+      showToast(e instanceof Error && e.message ? e.message : isAr ? "متحفظش. جرّب تاني." : "Not saved. Try again.", "error");
+    } finally {
+      setSaving(null);
+    }
+  };
   const [filters, setFilters] = useState<TreatmentFilters>(() => ({ ...NO_TREATMENT_FILTERS, state: fromUrl().state }));
   const set = (patch: Partial<TreatmentFilters>) => setFilters((f) => ({ ...f, ...patch }));
   const [view, setViewState] = useState<View>(() => fromUrl().view || (typeof window === "undefined" ? "list" : rememberedView()));
@@ -80,7 +145,17 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
 
   const rows = useMemo(() => filterTreatments(status.lines, filters), [status.lines, filters]);
   const dentists = useMemo(() => dentistOptions(status.lines), [status.lines]);
-  const dirty = Boolean(filters.doctorId || filters.search || filters.unbookedOnly);
+  // Offered only when the list mixes payers: a clinic with private work alone has nothing to pick.
+  const payerChoices = useMemo(() => {
+    const options = payerOptions(status.lines);
+    if (!options.some((o) => o.value !== PRIVATE_FILTER)) return [];
+    return options.map((o) => {
+      if (o.value === PRIVATE_FILTER) return { ...o, label: isAr ? "خاص" : "Private" };
+      const p = findPayer(payers, o.value);
+      return { ...o, label: (p && (isAr && p.nameAr ? p.nameAr : p.name)) || o.label };
+    });
+  }, [status.lines, payers, isAr]);
+  const dirty = Boolean(filters.doctorId || filters.payerId || filters.search || filters.unbookedOnly);
 
   const word = (s: TreatmentState) =>
     isAr ? { Planned: "مخطط", Ongoing: "جاري", Completed: "اتعمل" }[s] : { Planned: "Planned", Ongoing: "In progress", Completed: "Done" }[s];
@@ -101,6 +176,14 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
       {tooth}
     </span>
   );
+  // Insurance and company work look like private work otherwise; the owner asked to tell them apart.
+  const payerChip = (name: string) =>
+    name ? (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line bg-surface-subtle px-1.5 py-0.5 text-[10.5px] font-black text-ink-body" title={isAr ? "مين بيدفع" : "Who pays"}>
+        <ShieldCheck size={11} className="text-ink-muted" />
+        {name}
+      </span>
+    ) : null;
   const olderChip = <span className="rounded-full bg-surface-muted px-1.5 py-0.5 text-[9.5px] font-black text-ink-body">{isAr ? "قديم" : "older"}</span>;
   const nextVisit = (l: TreatmentLine) =>
     l.state === "Completed" ? (
@@ -180,6 +263,22 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
           </select>
         )}
 
+        {payerChoices.length > 0 && (
+          <select
+            value={filters.payerId}
+            onChange={(e) => set({ payerId: e.target.value })}
+            aria-label={isAr ? "مين بيدفع" : "Payer"}
+            className={control}
+          >
+            <option value="">{isAr ? "كل الجهات" : "Every payer"}</option>
+            {payerChoices.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+
         <button
           type="button"
           aria-pressed={filters.unbookedOnly}
@@ -242,6 +341,7 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
               <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] font-medium text-ink-body">
                 <span>{l.treatment}</span>
                 {l.tooth && toothChip(l.tooth)}
+                {payerChip(payerName(l))}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11.5px] text-ink-faint">
                 <span className="inline-flex items-center gap-1.5">
@@ -281,23 +381,48 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
                 <span className="inline-flex flex-wrap items-center gap-1.5 text-[13px] font-medium text-ink-body">
                   <span>{l.treatment}</span>
                   {l.tooth && toothChip(l.tooth)}
+                  {payerChip(payerName(l))}
                 </span>
               ),
+            },
+            {
+              key: "payerName",
+              label: isAr ? "مين بيدفع" : "Payer",
+              // In the Excel file only: on screen the label sits next to the treatment.
+              exportOnly: true,
+              exportValue: (l) => payerName(l) || (isAr ? "خاص" : "Private"),
             },
             { key: "doctorName", label: isAr ? "الدكتور" : "Dentist", render: (l) => <span className="text-[13px] font-medium text-ink-body">{l.doctorName || "—"}</span> },
             {
               key: "state",
               label: isAr ? "الحالة" : "State",
               exportValue: (l) => word(l.state),
-              render: (l) => (
-                <span
-                  className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-black ${
-                    l.state === "Ongoing" ? "bg-ink-strong text-white" : l.state === "Planned" ? "bg-surface-muted text-ink" : "border border-line text-ink-muted"
-                  }`}
-                >
-                  {word(l.state)}
-                </span>
-              ),
+              render: (l) => {
+                const look =
+                  l.state === "Ongoing" ? "bg-ink-strong text-white border-ink-strong" : l.state === "Planned" ? "bg-surface-muted text-ink border-surface-muted" : "border-line text-ink-muted bg-surface";
+                if (!canEdit) {
+                  return <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px] font-black ${look}`}>{word(l.state)}</span>;
+                }
+                const busy = saving === l.stateNoteId;
+                return (
+                  <span className={`relative inline-flex items-center rounded-full border transition-opacity ${look} ${busy ? "opacity-50" : ""}`}>
+                    <select
+                      value={l.state}
+                      disabled={Boolean(saving)}
+                      onChange={(e) => changeState(l, e.target.value as TreatmentState)}
+                      aria-label={isAr ? `حالة ${l.treatment} — ${l.patientName}` : `State of ${l.treatment} — ${l.patientName}`}
+                      className="min-h-11 cursor-pointer appearance-none bg-transparent pe-8 ps-3.5 text-[11.5px] font-black text-inherit outline-none disabled:cursor-wait md:min-h-0 md:py-1 md:pe-6 md:ps-2.5"
+                    >
+                      {TREATMENT_STATES.map((s) => (
+                        <option key={s} value={s} className="bg-surface text-ink">
+                          {word(s)}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="pointer-events-none absolute end-3 md:end-2" />
+                  </span>
+                );
+              },
             },
             {
               key: "date",
@@ -322,8 +447,8 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
 
       <Note>
         {isAr
-          ? "«اتعمل» بيتحسب في الشهر اللي العلاج خلص فيه، حتى لو بدأ في شهر قبله. «مخطط» و«جاري» هما اللي لسه مفتوحين النهارده. العلاج اللي اتكمّل في زيارة تانية بيتحسب مرة واحدة. حالة العلاج بتتغير من كارت العلاج في ملف المريض."
-          : "Done counts in the month the treatment was finished, even if it began earlier. Planned and In progress are what is still open today. A treatment continued into a later visit counts once. A treatment's state is changed on its card in the patient's file."}
+          ? "«اتعمل» بيتحسب في الشهر اللي العلاج خلص فيه، حتى لو بدأ في شهر قبله. «مخطط» و«جاري» هما اللي لسه مفتوحين النهارده. العلاج اللي اتكمّل في زيارة تانية بيتحسب مرة واحدة. غيّر الحالة من القائمة هنا أو من كارت العلاج في ملف المريض، والاتنين بيتحفظوا في نفس المكان."
+          : "Done counts in the month the treatment was finished, even if it began earlier. Planned and In progress are what is still open today. A treatment continued into a later visit counts once. Change a state from the list here or on the treatment's card in the patient's file — both save to the same place."}
       </Note>
     </div>
   );

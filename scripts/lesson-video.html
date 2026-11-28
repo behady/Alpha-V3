@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Lesson video stage</title>
+<!--
+  The stage for make-lesson-video.mjs. setup(config) loads fonts and frames; render(t) draws the
+  film at second t and nothing else moves: no CSS animation, no timers, so frame N is always the
+  same picture.
+
+  Two layouts, because every lesson is made twice (mobile and PC):
+  - phone, 1080x1920: a dark band on top (which step, how many, progress), the phone screen at its
+    true size in the middle (1080x1500), a dark band below with one short instruction. A finger dot
+    does the pressing.
+  - pc, 1920x1080: the browser window on the left (1500x1080) and a dark side panel on the right
+    with the lesson's steps and the same short instruction. A mouse arrow does the clicking.
+  In both the screen is never zoomed or panned, and the ring is the teal ring of the in-app lessons.
+-->
+<style>
+  :root { --ink: #0F1014; --band: #111318; --soft: #1A1D24; --line: #2B2F38; --mute: #9AA1AD; --paper: #fff; --accent: #FACC15; --teal: #14B8A6; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+  body { font-family: "Cairo", sans-serif; color: var(--paper); direction: rtl; }
+  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+  .layer { position: absolute; inset: 0; }
+  .pill { display: inline-block; background: var(--accent); color: var(--ink); font-weight: 800; border-radius: 999px; white-space: nowrap; }
+
+  /* --- phone: band, screen, band --- */
+  #top { position: absolute; left: 0; right: 0; top: 0; height: 210px; background: var(--band); }
+  #num { position: absolute; right: 48px; top: 36px; width: 104px; height: 104px; border-radius: 50%; background: var(--accent); color: var(--ink);
+         font-weight: 900; font-size: 62px; line-height: 104px; text-align: center; }
+  #count { position: absolute; right: 176px; top: 30px; font-weight: 600; font-size: 30px; line-height: 40px; color: var(--mute); white-space: nowrap; }
+  #name { position: absolute; right: 176px; top: 72px; font-weight: 800; font-size: 50px; line-height: 70px; white-space: nowrap; }
+  #lessonTitle { position: absolute; left: 48px; top: 58px; border: 2px solid var(--line); border-radius: 999px; padding: 8px 24px; font-weight: 600; font-size: 26px; color: #C9CED6; white-space: nowrap; }
+  .segs { display: flex; gap: 12px; height: 10px; }
+  #segs { position: absolute; left: 48px; right: 48px; top: 172px; }
+  .seg { flex: 1; height: 10px; border-radius: 5px; background: var(--line); position: relative; overflow: hidden; }
+  .seg i { position: absolute; top: 0; bottom: 0; right: 0; width: 0; background: var(--accent); border-radius: 5px; }
+
+  #screen { position: absolute; left: 0; top: 210px; width: 1080px; height: 1500px; overflow: hidden; background: #F4F5F7; }
+  #screen img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; }
+  #ring, #ping, #look { position: absolute; border-radius: 30px; opacity: 0; pointer-events: none; }
+  #ring { border: 7px solid var(--teal); }
+  #ping { border: 5px solid var(--teal); }
+  #look { border: 6px solid var(--teal); }
+  #finger { position: absolute; width: 92px; height: 92px; border-radius: 50%; background: rgba(255,255,255,.5); border: 6px solid var(--ink);
+            box-shadow: 0 10px 28px rgba(0,0,0,.38); opacity: 0; }
+  #cursor { position: absolute; width: 54px; height: 54px; opacity: 0; filter: drop-shadow(0 4px 8px rgba(0,0,0,.4)); transform-origin: 6px 4px; }
+  #ripple { position: absolute; border-radius: 50%; background: rgba(20,184,166,.38); opacity: 0; }
+
+  #bottom { position: absolute; left: 0; right: 0; top: 1710px; height: 210px; background: var(--band); display: flex; align-items: center; justify-content: center; }
+  #cap { font-weight: 800; font-size: 60px; line-height: 1.3; white-space: nowrap; padding: 0 40px; }
+
+  #side { display: none; }
+
+  /* --- cards --- */
+  #card { background: radial-gradient(1200px 900px at 50% 38%, #1A1D25 0%, var(--ink) 70%); opacity: 0; }
+  #tQuestion { position: absolute; left: 90px; right: 90px; top: 720px; text-align: center; font-weight: 900; font-size: 98px; line-height: 1.38; }
+  #tLength { position: absolute; left: 0; right: 0; top: 1040px; text-align: center; font-weight: 600; font-size: 38px; color: var(--mute); }
+  .brand { position: absolute; left: 0; right: 0; top: 1770px; text-align: center; direction: ltr; font-family: "Montserrat", sans-serif; font-weight: 600; font-size: 28px; letter-spacing: .22em; color: #6B7280; }
+
+  #sHead { position: absolute; right: 90px; top: 230px; }
+  #sHead .pill { font-size: 36px; padding: 8px 36px; }
+  #sTitle { position: absolute; right: 90px; left: 90px; top: 322px; font-weight: 900; font-size: 76px; line-height: 1.3; }
+  #sRows { position: absolute; right: 90px; left: 90px; top: 500px; }
+  .row { position: relative; height: 138px; opacity: 0; }
+  .row b { position: absolute; right: 0; top: 20px; width: 88px; height: 88px; border-radius: 50%; border: 3px solid var(--line); font-weight: 800; font-size: 46px; line-height: 82px; text-align: center; }
+  .row span { position: absolute; right: 122px; top: 22px; font-weight: 700; font-size: 56px; line-height: 84px; white-space: nowrap; }
+  #sTip { position: absolute; left: 90px; right: 90px; top: 1250px; background: var(--soft); border: 2px solid var(--line); border-radius: 40px; padding: 40px 48px 48px; opacity: 0; }
+  #sTip .pill { font-size: 34px; padding: 6px 32px; }
+  #sTip p { margin-top: 24px; font-weight: 600; font-size: 46px; line-height: 1.6; }
+
+  /* --- pc: the window on the left, the steps on the right --- */
+  html.pc, .pc body, .pc #stage { width: 1920px; height: 1080px; }
+  .pc #top, .pc #bottom { display: none; }
+  .pc #screen { left: 0; top: 0; width: 1500px; height: 1080px; }
+  .pc #ring { border-width: 6px; } .pc #ping { border-width: 4px; } .pc #look { border-width: 5px; }
+  .pc #side { display: block; position: absolute; left: 1500px; top: 0; width: 420px; height: 1080px; background: var(--band); border-left: 2px solid var(--line); }
+  #sideLabel { position: absolute; right: 36px; top: 40px; font-weight: 600; font-size: 24px; line-height: 32px; color: var(--mute); }
+  #sideTitle { position: absolute; right: 36px; left: 36px; top: 72px; font-weight: 900; font-size: 46px; line-height: 64px; white-space: nowrap; }
+  #sideSegs { position: absolute; left: 36px; right: 36px; top: 162px; gap: 8px; }
+  #sideSteps { position: absolute; left: 20px; right: 20px; top: 204px; }
+  .st { position: relative; height: 92px; border-radius: 22px; }
+  .st b { position: absolute; right: 14px; top: 16px; width: 60px; height: 60px; border-radius: 50%; border: 3px solid var(--line); font-weight: 800; font-size: 32px; line-height: 54px; text-align: center; }
+  .st span { position: absolute; right: 90px; top: 16px; font-weight: 700; font-size: 29px; line-height: 60px; white-space: nowrap; }
+  #sideCapBox { position: absolute; left: 24px; right: 24px; bottom: 36px; height: 250px; background: var(--soft); border: 2px solid var(--line); border-radius: 30px; display: flex; align-items: center; justify-content: center; padding: 0 22px; }
+  #sideCap { font-weight: 800; font-size: 44px; line-height: 1.5; text-align: center; }
+  .pc #tQuestion { left: 220px; right: 220px; top: 330px; font-size: 100px; }
+  .pc #tLength { top: 660px; font-size: 38px; }
+  .pc .brand { top: 985px; }
+  .pc #sHead { right: 130px; top: 96px; }
+  .pc #sTitle { right: 130px; left: auto; top: 176px; font-size: 68px; white-space: nowrap; }
+  .pc #sRows { right: 130px; left: auto; width: 800px; top: 330px; }
+  .pc .row { height: 116px; }
+  .pc .row b { width: 78px; height: 78px; top: 16px; font-size: 40px; line-height: 72px; }
+  .pc .row span { right: 108px; top: 16px; font-size: 50px; line-height: 78px; }
+  .pc #sTip { left: 110px; right: auto; width: 800px; top: 390px; padding: 36px 44px 44px; }
+  .pc #sTip p { font-size: 42px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="layer" id="lesson">
+    <div id="top">
+      <div id="num"></div>
+      <div id="count"></div>
+      <div id="name"></div>
+      <div id="lessonTitle"></div>
+      <div id="segs" class="segs"></div>
+    </div>
+    <div id="screen">
+      <div id="look"></div>
+      <div id="ping"></div>
+      <div id="ring"></div>
+      <div id="ripple"></div>
+      <div id="finger"></div>
+      <svg id="cursor" viewBox="0 0 54 54"><path d="M6 4 L6 42 L16 33 L23 49 L30 46 L23 30 L37 30 Z" fill="#fff" stroke="#0F1014" stroke-width="3" stroke-linejoin="round"/></svg>
+    </div>
+    <div id="bottom"><div id="cap"></div></div>
+    <div id="side">
+      <div id="sideLabel">الدرس</div>
+      <div id="sideTitle"></div>
+      <div id="sideSegs" class="segs"></div>
+      <div id="sideSteps"></div>
+      <div id="sideCapBox"><div id="sideCap"></div></div>
+    </div>
+  </div>
+  <div class="layer" id="card">
+    <div id="titleCard">
+      <div id="tQuestion"></div>
+      <div id="tLength"></div>
+    </div>
+    <div id="sumCard">
+      <div id="sHead"><span class="pill">الخلاصة</span></div>
+      <div id="sTitle"></div>
+      <div id="sRows"></div>
+      <div id="sTip"><span class="pill">خلي بالك</span><p></p></div>
+    </div>
+    <div class="brand">ALPHA DENTAL</div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const ease = (p) => { p = clamp(p); return p * p * (3 - 2 * p); };
+const out = (p) => 1 - Math.pow(1 - clamp(p), 3);
+const arDigits = (n) => String(n).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[d]);
+/** How long before a tap shot ends the press lands (matches make-lesson-video.mjs). */
+const TAP_BEFORE_END = 0.55;
+/** What differs between the two layouts: the screen's size, and how big the ring's gestures are. */
+const GEOMETRY = {
+  phone: { w: 1080, h: 1500, radius: 34, grow: 6, pingGrow: 34, glow: 34, dim: 0.26 },
+  pc: { w: 1500, h: 1080, radius: 22, grow: 5, pingGrow: 24, glow: 26, dim: 0.18 },
+};
+
+let C = null, G = GEOMETRY.phone;
+const imgs = new Map();
+let stepSpan = [];
+
+window.setup = async (config) => {
+  C = config;
+  G = GEOMETRY[config.layout] || GEOMETRY.phone;
+  if (config.layout === "pc") document.documentElement.classList.add("pc");
+  const css = document.createElement("style");
+  css.textContent = config.fonts.map((f) => `@font-face{font-family:"${f.family}";src:url("${f.url}") format("woff2");font-weight:${f.weight};font-display:block}`).join("\n");
+  document.head.appendChild(css);
+
+  const steps = config.lesson.steps;
+  $("lessonTitle").textContent = config.lesson.title;
+  $("sideTitle").textContent = config.lesson.title;
+  $("tQuestion").textContent = config.lesson.question;
+  $("tLength").textContent = config.lesson.length;
+  $("sTitle").textContent = config.lesson.title;
+  $("sTip").querySelector("p").textContent = config.lesson.tip;
+  const segs = steps.map(() => '<div class="seg"><i></i></div>').join("");
+  $("segs").innerHTML = segs;
+  $("sideSegs").innerHTML = segs;
+  const fill = (host, cls) => {
+    host.innerHTML = steps.map((_, i) => `<div class="${cls}"><b>${arDigits(i + 1)}</b><span></span></div>`).join("");
+    [...host.children].forEach((row, i) => { row.querySelector("span").textContent = steps[i]; });
+  };
+  fill($("sRows"), "row");
+  fill($("sideSteps"), "st");
+
+  // When each step starts and ends, for the progress bar.
+  stepSpan = steps.map((_, i) => {
+    const mine = config.scenes.filter((s) => s.step === i + 1);
+    return mine.length ? { start: mine[0].start, end: mine[mine.length - 1].start + mine[mine.length - 1].dur } : null;
+  });
+
+  const screen = $("screen");
+  const srcs = [...new Set(config.scenes.flatMap((s) => (s.shots || []).map((x) => x.src)))];
+  await Promise.all(srcs.map(async (src) => {
+    const im = new Image();
+    im.src = src;
+    await im.decode();
+    screen.insertBefore(im, screen.firstChild);
+    imgs.set(src, im);
+  }));
+  for (const w of ["400", "600", "700", "800", "900"]) await document.fonts.load(`${w} 40px Cairo`, "الخطوة ١ من ٥");
+  await document.fonts.load('600 28px Montserrat', "ALPHA DENTAL");
+  await document.fonts.ready;
+  window.render(0);
+};
+
+function place(el, b, grow = 0) {
+  el.style.left = b.x - grow + "px";
+  el.style.top = b.y - grow + "px";
+  el.style.width = b.w + 2 * grow + "px";
+  el.style.height = b.h + 2 * grow + "px";
+  el.style.borderRadius = Math.min(G.radius + grow, (b.h + 2 * grow) / 2) + "px";
+}
+
+/** The box kept inside the screen. */
+function fit(box) {
+  const x = clamp(box.x, 6, G.w - 20), y = clamp(box.y, 6, G.h - 20);
+  return { x, y, w: Math.min(box.w, G.w - 6 - x), h: Math.min(box.h, G.h - 6 - y) };
+}
+
+function drawHeader(sc, t, local, stepChanged) {
+  const steps = C.lesson.steps;
+  const progress = (seg, i) => {
+    const span = stepSpan[i];
+    seg.firstElementChild.style.width = ((!span ? 0 : clamp((t - span.start) / (span.end - span.start))) * 100).toFixed(2) + "%";
+  };
+  if (C.layout === "pc") {
+    [...$("sideSegs").children].forEach(progress);
+    [...$("sideSteps").children].forEach((row, i) => {
+      const now = i === sc.step - 1, done = i < sc.step - 1;
+      const b = row.querySelector("b"), name = row.querySelector("span");
+      const p = now && stepChanged ? ease(local / 0.3) : 1;
+      row.style.background = now ? `rgba(38,42,52,${p.toFixed(3)})` : "transparent";
+      b.style.background = now ? "var(--accent)" : "transparent";
+      b.style.borderColor = now || done ? "var(--accent)" : "var(--line)";
+      b.style.color = now ? "var(--ink)" : done ? "var(--accent)" : "#6B7280";
+      b.textContent = done ? "✓" : arDigits(i + 1);
+      name.style.color = now ? "var(--paper)" : done ? "#C9CED6" : "#6B7280";
+    });
+    return;
+  }
+  const pop = stepChanged ? out(local / 0.35) : 1;
+  $("num").textContent = arDigits(sc.step);
+  $("num").style.transform = `scale(${0.7 + 0.3 * pop})`;
+  $("count").textContent = `الخطوة ${arDigits(sc.step)} من ${arDigits(steps.length)}`;
+  $("name").textContent = steps[sc.step - 1];
+  $("name").style.opacity = stepChanged ? ease(local / 0.3) : 1;
+  [...$("segs").children].forEach(progress);
+}
+
+function drawStep(sc, t, prev) {
+  const local = t - sc.start;
+  const shots = sc.shots;
+  let k = shots.findIndex((s) => local < s.at + s.dur);
+  if (k === -1) k = shots.length - 1;
+  const shot = shots[k];
+  const sl = local - shot.at;               // seconds into this shot
+
+  drawHeader(sc, t, local, !prev || prev.step !== sc.step);
+
+  // Screen: this shot's picture, cross-faded from the one before.
+  const before = k > 0 ? shots[k - 1] : prev && prev.shots ? prev.shots[prev.shots.length - 1] : null;
+  const fade = ease(sl / 0.22);
+  for (const [src, im] of imgs) {
+    if (src === shot.src) { im.style.opacity = 1; im.style.zIndex = 1; }
+    else if (before && src === before.src && fade < 1) { im.style.opacity = 1 - fade; im.style.zIndex = 2; }
+    else { im.style.opacity = 0; im.style.zIndex = 0; }
+  }
+
+  // Pointer.
+  const ring = $("ring"), ping = $("ping"), look = $("look"), finger = $("finger"), cursor = $("cursor"), ripple = $("ripple");
+  for (const el of [ring, ping, look, finger, cursor, ripple]) { el.style.opacity = 0; el.style.zIndex = 5; }
+  for (const el of [ring, ping, look]) { el.style.boxShadow = "none"; el.style.background = "transparent"; }
+  if (shot.box) {
+    const b = fit(shot.box);
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (shot.act === "tap") {
+      const tapAt = shot.dur - TAP_BEFORE_END;
+      const a = ease((sl - 0.35) / 0.28) * (1 - ease((sl - (shot.dur - 0.12)) / 0.12));
+      const pressed = clamp((sl - tapAt) / 0.14);
+      place(ring, b, G.grow + 10 * (1 - out((sl - 0.35) / 0.35)));
+      ring.style.opacity = a;
+      ring.style.background = `rgba(20,184,166,${(0.22 * (sl >= tapAt ? 1 - ease((sl - tapAt) / 0.4) : 0)).toFixed(3)})`;
+      ring.style.boxShadow = `0 0 0 5px rgba(20,184,166,.25), 0 0 ${G.glow}px rgba(20,184,166,.55)${shot.spot ? `, 0 0 0 3000px rgba(8,10,14,${(G.dim * a).toFixed(3)})` : ""}`;
+      // The ring breathes out every 1.3 s until the press.
+      if (sl > 0.7 && sl < tapAt) {
+        const ph = ((sl - 0.7) % 1.3) / 1.3;
+        place(ping, b, G.grow + G.pingGrow * out(ph));
+        ping.style.opacity = 0.65 * (1 - ph);
+      }
+      // The pointer slides in, presses, and the screen answers.
+      const arrive = tapAt - 0.2, set = arrive - 0.6;
+      if (sl > set) {
+        const p = out((sl - set) / 0.6);
+        const show = ease((sl - set) / 0.2) * (1 - ease((sl - (shot.dur - 0.14)) / 0.14));
+        const press = 1 - 0.16 * Math.sin(Math.PI * pressed);
+        let hx, hy, reach;
+        if (C.pointer === "cursor") {
+          // The arrow's tip is the hot spot; it stops just inside the target.
+          hx = cx + 4; hy = cy + 6; reach = 80;
+          cursor.style.left = hx - 6 + 150 * (1 - p) + "px";
+          cursor.style.top = hy - 4 + 120 * (1 - p) + "px";
+          cursor.style.transform = `scale(${press})`;
+          cursor.style.opacity = show;
+        } else {
+          hx = cx + 14; hy = cy + 16; reach = 150;
+          finger.style.left = hx + 130 * (1 - p) - 46 + "px";
+          finger.style.top = hy + 190 * (1 - p) - 46 + "px";
+          finger.style.transform = `scale(${press})`;
+          finger.style.opacity = show;
+        }
+        if (sl >= tapAt) {
+          const r = reach * out((sl - tapAt) / 0.42);
+          ripple.style.left = hx - r + "px"; ripple.style.top = hy - r + "px";
+          ripple.style.width = ripple.style.height = 2 * r + "px";
+          ripple.style.opacity = 0.9 * (1 - ease((sl - tapAt) / 0.42));
+        }
+      }
+    } else {
+      const a = ease((sl - 0.3) / 0.3) * (1 - ease((sl - (shot.dur - 0.18)) / 0.18));
+      place(look, b, G.grow);
+      look.style.opacity = a;
+      const glow = G.glow - 8 + 10 * Math.sin((sl - 0.3) * 2.4);
+      look.style.boxShadow = `0 0 0 5px rgba(20,184,166,.22), 0 0 ${glow.toFixed(1)}px rgba(20,184,166,.5)${shot.spot ? `, 0 0 0 3000px rgba(8,10,14,${((G.dim - 0.04) * a).toFixed(3)})` : ""}`;
+    }
+  }
+
+  // Caption.
+  const cap = $(C.layout === "pc" ? "sideCap" : "cap");
+  const sameCap = before && before.caption === shot.caption;
+  cap.textContent = shot.caption;
+  cap.style.opacity = sameCap ? 1 : ease(sl / 0.25);
+  cap.style.transform = `translateY(${sameCap ? 0 : (10 * (1 - out(sl / 0.3))).toFixed(2)}px)`;
+}
+
+function drawCard(sc, t) {
+  const local = t - sc.start;
+  const isTitle = sc.card === "title";
+  $("titleCard").style.display = isTitle ? "block" : "none";
+  $("sumCard").style.display = isTitle ? "none" : "block";
+  if (isTitle) {
+    const rise = (el, at) => { const p = out((local - at) / 0.5); el.style.opacity = clamp((local - at) / 0.35); el.style.transform = `translateY(${(26 * (1 - p)).toFixed(2)}px)`; };
+    rise($("tQuestion"), 0.12);
+    rise($("tLength"), 0.5);
+    return;
+  }
+  const rows = [...$("sRows").children];
+  const recap = C.scenes.find((s) => s.card === "recap");
+  const inTip = sc.card === "tip";
+  const rl = t - recap.start;
+  // One row per sentence of the recap line: row k lands as its sentence starts (after the heading
+  // word). When the voice did not pause between them, the rows are spread evenly instead.
+  const cued = (recap.cues || []).length >= rows.length;
+  const even = (k) => recap.lead + recap.voSeconds * (0.11 + (0.89 * k) / rows.length);
+  const when = (k) => (cued ? recap.cues[k] - 0.1 : even(k));
+  rows.forEach((row, i) => {
+    const at = when(i);
+    const p = out((rl - at) / 0.4);
+    row.style.opacity = clamp((rl - at) / 0.3) * (inTip ? 1 - 0.55 * ease(local / 0.4) : 1);
+    row.style.transform = `translateX(${(40 * (1 - p)).toFixed(2)}px)`;
+    const b = row.querySelector("b");
+    const live = !inTip && rl >= at && (i + 1 >= rows.length || rl < when(i + 1));
+    b.style.background = live ? "var(--accent)" : "transparent";
+    b.style.color = live ? "var(--ink)" : "var(--paper)";
+    b.style.borderColor = live ? "var(--accent)" : "var(--line)";
+  });
+  const tip = $("sTip");
+  if (inTip) {
+    const p = out((local - 0.15) / 0.5);
+    tip.style.opacity = clamp((local - 0.15) / 0.35);
+    tip.style.transform = `translateY(${(36 * (1 - p)).toFixed(2)}px)`;
+  } else tip.style.opacity = 0;
+}
+
+window.render = (t) => {
+  if (!C) return;
+  const scenes = C.scenes;
+  let i = scenes.findIndex((s) => t < s.start + s.dur);
+  if (i === -1) i = scenes.length - 1;
+  const sc = scenes[i], prev = i > 0 ? scenes[i - 1] : null;
+  const local = t - sc.start;
+  const swap = !!sc.card !== !!(prev && prev.card) || !prev;
+  // Lesson and card layers trade places with a short fade whenever the kind of scene changes.
+  const p = swap ? ease(local / 0.35) : 1;
+  const card = $("card"), lesson = $("lesson");
+  card.style.zIndex = 2; lesson.style.zIndex = 1;
+  if (sc.card) {
+    card.style.opacity = prev && prev.card ? 1 : p;
+    lesson.style.opacity = prev && !prev.card ? 1 : 0;
+    drawCard(sc, t);
+  } else {
+    drawStep(sc, t, prev && !prev.card ? prev : null);
+    lesson.style.opacity = 1;
+    card.style.opacity = swap ? 1 - p : 0;
+  }
+};
+</script>
+</body>
+</html>

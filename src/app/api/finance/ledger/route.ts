@@ -60,6 +60,7 @@ import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { logActivityServer } from "@/lib/server/systemLog";
 import { isDownloadUrlFor, isOwnReceiptPath, RECEIPT_CATEGORY_IDS, RECEIPT_MAX_LINES } from "@/lib/receiptScan";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { sentSheetGate } from "@/lib/server/companySheetLock";
 import {
   RECEIPT_SETTINGS_DOC,
   formatReceiptNumber,
@@ -783,6 +784,19 @@ async function rowBranchGate(clinicId: string, actor: Actor, id: string) {
 // update
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * A treatment charge on a company sheet that was already sent: nobody but an Owner or Admin edits
+ * or deletes it, and they only after the screen's warning (see lib/server/companySheetLock). Only a
+ * company's treatment charge is looked up; payments, expenses and private treatments never are.
+ */
+async function sentChargeRefusal(clinicId: string, actor: Actor, id: string, body: Record<string, unknown>, known?: Record<string, unknown>) {
+  const row = known ?? (await adminClinicDoc(clinicId, "ledger", id).get()).data();
+  if (!row || String(row.type || "") !== "procedure") return null;
+  const payerId = typeof row.payerId === "string" ? row.payerId.trim() : "";
+  if (!payerId || payerId === "private") return null;
+  return sentSheetGate({ clinicId, role: actor.role, chargeIds: [id], confirmed: body.confirmSentSheet });
+}
+
 async function updateRow(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
   const id = String(body.id || "").trim();
@@ -791,6 +805,10 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
 
   const gate = await rowBranchGate(clinicId, actor, id);
   if (!gate.ok) return gate.response;
+  {
+    const locked = await sentChargeRefusal(clinicId, actor, id, body);
+    if (locked) return locked;
+  }
 
   const staff = await loadStaff(clinicId);
 
@@ -1360,6 +1378,10 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
     return bad("This treatment comes from an insurance approval; delete the approval instead.", 409);
   }
   if (typeof target.settlementId === "string" && target.settlementId) return bad(SETTLEMENT_ROW_MESSAGE, 409);
+  {
+    const locked = await sentChargeRefusal(clinicId, actor, id, body, target);
+    if (locked) return locked;
+  }
 
   // Everything that could be linked to this row, in either direction. Loaded outside the
   // transaction because deciding IF the delete may happen needs a query, and Firestore
