@@ -27,6 +27,7 @@ import { currentBranchLabel } from "@/lib/branchScope";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import TopNav from "@/components/dashboard/TopNav";
 import { DIRECT_KEYS, SECTION_GROUPS } from "@/components/dashboard/navGroups";
+import UsageTracker from "@/components/usage/UsageTracker";
 import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderContext";
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider } from "@/context/TutorialContext";
@@ -731,6 +732,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
 
+
+      {/* Counts which screens are used and for how long (lib/usage). Draws nothing. */}
+      <UsageTracker />
     </div>
     </PageHeaderProvider>
     </WelcomeProvider>

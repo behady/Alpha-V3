@@ -75,6 +75,10 @@
     {
       "path": "/api/automation/tasks-digest",
       "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/automation/usage-cleanup",
+      "schedule": "40 1 * * *"
     }
   ]
 }

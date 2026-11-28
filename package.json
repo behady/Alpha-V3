@@ -148,6 +148,7 @@
     "test:insurance-billing-month": "npx tsx tests/insuranceBillingMonth.test.mts",
     "test:roomschedule": "npx tsx tests/roomSchedule.test.mts",
     "test:homeview": "npx tsx tests/homeView.test.mts",
+    "test:usage": "npx tsx tests/usage.test.mts",
     "test:stagedprocedures": "npx tsx tests/stagedProcedures.test.mts",
     "_comment_test_ledger": "The one place a ledger row is built: every payment carries its dentist, and the lab fee is charged exactly once per procedure.",
     "test:ledger": "npx tsx tests/ledgerWrite.test.mjs",
