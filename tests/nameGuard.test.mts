@@ -38,6 +38,10 @@ assert.equal(nameFromReply("المكان فين لو سمحت"), null);
 assert.equal(nameFromReply("السلام عليكم"), null);
 assert.equal(nameFromReply("تمام"), null);
 assert.equal(nameFromReply("عايز احجز بكره"), null);
+// Asnany, 24/11/2026: asked for her name a second time, a patient answered "I sent it to you" and
+// was booked under those two words. Reception found "بعت ليكي" on the calendar.
+assert.equal(nameFromReply("بعت ليكي"), null, "the real one");
+for (const t of ["بعتلك", "بعته فوق", "كتبته", "قلتلك", "بعتهولك خلاص", "لسه باعته"]) assert.equal(nameFromReply(t), null, t);
 assert.equal(nameFromReply("الزراعة ب 3600"), null, "digits are not a name");
 assert.equal(nameFromReply("3"), null);
 assert.equal(nameFromReply("x"), null);
