@@ -45,6 +45,20 @@ const STYLE = {
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
+/** The grand total's size in the sample, and how many characters its cell holds at that size. */
+const TOTAL_FONT = 72;
+const TOTAL_FITS = 5;
+
+/**
+ * The font size of the grand total. Its cell holds five digits at the sample's 72 pt; a longer
+ * number does not fit, and Excel then shows `1E+05` instead of the total. So a longer total is set
+ * smaller by the same proportion and always shows whole.
+ */
+export function totalFontSize(total: number): number {
+  const chars = String(round2(total)).length;
+  return chars <= TOTAL_FITS ? TOTAL_FONT : Math.floor((TOTAL_FONT * TOTAL_FITS) / chars);
+}
+
 /**
  * The working the clerk writes beside a counted line: `2X880` and the formula `2*880`. Only when the
  * units really multiply out to the line's value; otherwise (a discount, a flat price) the line shows
@@ -107,12 +121,13 @@ export function gascoStatementToWorkbook(statement: Statement, header: Statement
   }
 
   const footTop = rows.length;
+  const totalStyle: Style = { ...STYLE.footer, font: font(totalFontSize(statement.total)) };
   rows.push([
     s(TOTAL_LABEL, STYLE.footer),
     null,
     null,
     null,
-    subtotalCells.length ? f(`SUM(${subtotalCells.join(",")})`, statement.total, STYLE.footer) : n(0, STYLE.footer),
+    subtotalCells.length ? f(`SUM(${subtotalCells.join(",")})`, statement.total, totalStyle) : n(0, totalStyle),
   ]);
   for (let i = 1; i < FOOTER_ROWS; i++) rows.push(blank());
   merges.push({ s: { r: footTop, c: 0 }, e: { r: footTop + FOOTER_ROWS - 1, c: 3 } });

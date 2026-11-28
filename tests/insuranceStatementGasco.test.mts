@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import XLSX from "xlsx-js-style";
 import { buildInsuranceStatement, type StatementRowLite } from "../src/lib/insuranceStatement";
-import { gascoFileName, gascoStatementToWorkbook, lineWorking } from "../src/lib/insuranceStatementGascoXlsx";
+import { gascoFileName, gascoStatementToWorkbook, lineWorking, totalFontSize } from "../src/lib/insuranceStatementGascoXlsx";
 
 // --- 1. The working beside a counted line ----------------------------------------------------------
 assert.deepEqual(lineWorking(1760, 2), { text: "2X880", formula: "2*880" });
@@ -90,6 +90,26 @@ assert.equal(ws.C5.s?.font?.bold, true);
 // An empty month still writes a sheet with a zero total.
 const empty = buildInsuranceStatement({ rows: [], payerId: "gasco", payerName: "Gasco", month: "2026-08", memberNumbers: new Map() });
 assert.equal(gascoStatementToWorkbook(empty, header, new Map()).Sheets.Sheet1.E5.v, 0);
+
+// The grand total's cell holds five digits at the sample's 72 pt. A longer total is set smaller,
+// or Excel shows it as 1E+05 (DENT INN, November 2026: 147,256).
+assert.equal(totalFontSize(2816), 72);
+assert.equal(totalFontSize(50435), 72);
+assert.equal(totalFontSize(147256), 60);
+assert.equal(totalFontSize(1234567), 51);
+assert.equal(totalFontSize(147256.5), 45);
+assert.equal(ws.E10.s?.font?.sz, 72);
+const big = buildInsuranceStatement({
+  rows: [{ id: "g1", type: "procedure", payerId: "gasco", patientId: "p1", patientName: "سلمى عادل", date: "2026-08-03", serviceName: "كشف", amount: 147256 }],
+  payerId: "gasco",
+  payerName: "Gasco",
+  month: "2026-08",
+  memberNumbers: new Map(),
+});
+const bigSheet = gascoStatementToWorkbook(big, header, new Map()).Sheets.Sheet1;
+assert.equal(bigSheet.E7.v, 147256);
+assert.equal(bigSheet.E7.s?.font?.sz, 60);
+assert.equal(bigSheet.A7.s?.font?.sz, 72); // the label keeps its size
 
 // --- 3. File name --------------------------------------------------------------------------------
 assert.equal(gascoFileName("Gasco", "2026-08-01", "2026-08-31"), "gasco-2026-08.xlsx");
