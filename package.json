@@ -56,6 +56,8 @@
     "test:pro-onboarding-routes": "npx tsx tests/botProOnboardingRoutes.test.mts",
     "test:bot-owner-rules": "npx tsx tests/botOwnerRules.test.mts",
     "test:bot-lid": "npx tsx tests/botLidChats.test.mts",
+    "test:wa-username": "npx tsx tests/waUsernameSenders.test.mts",
+    "test:wa-username-route": "npx tsx tests/waUsernameRoute.test.mts",
     "test:bot-superseded": "npx tsx tests/botSuperseded.test.mts",
     "test:bot-bubbles": "npx tsx tests/botBubbles.test.mts",
     "test:bot-fallback": "npx tsx tests/botAiFirstFallback.test.mts",

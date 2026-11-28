@@ -23,9 +23,25 @@ import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
  * scanned tomorrow morning.
  */
 
+/**
+ * What to print where a chat's phone number goes.
+ *
+ * A person who wrote by WhatsApp username has no number to print: the official line knows them
+ * only by an id Meta made up ("EG.1349…"), which means nothing to a receptionist. Their WhatsApp
+ * name and @username do.
+ */
+export function chatAddressLabel(c: { id: string; phone?: string; waUsername?: string; waName?: string }, isAr: boolean): string {
+  if (!c.id.startsWith("uid_")) return c.phone || c.id;
+  const parts = [c.waName, c.waUsername ? `@${c.waUsername}` : ""].filter(Boolean);
+  return parts.join(" · ") || (isAr ? "مستخدم واتساب — الرقم مخفي" : "WhatsApp user — number hidden");
+}
+
 export interface InfoChat {
   id: string;
   phone?: string;
+  /** Official line only: the sender's WhatsApp username and profile name, as Meta sent them. */
+  waUsername?: string;
+  waName?: string;
   patientId?: string;
   patientName?: string;
   note?: string;
@@ -184,7 +200,7 @@ export default function ChatInfoPanel({ chat, isAr, onClose }: { chat: InfoChat;
               {chat.patientName || "—"}
             </p>
             <p className="text-[12px] text-ink-muted dark:text-slate-400" dir="ltr">
-              {chat.phone}
+              {chatAddressLabel(chat, isAr)}
             </p>
 
             <dl className="mt-3 space-y-2.5 text-[13px]">
@@ -246,7 +262,7 @@ export default function ChatInfoPanel({ chat, isAr, onClose }: { chat: InfoChat;
         ) : (
           <>
             <p className="text-[13px] font-bold text-ink dark:text-slate-100" dir="ltr">
-              {chat.phone || chat.id}
+              {chatAddressLabel(chat, isAr)}
             </p>
             <p className="text-[12px] mt-1 text-ink-muted dark:text-slate-400">
               {isAr ? "الرقم ده مش مسجل كمريض." : "This number is not a registered patient."}

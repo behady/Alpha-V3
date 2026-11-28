@@ -21,6 +21,7 @@ import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/pat
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { resolveLidToPhone } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
+import { isHiddenSender } from "@/lib/waUserId";
 import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadMetaWhatsappConfig, sendMetaWhatsappMedia } from "@/lib/metaWhatsapp";
@@ -663,7 +664,9 @@ export async function respondToPatientMessage(args: {
   // message binds its lid to its patient (lib/whatsappLid). The gateway's own resolver is asked
   // as a fallback — broken on their side today, fails fast and quietly, and starts contributing
   // the day they fix it with no change here.
-  const isLidChat = /@lid$/i.test(chatId);
+  // The official channel has the same case under another name: Meta's user id for a person who
+  // wrote by username (lib/waUserId). Everything a lid thread does, that thread does too.
+  const isLidChat = isHiddenSender(chatId);
   // E.164 everywhere: the patient record, the appointment and the lead all compare phones as
   // strings, and a Meta payload arrives without the plus.
   let phone = /^\d{8,15}$/.test(args.phone || "") ? `+${args.phone}` : args.phone || "";
@@ -671,7 +674,7 @@ export async function respondToPatientMessage(args: {
   if (!phone && isLidChat) {
     patient = await findPatientByLid(clinicId, chatId);
     if (patient) phone = patientSendablePhone(patient.data);
-    if (!phone) phone = await resolveLidToPhone(clinicId, chatId);
+    if (!phone && /@lid$/i.test(chatId)) phone = await resolveLidToPhone(clinicId, chatId);
   }
   if (!patient && phone) patient = await findPatient(clinicId, phone);
 

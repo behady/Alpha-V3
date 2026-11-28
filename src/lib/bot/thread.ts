@@ -50,6 +50,14 @@ export interface ThreadMessageInput {
   /** For a message the clinic sent: the patient it was addressed to, so the chat is named from line one. */
   patientId?: string;
   patientName?: string;
+  /**
+   * What Meta said about the sender (official channel): their user id, username and WhatsApp
+   * profile name. Kept on the chat so a person whose number is hidden still lists under a name,
+   * and so their thread can be found again by id on the day Meta stops sending the number.
+   */
+  waUserId?: string;
+  waUsername?: string;
+  waName?: string;
 }
 
 /** Keep the list preview short; the thread has the rest. */
@@ -111,6 +119,9 @@ export async function recordThreadMessage(
     updatedAt: FieldValue.serverTimestamp(),
   };
   if (m.channel) summary.channel = m.channel;
+  if (m.waUserId) summary.waUserId = m.waUserId;
+  if (m.waUsername) summary.waUsername = m.waUsername;
+  if (m.waName) summary.waName = m.waName;
   if (m.direction === "in") {
     // What the 24-hour rule is measured from: only a patient's own message opens the window.
     summary.lastInboundAt = now;
@@ -125,7 +136,7 @@ export async function recordThreadMessage(
   // A number the bot never identified (bot off, stranger, opt-out) still deserves a name in the
   // list. One exact-match query, the shape the app stores E.164 phones in — never the 3000-row
   // scan the bot uses, which is too heavy to pay on every message.
-  if (m.direction === "in" && !key.startsWith("lid_")) {
+  if (m.direction === "in" && !key.startsWith("lid_") && !key.startsWith("uid_")) {
     await attachPatientIfMissing(clinicId, key, address).catch(() => {});
   }
   // A confirmation or reminder opens the chat before the patient ever writes, and its sender

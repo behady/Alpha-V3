@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
 import AutoReplySwitch from "./AutoReplySwitch";
-import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
+import ChatInfoPanel, { chatAddressLabel, tagLabel, tagTone } from "./ChatInfoPanel";
 import { deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, startAfter, updateDoc, where } from "firebase/firestore";
 import { testCaseId, turnsFromLines } from "@/lib/bot/testCases";
 import { STAFF_QUESTION_HOLD_MS, staffQuestionAt } from "@/lib/bot/staffHold";
@@ -77,6 +77,9 @@ import { useUI } from "@/context/UIContext";
 interface ChatRow {
   id: string;
   phone?: string;
+  /** Official line: the sender's WhatsApp username and profile name — all there is when the number is hidden. */
+  waUsername?: string;
+  waName?: string;
   patientId?: string;
   patientName?: string;
   lastText?: string;
@@ -373,7 +376,7 @@ export default function ChatsPanel({
       )
       .filter((c) => {
         if (!needle) return true;
-        const hay = `${c.patientName || ""}${c.phone || ""}${c.id}${(c.tags || []).join(" ")}${c.note || ""}`
+        const hay = `${c.patientName || ""}${c.phone || ""}${c.waUsername || ""}${c.waName || ""}${c.id}${(c.tags || []).join(" ")}${c.note || ""}`
           .toLowerCase()
           .replace(/\s+/g, "");
         return hay.includes(needle);
@@ -528,7 +531,7 @@ export default function ChatsPanel({
               const active = c.id === selectedId;
               const unread = (c.unreadCount || 0) > 0;
               const urgent = c.needsHuman && c.severity === "urgent";
-              const title = c.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : c.patientName || c.phone || c.id;
+              const title = c.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : c.patientName || chatAddressLabel(c, isAr);
               return (
                 <button
                   key={c.id}
@@ -1109,7 +1112,7 @@ function Thread({
     return out;
   }, [allLines, isAr]);
 
-  const title = chat.patientName || chat.phone || chat.id;
+  const title = chat.patientName || chatAddressLabel(chat, isAr);
 
   return (
     <>
@@ -1132,7 +1135,7 @@ function Thread({
               ? isAr
                 ? "بروفة خاصة بيك — مفيش حاجة بتتبعت على واتساب"
                 : "Your private rehearsal — nothing here goes to WhatsApp"
-              : chat.patientName ? chat.phone : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
+              : chat.patientName ? chatAddressLabel(chat, isAr) : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
             {chat.isPlayground
               ? ""
               : chat.isDraft

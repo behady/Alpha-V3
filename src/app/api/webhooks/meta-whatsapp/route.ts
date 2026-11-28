@@ -6,7 +6,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { interceptStaffInbound } from "@/lib/bot/staffLine";
 import { raiseComplaintIfAny } from "@/lib/alerts/complaint";
-import { conversationKey } from "@/lib/bot/conversation";
+import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
+import { metaInboundSender } from "@/lib/waUserId";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
 import { describeWhatsappImage } from "@/lib/bot/describeImage";
 import { loadMetaWhatsappConfig, sendMetaTypingIndicator } from "@/lib/metaWhatsapp";
@@ -167,6 +168,15 @@ async function claimMessage(clinicId: string, messageId: string): Promise<boolea
 interface InboundMessage {
   phoneNumberId: string;
   from: string;
+  /**
+   * The sender's number in international digits — EMPTY when WhatsApp hid it. A person who writes
+   * by username arrives with no `from` at all, only Meta's user id; `from` above then holds that id,
+   * which is still where the thread lives and where a reply goes (see lib/waUserId).
+   */
+  phone: string;
+  userId?: string;
+  username?: string;
+  profileName?: string;
   text: string;
   fromMe: boolean;
   /** WhatsApp's own id for this message, used to refuse a redelivery. */
@@ -217,7 +227,16 @@ function extractMessages(body: unknown): InboundMessage[] {
       const messages = value?.messages;
       if (!Array.isArray(messages)) continue; // status updates have no `messages`
       for (const m of messages) {
-        const from = String(m?.from || "").trim();
+        // The phone when Meta shared it, else its user id for the sender. Demanding a phone here is
+        // what kept every username-only sender out of the Chats page: no `from`, no message.
+        const sender = metaInboundSender(m, value?.contacts);
+        const from = sender.address;
+        const who = {
+          phone: sender.phone,
+          userId: sender.userId || undefined,
+          username: sender.username || undefined,
+          profileName: sender.name || undefined,
+        };
         // Interactive reply IDS before anything else: our buttons and list rows carry the same
         // digits a typed answer would be, so a tap and a keystroke are indistinguishable to the
         // conversation engine — the titles are only what the patient read.
@@ -225,7 +244,7 @@ function extractMessages(body: unknown): InboundMessage[] {
         const ad = parseMetaReferral(m?.referral) || undefined;
         // The chat was opened and nothing typed yet. Carries the referral like a message does.
         if (type === "request_welcome" && from) {
-          out.push({ phoneNumberId, from, text: "", fromMe: false, messageId: String(m?.id || ""), ad, welcome: true });
+          out.push({ phoneNumberId, from, ...who, text: "", fromMe: false, messageId: String(m?.id || ""), ad, welcome: true });
           continue;
         }
         const media = MEDIA_TYPES.includes(type as (typeof MEDIA_TYPES)[number])
@@ -257,7 +276,7 @@ function extractMessages(body: unknown): InboundMessage[] {
           m?.interactive?.button_reply?.title ?? m?.interactive?.list_reply?.title ?? ""
         ).trim();
         if (from && (text || media)) {
-          out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, mediaId, mime, label: label || undefined, ad });
+          out.push({ phoneNumberId, from, ...who, text, fromMe: false, media, messageId, mediaId, mime, label: label || undefined, ad });
         }
       }
     }
@@ -274,10 +293,36 @@ async function rememberInbound(clinicId: string, msg: InboundMessage, at: number
     media: msg.media,
     messageId: msg.messageId,
     channel: "meta",
+    waUserId: msg.userId,
+    waUsername: msg.username,
+    waName: msg.profileName,
   }, at).catch((e) => {
     console.warn("[meta-whatsapp] thread write failed:", e);
     return "";
   });
+}
+
+/**
+ * The number this user id last wrote from, when the clinic already has a thread with them.
+ *
+ * Meta shares a person's number only for 30 days after the last contact (or while they are in the
+ * contact book). A patient who has a username and comes back after a quiet month therefore arrives
+ * as an id with no number — and would open a second, nameless chat beside their own. Every inbound
+ * message files the id on its thread (thread.ts), so the id leads back to the number here.
+ */
+async function knownPhoneForUserId(clinicId: string, userId: string): Promise<string> {
+  try {
+    const snap = await adminClinicCollection(clinicId, "whatsapp_conversations").where("waUserId", "==", userId).limit(3).get();
+    for (const doc of snap.docs) {
+      // The hidden thread itself carries the id too; only a thread kept under a number answers this.
+      if (doc.id.startsWith("uid_") || doc.id.startsWith("lid_")) continue;
+      const digits = String(doc.data()?.phone || "").replace(/\D/g, "");
+      if (digits.length >= 8) return digits;
+    }
+  } catch (e) {
+    console.warn("[meta-whatsapp] user id lookup failed:", e);
+  }
+  return "";
 }
 
 /** Meta's sent/delivered/read/failed updates, onto the thread lines they belong to. */
@@ -295,7 +340,8 @@ async function recordStatuses(body: unknown): Promise<void> {
       for (const st of statuses) {
         const status = String(st?.status || "");
         const id = String(st?.id || "");
-        const to = String(st?.recipient_id || "");
+        // A message sent to a user id comes back with no `recipient_id`, only the id it went to.
+        const to = String(st?.recipient_id || st?.recipient_user_id || "");
         const failed = status === "failed";
         const firstError = failed && Array.isArray(st?.errors) && st.errors.length ? st.errors[0] : undefined;
         if (failed && firstError) {
@@ -378,10 +424,28 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Opt-out first, always — before the assistant is consulted. Meta gives the real phone, so
-      // this reaches the patient's actual record with no lid fallback needed.
+      // A hidden sender the clinic already knows by number: same person, same thread.
+      if (!msg.phone && msg.userId) {
+        const known = await knownPhoneForUserId(clinicId, msg.userId);
+        if (known) {
+          msg.from = known;
+          msg.phone = known;
+        }
+      }
+
+      // Opt-out first, always — before the assistant is consulted. With a phone this reaches the
+      // patient's actual record; a hidden sender has no record to reach, so the stop is kept on
+      // the conversation, which every sender checks (lib/messagingConsent).
       if (!msg.welcome && isOptOutReply(msg.text)) {
         await rememberInbound(clinicId, msg);
+        if (!msg.phone) {
+          await markConversationOptedOut(clinicId, msg.from);
+          await adminClinicCollection(clinicId, "messaging_opt_outs")
+            .doc(conversationKey(msg.from))
+            .set({ phone: msg.from, channel: "whatsapp", reply: msg.text, matchedPatient: false, createdAt: FieldValue.serverTimestamp() });
+          await confirmOptOut(clinicId, msg.from, msg.text, "meta");
+          continue;
+        }
         const r = await applyInboundOptOut({ clinicId, phone: msg.from, text: msg.text, channel: "whatsapp" });
         if (r.status === "opted_out" || r.status === "unknown_number") await confirmOptOut(clinicId, msg.from, msg.text, "meta");
         continue;
@@ -398,10 +462,12 @@ export async function POST(request: NextRequest) {
 
       // The clinic's own people, before anything is written where the front desk reads. A staff
       // number is answered on the staff line and never enters the Chats inbox.
+      // Staff are recognised by their number, so a hidden sender is never one of them.
       if (
-        await interceptStaffInbound({
+        msg.phone &&
+        (await interceptStaffInbound({
           clinicId,
-          phone: `+${msg.from}`,
+          phone: `+${msg.phone}`,
           text: msg.text,
           media: msg.media,
           transcribe:
@@ -411,7 +477,7 @@ export async function POST(request: NextRequest) {
                   return t.ok ? t.text : "";
                 }
               : undefined,
-        })
+        }))
       ) {
         lastBot = { status: "skipped", reason: "staff_line" };
         continue;
@@ -424,7 +490,8 @@ export async function POST(request: NextRequest) {
       // The line's own time goes to the reply too: "did they write again since" is measured from it.
       const receivedAt = Date.now();
       const lineId = msg.welcome ? "" : await rememberInbound(clinicId, msg, receivedAt);
-      if (msg.text) void raiseComplaintIfAny({ clinicId, phone: `+${msg.from}`, text: msg.text, chatId: conversationKey(msg.from) });
+      const whoLabel = msg.phone ? `+${msg.phone}` : msg.username ? `@${msg.username}` : msg.profileName || "WhatsApp";
+      if (msg.text) void raiseComplaintIfAny({ clinicId, phone: whoLabel, text: msg.text, chatId: conversationKey(msg.from) });
 
       /*
        * Answering happens after the response, not before it.
@@ -523,7 +590,7 @@ export async function POST(request: NextRequest) {
           await respondToPatientMessage({
             clinicId,
             chatId: msg.from,
-            phone: msg.from,
+            phone: msg.phone,
             messageId: msg.messageId || undefined,
             // Only a line that held the words from the start: a voice note's words reach the thread
             // just now, so a message that came while it was being transcribed was answered without them.
@@ -536,7 +603,7 @@ export async function POST(request: NextRequest) {
           });
           // The lead behind this number, re-graded on what they just said. Waits a moment for
           // the bot's own lead write to land; the rules are free, the model reads once a day.
-          if (text.trim()) void gradeLeadByPhone(clinicId, msg.from, { trigger: "inbound", delayMs: 4000 });
+          if (text.trim() && msg.phone) void gradeLeadByPhone(clinicId, msg.from, { trigger: "inbound", delayMs: 4000 });
         } catch (e) {
           // Nothing is waiting on this promise any more, so an error here would otherwise vanish.
           reportServerError("[meta-whatsapp] Background reply failed:", e);

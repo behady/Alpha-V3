@@ -16,6 +16,7 @@ import type { CollectionReference, DocumentData, DocumentReference, QueryDocumen
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { phoneKeysOf } from "../person";
+import { isHiddenSender } from "@/lib/waUserId";
 import { EMPTY_LAYER, sanitizeLayer, type ClinicLayer, type ReplaySummary } from "../layer";
 import type { ChunkFindings, RawConversation } from "./transcript";
 
@@ -216,7 +217,7 @@ const SCAN_CAP = 3000;
 
 /** Appointment phone shapes receptionists type (the same set person.ts looks up). */
 function phoneVariants(phone: string): string[] {
-  if (/@lid$/i.test(phone)) return [];
+  if (isHiddenSender(phone)) return [];
   const key = phoneKeysOf({ phone })[0] ?? "";
   if (key.length < 7) return [];
   const digits = phone.replace(/\D/g, "");

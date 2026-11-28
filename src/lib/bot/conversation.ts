@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
+import { waUserIdKey } from "@/lib/waUserId";
 import type { BotState } from "./engine";
 import { readStoredAd, type AdReferral } from "./adReferral";
 import { mergeClicks, type AdClick } from "@/lib/metaConversions";
@@ -246,6 +247,9 @@ export function conversationKey(address: string): string {
     const digits = raw.replace(/\D/g, "");
     return digits ? `lid_${digits}` : "unknown";
   }
+  // The official channel's hidden sender (Meta's user id): its own prefix, for the same reason.
+  const userKey = waUserIdKey(raw);
+  if (userKey) return userKey;
   return phoneMatchKey(raw) || raw.replace(/\D/g, "") || "unknown";
 }
 
