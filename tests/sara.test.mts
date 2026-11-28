@@ -34,29 +34,31 @@ function eq<T>(actual: T, expected: T, message: string) {
 
 // --- 1. Who may read what ---------------------------------------------------------------------------
 
-const RECEPTION = ["access.patients", "access.appointments", "finance.add"];
+// A person whose finance tick is off: a dentist by default, or anyone an admin removed it from.
+// (A receptionist holds finance and reports by default, so her screens already show the money.)
+const NO_FINANCE = ["access.patients", "access.appointments", "finance.add"];
 const ACCOUNTANT = ["access.finance", "access.reports"];
 
-ok(readDenial("ledger", undefined, "Receptionist", RECEPTION) !== null, "a receptionist cannot read the clinic's ledger");
-ok(readDenial("expenses", undefined, "Receptionist", RECEPTION) !== null, "nor its expenses");
-eq(readDenial("ledger", { whereField: "patientId", whereOperator: "==", whereValue: "p1" }, "Receptionist", RECEPTION), null, "one patient's account is the patient file, which she can open");
-ok(readDenial("ledger", { whereField: "patientId", whereOperator: ">", whereValue: "" }, "Receptionist", RECEPTION) !== null, "a patientId filter that is not an exact match is still the whole ledger");
-ok(readDenial("ledger", { whereField: "patientId", whereOperator: "==", whereValue: "  " }, "Receptionist", RECEPTION) !== null, "an empty patient id is not a patient");
+ok(readDenial("ledger", undefined, "Dentist", NO_FINANCE) !== null, "someone without finance access cannot read the clinic's ledger");
+ok(readDenial("expenses", undefined, "Dentist", NO_FINANCE) !== null, "nor its expenses");
+eq(readDenial("ledger", { whereField: "patientId", whereOperator: "==", whereValue: "p1" }, "Dentist", NO_FINANCE), null, "one patient's account is the patient file, which they can open");
+ok(readDenial("ledger", { whereField: "patientId", whereOperator: ">", whereValue: "" }, "Dentist", NO_FINANCE) !== null, "a patientId filter that is not an exact match is still the whole ledger");
+ok(readDenial("ledger", { whereField: "patientId", whereOperator: "==", whereValue: "  " }, "Dentist", NO_FINANCE) !== null, "an empty patient id is not a patient");
 eq(readDenial("ledger", undefined, "Accountant", ACCOUNTANT), null, "finance access reads the ledger");
 eq(readDenial("ledger", undefined, "Admin", []), null, "an admin reads everything");
 eq(readDenial("staff", undefined, "Owner", []), null, "and so does the owner");
-eq(readDenial("patients", undefined, "Receptionist", RECEPTION), null, "a receptionist reads patients");
-ok(readDenial("clinical_notes", undefined, "Receptionist", RECEPTION) !== null, "but not clinical notes");
-ok(readDenial("inventory", undefined, "Receptionist", RECEPTION) !== null, "nor stock");
+eq(readDenial("patients", undefined, "Dentist", NO_FINANCE), null, "they read patients");
+ok(readDenial("clinical_notes", undefined, "Dentist", NO_FINANCE) !== null, "but not clinical notes");
+ok(readDenial("inventory", undefined, "Dentist", NO_FINANCE) !== null, "nor stock");
 ok(readDenial("patients", undefined, "Accountant", ACCOUNTANT) !== null, "an accountant without the patients tick cannot read patients");
 eq(readDenial("services", undefined, "Receptionist", []), null, "the price list is open to all staff");
-eq(readDenial("staff", undefined, "Receptionist", RECEPTION), null, "staff names are open; pay is stripped separately");
-eq(readDenial("clinical_notes", undefined, "Receptionist", RECEPTION, "reception"), null, "the appointment panel keeps its own hand-made allowlist");
-ok(readDenial("ledger", undefined, "Receptionist", RECEPTION, "reception") !== null, "but even there the whole ledger needs finance access");
+eq(readDenial("staff", undefined, "Dentist", NO_FINANCE), null, "staff names are open; pay is stripped separately");
+eq(readDenial("clinical_notes", undefined, "Receptionist", NO_FINANCE, "reception"), null, "the appointment panel keeps its own hand-made allowlist");
+ok(readDenial("ledger", undefined, "Receptionist", NO_FINANCE, "reception") !== null, "but even there the whole ledger needs finance access");
 eq(readDenial("ledger", { whereField: "patientId", whereOperator: "==", whereValue: "p1" }, "Receptionist", [], "reception"), null, "the panel reads the account of the patient on screen");
-ok(/money/.test(readDenial("ledger", undefined, "Receptionist", RECEPTION) || ""), "the refusal tells the model what to say");
+ok(/money/.test(readDenial("ledger", undefined, "Dentist", NO_FINANCE) || ""), "the refusal tells the model what to say");
 
-ok(seesMoney("Admin", []) && seesMoney("Accountant", ACCOUNTANT) && !seesMoney("Receptionist", RECEPTION), "seesMoney is the Finance page's permission");
+ok(seesMoney("Admin", []) && seesMoney("Accountant", ACCOUNTANT) && !seesMoney("Dentist", NO_FINANCE), "seesMoney is the Finance page's permission");
 
 eq(
   withoutPayFields({ name: "Dr Omar", role: "Dentist", baseSalary: 9000, commissionPercentage: 40, overtimeMultiplier: 1.5, paidDaily: true, phone: "0100" }),

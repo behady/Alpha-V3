@@ -49,6 +49,8 @@ jobs:
         run: npm run --silent test:ortho
       - name: Ledger arithmetic
         run: npm run --silent test:ledger
+      - name: Assistant ready answers (read policy, limits, money, debts, digest)
+        run: npm run --silent test:sara
       - name: Delete policy
         run: npm run --silent test:delete
       - name: Payment repair classifier

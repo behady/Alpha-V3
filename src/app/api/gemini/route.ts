@@ -1282,7 +1282,9 @@ export async function POST(req: Request) {
                    count: fitted.docs.length,
                    data: fitted.docs,
                    ...(found.length === lim ? { note: `Only the first ${lim} records were read; there may be more. Do not present this as the complete list.` } : {}),
-                   ...(fitted.leftOut > 0 ? { limitReached: CEILING_MESSAGE } : {}),
+                   ...(fitted.leftOut > 0
+                      ? { limitReached: `Only ${fitted.docs.length} of ${found.length} records fit the reading limit for this question. Do not read more. If you answer from these, say plainly that the answer covers only part of the records and may be incomplete.` }
+                      : {}),
                 };
              }
 
