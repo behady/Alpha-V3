@@ -59,6 +59,7 @@
     "test:wa-username": "npx tsx tests/waUsernameSenders.test.mts",
     "test:wa-username-route": "npx tsx tests/waUsernameRoute.test.mts",
     "test:bot-superseded": "npx tsx tests/botSuperseded.test.mts",
+    "test:bot-desk-first": "npx tsx tests/botDeskFirst.test.mts",
     "test:bot-bubbles": "npx tsx tests/botBubbles.test.mts",
     "test:bot-fallback": "npx tsx tests/botAiFirstFallback.test.mts",
     "battery:pro": "npx tsx scripts/pro-battery.mts",

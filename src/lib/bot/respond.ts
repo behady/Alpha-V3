@@ -40,8 +40,10 @@ import {
   markHandoff,
   replyAllowance,
   saveConversation,
+  staffWroteAtNow,
   type HandoffSeverity,
 } from "./conversation";
+import { holdingLineAlreadySaid, staffAnsweredMeanwhile, yieldsToStaff } from "./deskFirst";
 import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK } from "./aiReply";
 import { aiBrainOf, dryRunBrainTag, pickReply, type AiBrain } from "@/lib/botPro/brain";
@@ -2405,6 +2407,17 @@ ${askWho}` : askWho;
     structure = localized.structure;
   }
 
+  /*
+   * "The team has your message" is said once (lib/bot/deskFirst). A medical or complaint hand-off
+   * raised again while one is still open, in the same exchange, sends the patient nothing: she
+   * already has the line (and the clinic's number). The desk is still flagged and pushed below
+   * with her new words. 26/11/2026: about 25 apologies in 66 minutes to one patient in pain.
+   */
+  if (!args.dryRun && handoff && holdingLineAlreadySaid(conversation, reason, now)) {
+    replyText = "";
+    structure = undefined;
+  }
+
   // A promise of a person, made while the clinic is shut, says when the person will actually be
   // there. "في أقرب وقت" at 1am on a Thursday and on the Friday it is closed were the same words.
   // Off unless the clinic switched it on (botClosedNote): owners asked for it to stop.
@@ -2612,9 +2625,21 @@ ${askWho}` : askWho;
     }
     return false;
   };
+  /*
+   * A receptionist wrote while this answer was being composed: it is hers to give, and the model's
+   * is not sent over her (lib/bot/deskFirst). The claim minutes only stop a turn that starts after
+   * staff wrote. 25/11/2026: reception typed "today is full" and the model offered 6 pm today one
+   * second later. Only the model's own talk gives way; a booking or the safety line still goes.
+   */
+  const yields = !args.dryRun && settings.aiFirst && yieldsToStaff(reason);
+  const staffTookIt = async (): Promise<boolean> =>
+    yields && staffAnsweredMeanwhile(await staffWroteAtNow(clinicId, conversation.phoneKey), ownLineAt);
   // The first bubble went out and the patient wrote before the next one: the rest is not sent.
   let tailDropped = false;
   try {
+    if (await staffTookIt()) {
+      return skip("staff_answered");
+    }
     if (supersedable && (await wroteAgain())) {
       return skip("superseded");
     }
@@ -2639,7 +2664,8 @@ ${askWho}` : askWho;
       // The patient wrote meanwhile: this tail was written for the older message. 14/11/2026: the
       // price went out, the patient asked "السعر كام", and 0.7 s later the old tail's question
       // arrived as if it were the answer.
-      if (supersedable && (await wroteAgain())) {
+      // Or a receptionist did: the rest is hers.
+      if ((supersedable && (await wroteAgain())) || (await staffTookIt())) {
         tailDropped = true;
         break;
       }
