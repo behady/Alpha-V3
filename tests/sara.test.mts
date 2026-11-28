@@ -18,6 +18,9 @@ import { buildMoneyDay, moneyDayDigest, moneyDayPdfSections } from "../src/lib/s
 import { buildDebts, creditLines, debtsDigest, debtsPdfSections } from "../src/lib/sara/debts";
 import { digestReportDoc, docToPdfSections } from "../src/lib/sara/reportDigest";
 import type { ReportDoc } from "../src/lib/reports/documents";
+import { paymentChanges, paymentChangesDigest, paymentChangesPdfSections } from "../src/lib/sara/paymentChanges";
+import { outcomeOf } from "../src/lib/sara/turnOutcome";
+import { reportHtml } from "../src/lib/sara/printTables";
 
 let checks = 0;
 function ok(condition: unknown, message: string) {
@@ -255,5 +258,45 @@ ok(JSON.stringify(d).length < 1500, "the whole digest stays small");
 const sections = docToPdfSections(doc);
 eq(sections[0].rows?.[0], ["Given away", "12,400 EGP  (▲ 20% (+2,000))"], "the PDF opens with the figures");
 eq(sections[1].rows?.length, 26, "then every row of the table plus its total");
+
+// --- 7. Payments deleted or changed -----------------------------------------------------------------
+
+const audit = [
+  { collection: "ledger", action: "delete", date: "2026-11-27", byName: "Salma", before: { type: "payment", patientName: "Mariam", amount: 0, paid: 1500, method: "Cash" } },
+  { collection: "ledger", action: "update", date: "2026-11-28", byName: "Nour", before: { type: "payment", patientName: "Omar", paid: 800, method: "Cash" }, after: { paid: 500, method: "Visa" } },
+  // A commission recalculation touches the row but not the money taken.
+  { collection: "ledger", action: "update", date: "2026-11-28", byName: "System", before: { type: "payment", patientName: "Hana", paid: 400, doctorCommissionAmount: 100 }, after: { doctorCommissionAmount: 160 } },
+  { collection: "ledger", action: "create", date: "2026-11-28", byName: "Nour", after: { type: "payment", paid: 100 } },
+  { collection: "ledger", action: "delete", date: "2026-11-28", byName: "Nour", before: { type: "procedure", patientName: "Plan", cost: 9000 } },
+  { collection: "appointments", action: "delete", date: "2026-11-28", byName: "Nour", before: { type: "payment", paid: 1 } },
+  { collection: "ledger", action: "delete", date: "2026-11-26", before: { type: "expense", category: "Supplies", paid: 0, cost: 300 } },
+];
+const changes = paymentChanges(audit);
+eq(changes.map((c) => [c.date, c.action, c.patient]), [["2026-11-28", "changed", "Omar"], ["2026-11-27", "deleted", "Mariam"], ["2026-11-26", "deleted", "Supplies"]], "only deleted or edited money rows, newest first");
+eq(changes[0].what, ["amount 800 → 500", "method Cash → Visa"], "an edit says what moved, read over the old row");
+eq(changes[1].before, 1500, "a deleted payment's amount is read from the non-zero field");
+eq(changes[2].by, "Unknown", "a missing actor is said to be unknown, not blank");
+const changeDigest = paymentChangesDigest(changes, 1);
+eq([changeDigest.deleted.count, changeDigest.deleted.total, changeDigest.changed.count], [2, 1800, 1], "the digest counts both kinds");
+ok(changeDigest.moreInPdf && changeDigest.lines.length === 1, "and shows the first lines only");
+ok(/No payment/.test(paymentChangesPdfSections([], false)[0].note || ""), "nothing changed is said in words");
+eq(paymentChangesPdfSections(changes, false)[0].rows?.length, 3, "the PDF lists every change");
+
+// --- 8. How a turn is recorded ---------------------------------------------------------------------
+
+eq(outcomeOf({ tools: ["who_owes"], noAnswer: false, deep: false, acted: false }), "ready", "a ready-made answer");
+eq(outcomeOf({ tools: ["find_patient", "db_read"], noAnswer: false, deep: false, acted: false }), "read", "a raw read is what we want to see less of");
+eq(outcomeOf({ tools: ["db_read", "who_owes"], noAnswer: false, deep: false, acted: false }), "read", "one raw read marks the whole turn");
+eq(outcomeOf({ tools: ["db_read"], noAnswer: false, deep: true, acted: false }), "deep", "a deep search is its own outcome");
+eq(outcomeOf({ tools: ["db_read"], noAnswer: true, deep: true, acted: false }), "none", "no answer outranks everything");
+eq(outcomeOf({ tools: ["record_payment"], noAnswer: false, deep: false, acted: true }), "action", "a staged action");
+eq(outcomeOf({ tools: [], noAnswer: false, deep: false, acted: false }), "talk", "no tools at all is just conversation");
+
+// --- 9. The printed page ---------------------------------------------------------------------------
+
+const html = reportHtml({ title: "Who owes <b>", subtitle: "2026-11-28", language: "ar", sections: [{ heading: "List", columns: ["Patient", "EGP"], rows: [["<script>alert(1)</script>", "4,000"]], note: "a & b" }] }, "Alpha \"Dental\"");
+ok(!html.includes("<script>alert(1)</script>") && html.includes("&lt;script&gt;"), "a patient name is never markup");
+ok(html.includes("Who owes &lt;b&gt;") && html.includes("a &amp; b") && html.includes("Alpha &quot;Dental&quot;"), "title, note and clinic name are escaped too");
+ok(html.includes('dir="rtl"') && html.includes('class="num">4,000'), "Arabic pages read right to left and figures are set as figures");
 
 console.log(`sara: ${checks} checks passed`);

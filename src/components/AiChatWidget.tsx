@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState, useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus } from "lucide-react";
+import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus, FileText } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -14,6 +14,7 @@ import { auth } from "@/lib/firebase";
 import { currentBranchId, withBranch } from "@/lib/branchScope";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
 import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
+import { printAssistantReport, type PrintableReport } from "@/lib/sara/printTables";
 import { installErrorBreadcrumbs, getErrorBreadcrumbs } from "@/lib/errorBreadcrumbs";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { RECEPTIONIST_NAME } from "@/lib/receptionist";
@@ -39,6 +40,12 @@ interface ChatMessage {
   timestamp: Date;
   /** Data-URL of an image the user attached to this message — rendered as a thumbnail. */
   image?: string;
+  /** The assistant could not answer. Shown, but never sent back as history (and never charged). */
+  noAnswer?: boolean;
+  /** The full tables behind a ready-made answer, for the "Open PDF" button. */
+  pdf?: PrintableReport;
+  /** A deeper search the server offered for this question (Owner/Admin only). */
+  deepOffer?: { credits: number; question: string };
 }
 
 /**
@@ -411,7 +418,7 @@ export default function AiChatWidget() {
     setIsOpen(false);
   };
 
-  const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
+  const handleSendMessage = async (e?: React.FormEvent, customText?: string, opts?: { deep?: boolean }) => {
     if (e) e.preventDefault();
     const textToSend = customText || inputMessage;
     // An attached image alone is a legitimate message; the question is implied.
@@ -421,7 +428,10 @@ export default function AiChatWidget() {
     // The mode this message belongs to — the reply lands here even if the user switches hats
     // while it is in flight, and the history sent is this thread's, not whichever is on screen.
     const mode = assistantMode;
-    const outgoingHistory = threads[mode].map(m => ({ role: m.role, parts: [{ text: m.content }] }));
+    // A turn that got no answer is left out together with its question: sent back, the model
+    // reads its own failure as the way to reply and fails the next question the same way.
+    const kept = threads[mode].filter((m, i, all) => !m.noAnswer && !(m.role === "user" && all[i + 1]?.noAnswer));
+    const outgoingHistory = kept.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
 
     setInputMessage("");
     setPendingImage(null);
@@ -465,6 +475,8 @@ export default function AiChatWidget() {
           // does not have — the model calls it, the server answers "Opened Khaled's 4 PM",
           // and nothing appears.
           client: "web-widget",
+          // The person said yes to the deeper search card. The server checks the role itself.
+          ...(opts?.deep ? { deepSearch: true } : {}),
           // Which hat the assistant wears this turn — normal chat, patient trainer, or support
           // triage. Same brain and tools; the mode shifts emphasis server-side.
           assistantMode: mode,
@@ -486,8 +498,12 @@ export default function AiChatWidget() {
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: data.reply || "...",
+        // The server never sends an empty reply now; this only covers an older deployment.
+        content: data.reply || (isAr ? "معرفتش أطلع الإجابة دي دلوقتي." : "I couldn't work that out this time."),
         timestamp: new Date(),
+        ...(data.noAnswer || !data.reply ? { noAnswer: true } : {}),
+        ...(data.reportPdf?.title && Array.isArray(data.reportPdf.sections) ? { pdf: data.reportPdf as PrintableReport } : {}),
+        ...(Number(data.deepSearchOffer?.credits) > 0 ? { deepOffer: { credits: Number(data.deepSearchOffer.credits), question: prompt } } : {}),
       };
 
       pushMessage(mode, assistantMsg);
@@ -788,6 +804,35 @@ export default function AiChatWidget() {
                   )}
                   {/* Same split as the appointment panel: typed text literal, model reply parsed. */}
                   {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isRTL} />}
+                  {/* The full list behind a ready-made answer. Built by the system, not the model. */}
+                  {msg.pdf && (
+                    <button
+                      type="button"
+                      onClick={() => void printAssistantReport(msg.pdf!, clinic?.name)}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-subtle px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-surface transition-colors"
+                    >
+                      <FileText size={13} className="shrink-0" />
+                      {isAr ? "افتح التقرير PDF" : "Open the PDF report"}
+                    </button>
+                  )}
+                  {/* Offered by the server to an Owner or Admin when the reading limit stopped the answer. */}
+                  {msg.deepOffer && msg.id === messages[messages.length - 1]?.id && (
+                    <div className="mt-2 rounded-xl border border-line bg-surface-subtle px-3 py-2">
+                      <p className="text-[12px] text-ink-body leading-relaxed">
+                        {isAr
+                          ? `السؤال ده محتاج بحث أعمق في السجلات. هيتحسب ${msg.deepOffer.credits} رصيد.`
+                          : `This question needs a deeper search through the records. It uses ${msg.deepOffer.credits} credits.`}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => void handleSendMessage(undefined, msg.deepOffer!.question, { deep: true })}
+                        className="mt-2 rounded-lg bg-ink-slab px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-50 active:scale-[0.98] transition-transform"
+                      >
+                        {isAr ? `ابحث أعمق (${msg.deepOffer.credits} رصيد)` : `Search deeper (${msg.deepOffer.credits} credits)`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
