@@ -130,6 +130,19 @@ function screenToUrl(screen) {
 }
 
 /**
+ * Where a tap on the browser notification goes: the alert's page, in the clinic that raised it.
+ *
+ * `?clinic=` is what makes the tap land in the right clinic for someone who works at two of them
+ * (or a super admin looking at another one). /firebase-messaging-sw.js reads `data.url`.
+ * Mirrors the web helper.
+ */
+function pushOpenUrl(path, clinicId) {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return null;
+  if (!clinicId) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}clinic=${encodeURIComponent(clinicId)}`;
+}
+
+/**
  * options:
  *   event   — a notificationCatalog id. Supplying it is what makes the alert controllable.
  *   roles   — only staff with one of these roles. Ignored when `event` names its own audience.
@@ -174,6 +187,7 @@ async function sendClinicPush(db, clinicId, notification, options = {}) {
 
     const audience = kept.map((snap) => snap.id);
     const meta = event ? notifyEvent(event) : undefined;
+    const pagePath = actionUrl || screenToUrl(data?.screen) || null;
 
     if (!resolved || resolved.bell) {
       try {
@@ -182,7 +196,7 @@ async function sendClinicPush(db, clinicId, notification, options = {}) {
           body: notification.body,
           eventType: event || "generic",
           group: meta?.group || null,
-          actionUrl: actionUrl || screenToUrl(data?.screen) || null,
+          actionUrl: pagePath,
           audience,
           readBy: [],
           dismissedBy: [],
@@ -209,9 +223,11 @@ async function sendClinicPush(db, clinicId, notification, options = {}) {
 
     const message = { tokens, notification, webpush: WEB_PUSH };
     // Data rides on the notification: Android delivers it as intent extras on tap, which is what
-    // lets the app open the right screen.
+    // lets the app open the right screen. `url` is the browser's version of the same thing.
+    const openUrl = pushOpenUrl(pagePath, clinicId);
     const dataEntries = Object.entries({
       ...(data || {}),
+      ...(openUrl ? { url: openUrl } : {}),
       ...(channel ? { channel } : {}),
       ...(event ? { event } : {}),
     })
@@ -250,4 +266,5 @@ module.exports = {
   readClinicMembers,
   clinicHourNow,
   screenToUrl,
+  pushOpenUrl,
 };
