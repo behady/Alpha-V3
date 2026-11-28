@@ -23,7 +23,7 @@ type Snap = { docs: { id: string; data: () => Record<string, unknown> }[] };
 const rows = (snap: Snap): Row[] => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 const live = (list: Row[]) => list.filter((r) => !["deleted", "cancelled"].includes(String(r.status || "").toLowerCase()));
 
-export type MoneyAnswer = { ok: true; money: MoneyDay; branchLabel: string } | { ok: false; error: string };
+export type MoneyAnswer = { ok: true; money: MoneyDay; branchLabel: string; hasBranches: boolean } | { ok: false; error: string };
 
 /**
  * Money for a period, for the branch on screen.
@@ -56,7 +56,7 @@ export async function answerMoney(args: { clinicId: string; uid: string; role: s
     }
   }
 
-  return { ok: true, money: buildMoneyDay({ rows: ledger, startDate, endDate, branches: branches.map((b) => ({ id: b.id, name: b.name })) }), branchLabel };
+  return { ok: true, money: buildMoneyDay({ rows: ledger, startDate, endDate, branches: branches.map((b) => ({ id: b.id, name: b.name })) }), branchLabel, hasBranches: branches.length > 0 };
 }
 
 /** Who owes, always clinic-wide: one patient is one account whichever branch they visit. */

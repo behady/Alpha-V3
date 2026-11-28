@@ -168,7 +168,9 @@ eq(digest.payments.lines.length, 2, "the model sees the first lines only");
 eq(digest.payments.count, 4, "and how many there are");
 ok(digest.moreInPdf, "and that the rest is in the PDF");
 ok("byBranch" in digest, "branches appear when there is more than one");
-ok(!("byBranch" in moneyDayDigest(buildMoneyDay({ rows: ledger.filter((r) => r.branchId === "b1"), startDate: "2026-11-28", endDate: "2026-11-28" }))), "and not for a single one");
+const oneBranch = buildMoneyDay({ rows: ledger.filter((r) => r.branchId === "b1"), startDate: "2026-11-28", endDate: "2026-11-28", branches: [{ id: "b1", name: "Nasr City" }] });
+ok(!("byBranch" in moneyDayDigest(oneBranch)) && "branches" in moneyDayDigest(oneBranch), "a clinic with no branches is told so in words");
+ok("byBranch" in moneyDayDigest(oneBranch, 12, true), "a clinic WITH branches gets the split even when only one took money");
 
 const pdf = moneyDayPdfSections(day, false);
 eq(pdf.find((s) => s.heading === "Payments")?.rows?.length, 4, "the PDF has every payment");

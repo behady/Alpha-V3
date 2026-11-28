@@ -139,7 +139,7 @@ export function buildMoneyDay(args: { rows: readonly LedgerRow[]; startDate: str
 }
 
 /** What the model sees: every sum, and the first few lines of each list. */
-export function moneyDayDigest(m: MoneyDay, maxLines = 12) {
+export function moneyDayDigest(m: MoneyDay, maxLines = 12, clinicHasBranches = false) {
   return {
     period: m.startDate === m.endDate ? m.startDate : `${m.startDate} to ${m.endDate}`,
     currency: "EGP",
@@ -150,7 +150,9 @@ export function moneyDayDigest(m: MoneyDay, maxLines = 12) {
     net: m.net,
     byMethod: m.byMethod,
     byCollector: m.byCollector,
-    ...(m.byBranch.length > 1 ? { byBranch: m.byBranch } : {}),
+    // Always answered for a clinic with branches, even when only one took money: otherwise the
+    // model goes looking for the split in raw records.
+    ...(clinicHasBranches || m.byBranch.length > 1 ? { byBranch: m.byBranch } : { branches: "This clinic has one location; no branches are set up." }),
     cashDrawer: {
       ...m.drawer,
       note: "Cash payments minus cash expenses in this period. It does not know what was in the drawer before the period started.",

@@ -2127,7 +2127,9 @@ export async function POST(req: Request) {
                 if (!answer.ok) {
                    toolResult = { success: false, error: answer.error };
                 } else {
-                   const pdfReady = attachPdf({
+                   // A period with no payment and no expense has nothing a PDF could add.
+                   const hasLines = answer.money.payments.length + answer.money.expenseLines.length > 0;
+                   const pdfReady = hasLines && attachPdf({
                       title: answerLang === "ar" ? "ملخص الفلوس" : "Money summary",
                       subtitle: [startDate === endDate ? startDate : `${startDate} → ${endDate}`, answer.branchLabel].filter(Boolean).join(" · "),
                       sections: moneyDayPdfSections(answer.money, answerLang === "ar"),
@@ -2135,7 +2137,7 @@ export async function POST(req: Request) {
                    });
                    toolResult = {
                       success: true,
-                      ...moneyDayDigest(answer.money),
+                      ...moneyDayDigest(answer.money, 12, answer.hasBranches),
                       ...(answer.branchLabel ? { branch: answer.branchLabel } : {}),
                       pdfAttached: pdfReady,
                    };
@@ -2160,7 +2162,7 @@ export async function POST(req: Request) {
                    limit: Number((call.args as any).limit) || undefined,
                    patientId: String((call.args as any).patientId || "").trim() || undefined,
                 });
-                const pdfReady = onePatient ? false : attachPdf({
+                const pdfReady = onePatient || debts.lines.length === 0 ? false : attachPdf({
                    title: answerLang === "ar" ? (filter === "credit" ? "دافعين مقدم" : "المستحقات") : filter === "credit" ? "Paid in advance" : "Who owes",
                    subtitle: ymdInTimeZone(clinicTimeZone()),
                    sections: debtsPdfSections(debts, answerLang === "ar"),
