@@ -51,6 +51,8 @@ interface Transaction {
   id: string; type: 'payment' | 'expense' | 'income' | 'procedure'; description: string; amount?: number; paid?: number; cost?: number; date: string; category?: string; patientName?: string; patientId?: string; doctor?: string; method?: string; isRecurring?: boolean; val: number; doctorName?: string | null; doctorCommissionAmount?: number; labFee?: number; clinicProfit?: number;
   /** Set on the Salary expense a staff payout writes from the Team page. */
   settlementId?: string | null;
+  /** A paid-daily dentist's automatic day's share: follows the day's payments, never edited by hand. */
+  dailyPay?: boolean;
   /** The branch the money was taken in; absent on rows from before branches. */
   branchId?: string | null;
   doctorCommissionPercentage?: number | null;
@@ -486,6 +488,7 @@ export default function FinancePage() {
     if (desc === "Payment on account") return "دفعة تحت الحساب";
     if (desc === "Payment") return "دفعة";
     if ((m = desc.match(/^Staff pay\s*[–-]\s*(.+)$/))) return `اتدفع لـ ${m[1]}`;
+    if ((m = desc.match(/^Day's share\s*[–-]\s*(.+)$/))) return `نصيب اليوم – ${m[1]}`;
     if ((m = desc.match(/^Patient share - (.+?) approval (\S+) - (.+)$/))) return `نصيب المريض - ${m[1]} موافقة ${m[2]} - ${m[3]}`;
     return desc;
   };
@@ -677,7 +680,20 @@ export default function FinancePage() {
       return filteredList.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [filteredList, currentPage]);
 
+  /** A paid-daily dentist's day's share follows that day's payments; it is changed there, not here. */
+  const dailyPayRefusal = (tx: Transaction | undefined): boolean => {
+    if (!tx?.dailyPay) return false;
+    showToast(
+      language === "ar"
+        ? "ده نصيب الدكتور التلقائي لليوم: بيتظبط لوحده مع مدفوعات اليوم. عدّل الدفعة نفسها."
+        : "This is the dentist's automatic day's share. It follows that day's payments — change the payment instead.",
+      "info",
+    );
+    return true;
+  };
+
   const handleEdit = (tx: Transaction) => {
+    if (dailyPayRefusal(tx)) return;
     setEditingId(tx.id); setFormType(tx.type === 'expense' ? 'expense' : 'income');
     setAmount(tx.val.toString()); setDescription(tx.description || ""); setCategory(tx.category || "General"); setMethod(tx.method || "Cash");
     setDate(tx.date); setIsRecurring(!!tx.isRecurring); setIsModalOpen(true);
@@ -729,6 +745,7 @@ export default function FinancePage() {
   };
 
   const handleDelete = async (id: string, desc: string) => {
+    if (dailyPayRefusal(allTransactions.find((row) => row.id === id))) return;
     if (!(await confirm(t("deleteConfirm")))) return;
     try {
       const payout = allTransactions.find((row) => row.id === id)?.settlementId;

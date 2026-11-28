@@ -77,8 +77,44 @@ const s = (id: string, kind: "payout" | "deduction", amount: number, date: strin
   assert.equal(a.owed, -20);
 }
 
+// --- a paid-daily dentist: each day's automatic payout pays exactly its own payments -------------
+{
+  const daily = (id: string, amount: number, date: string, paymentIds: string[]): StaffSettlement => ({ ...s(id, "payout", amount, date), auto: "daily", paymentIds });
+  // An older insurance line is still unpaid; the day's line must not be swallowed by it.
+  const work: Earning[] = [
+    { key: "claim1#0", date: "2026-09-01", amount: 400 },
+    { key: "pay-1", date: "2026-10-01", amount: 300 },
+    { key: "pay-2", date: "2026-10-01", amount: 200 },
+    { key: "pay-3", date: "2026-10-02", amount: 100 },
+  ];
+  const r = settleEarnings(work, [daily("d1", 500, "2026-10-01", ["pay-1", "pay-2"]), daily("d2", 100, "2026-10-02", ["pay-3"])]);
+  assert.deepEqual(r.byKey.get("pay-1"), { paid: 300, deducted: 0, remaining: 0 });
+  assert.deepEqual(r.byKey.get("pay-2"), { paid: 200, deducted: 0, remaining: 0 });
+  assert.deepEqual(r.byKey.get("pay-3"), { paid: 100, deducted: 0, remaining: 0 });
+  assert.deepEqual(r.byKey.get("claim1#0"), { paid: 0, deducted: 0, remaining: 400 }, "the insurance line stays owed");
+  assert.equal(r.owed, 400);
+
+  // A manual payout afterwards goes oldest-first over what is still unpaid, skipping the paid days.
+  const m = settleEarnings(work, [daily("d1", 500, "2026-10-01", ["pay-1", "pay-2"]), s("m1", "payout", 150, "2026-09-15")]);
+  assert.deepEqual(m.byKey.get("claim1#0"), { paid: 150, deducted: 0, remaining: 250 });
+  assert.deepEqual(m.byKey.get("pay-3"), { paid: 0, deducted: 0, remaining: 100 });
+  assert.equal(m.paid, 650);
+  assert.equal(m.owed, 350);
+
+  // A day's line larger than its payments (a payment shrank, not re-synced yet): the extra is not lost.
+  const big = settleEarnings([{ key: "pay-1", date: "2026-10-01", amount: 300 }, { key: "pay-9", date: "2026-10-05", amount: 50 }], [daily("d1", 400, "2026-10-01", ["pay-1"])]);
+  assert.deepEqual(big.byKey.get("pay-1"), { paid: 300, deducted: 0, remaining: 0 });
+  assert.deepEqual(big.byKey.get("pay-9"), { paid: 50, deducted: 0, remaining: 0 }, "the extra 100 is poured oldest-first like any payout");
+  assert.equal(big.ahead, 50);
+  assert.equal(big.owed, -50);
+}
+
 // --- stored shape ---------------------------------------------------------------------------------
 {
+  const auto = parseSettlement("daily_s1_2026-10-05_all", { staffId: "s1", kind: "payout", amount: 700, date: "2026-10-05", auto: "daily", paymentIds: ["p1", "p2", 7, ""] });
+  assert.equal(auto?.auto, "daily");
+  assert.deepEqual(auto?.paymentIds, ["p1", "p2"], "only real ids are kept");
+  assert.equal(parseSettlement("x", { staffId: "s1", kind: "payout", amount: 700, date: "2026-10-05", auto: "weekly" })?.auto, undefined, "unknown auto kinds are ordinary payouts");
   assert.deepEqual(parseSettlement("id1", { staffId: "s1", kind: "payout", amount: "250.5", date: "2026-10-05", note: " cash ", ledgerId: "L1" }), {
     id: "id1", staffId: "s1", kind: "payout", amount: 250.5, date: "2026-10-05", note: "cash", method: "Cash", ledgerId: "L1",
   }, "a payout saved before methods existed reads as cash");

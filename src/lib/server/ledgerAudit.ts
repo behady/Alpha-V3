@@ -14,60 +14,34 @@
  * logged loudly so a silently-empty trail is noticeable.
  */
 
-import { FieldValue } from "firebase-admin/firestore";
-import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { logActivityServer } from "@/lib/server/systemLog";
+import { syncDailyPayFor, touchedByRows } from "@/lib/server/dailyPaySync";
+import { writeLedgerAudit, type LedgerAuditEntry } from "@/lib/server/ledgerAuditWrite";
 
-export const LEDGER_AUDIT_COLLECTION = "ledger_audit";
+export { LEDGER_AUDIT_COLLECTION, type LedgerAuditAction, type LedgerAuditEntry } from "@/lib/server/ledgerAuditWrite";
 
-export type LedgerAuditAction = "create" | "update" | "delete";
-
-export type LedgerAuditEntry = {
-  clinicId: string;
-  action: LedgerAuditAction;
-  collection: "ledger" | "clinical_notes" | "appointments";
-  documentId: string;
-  /** The document as it stood before. Required for update and delete — that is the whole point. */
-  before?: Record<string, unknown> | null;
-  after?: Record<string, unknown> | null;
-  actor: { uid?: string | null; name?: string | null; role?: string | null };
-  /** Which route and action did this, e.g. "finance/ledger:create-payment". */
-  via: string;
-};
-
-/** Firestore rejects `undefined`; strip it rather than letting a whole audit write fail. */
-function clean(value: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
-  if (!value) return null;
-  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
+/**
+ * Every money change is audited here once it has been saved, so this is also where a paid-daily
+ * dentist's automatic day's share is brought back in line (`lib/server/dailyPaySync.ts`). For a
+ * dentist whose switch is off it costs one read and writes nothing. Never throws.
+ */
+async function syncDailyPayAfter(entries: readonly LedgerAuditEntry[]): Promise<void> {
+  const ledger = entries.filter((e) => e.collection === "ledger");
+  if (ledger.length === 0) return;
+  await syncDailyPayFor(ledger[0].clinicId, ledger.flatMap((e) => touchedByRows(e.before, e.after)));
 }
 
 export async function recordLedgerAudit(entry: LedgerAuditEntry): Promise<void> {
-  try {
-    await adminClinicCollection(entry.clinicId, LEDGER_AUDIT_COLLECTION).add({
-      action: entry.action,
-      collection: entry.collection,
-      documentId: entry.documentId,
-      before: clean(entry.before),
-      after: clean(entry.after),
-      byUid: entry.actor.uid || null,
-      byName: entry.actor.name || "Unknown",
-      byRole: entry.actor.role || null,
-      via: entry.via,
-      at: FieldValue.serverTimestamp(),
-      date: new Date().toISOString().split("T")[0],
-    });
-  } catch (error) {
-    console.error("recordLedgerAudit: failed to write audit entry", {
-      clinicId: entry.clinicId,
-      collection: entry.collection,
-      documentId: entry.documentId,
-    }, error);
-  }
+  await writeLedgerAudit(entry);
+  await syncDailyPayAfter([entry]);
 }
 
 /** Several rows changed by one action — recorded individually so each is searchable by id. */
 export async function recordLedgerAuditBatch(entries: LedgerAuditEntry[]): Promise<void> {
-  await Promise.all(entries.map((entry) => recordLedgerAudit(entry)));
+  await Promise.all(entries.map((entry) => writeLedgerAudit(entry)));
+  const byClinic = new Map<string, LedgerAuditEntry[]>();
+  for (const e of entries) byClinic.set(e.clinicId, [...(byClinic.get(e.clinicId) || []), e]);
+  for (const group of byClinic.values()) await syncDailyPayAfter(group);
 }
 
 /**

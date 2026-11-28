@@ -65,6 +65,7 @@ export default function StaffProfile({
   onSetRate,
   branches,
   onSaveBranchIds,
+  onSetPaidDaily,
   attendanceSheet,
   onExportAttendance,
 }: {
@@ -103,6 +104,8 @@ export default function StaffProfile({
   branches: readonly ClinicBranch[];
   /** Save the branches this person may work in; null = every branch. */
   onSaveBranchIds: (ids: string[] | null) => void | Promise<void>;
+  /** Turn "Paid daily" on or off: the dentist takes their share from each payment. */
+  onSetPaidDaily: (on: boolean) => Promise<void>;
   /** The clock-in sheet for this person and period (rows, filters, totals, day's pay). */
   attendanceSheet: AttendanceSheet;
   /** Download the clock-in sheet as Excel: this person, or the whole team. */
@@ -406,6 +409,7 @@ export default function StaffProfile({
             onSetRate={onSetRate}
             branches={branches}
             onSaveBranchIds={onSaveBranchIds}
+            onSetPaidDaily={onSetPaidDaily}
           />
         )}
       </div>

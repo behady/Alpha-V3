@@ -9,6 +9,7 @@ import { allowedBranches } from "@/lib/branchAccess";
 import { isFullAccessRole } from "@/lib/permissions";
 import { useUI } from "@/context/UIContext";
 import { settingsText } from "@/config/settingsText";
+import { askConfirm } from "@/lib/confirmBridge";
 import type { ClinicBranch } from "@/lib/clinicLocations";
 import { btnGhost, btnDark, DAYS_AR, DAYS_EN, fieldInput, fieldLabel, money, Section, Stat, type PayDraft, type ProfileStaff, type RateRow } from "./profileKit";
 
@@ -27,6 +28,7 @@ export default function SettingsTab({
   onSetRate,
   branches,
   onSaveBranchIds,
+  onSetPaidDaily,
 }: {
   staff: ProfileStaff;
   dentist: boolean;
@@ -45,9 +47,12 @@ export default function SettingsTab({
   branches: readonly ClinicBranch[];
   /** Save the branches this person may work in; null = every branch (the field is removed). */
   onSaveBranchIds: (ids: string[] | null) => void | Promise<void>;
+  /** Turn "Paid daily" on or off. */
+  onSetPaidDaily: (on: boolean) => Promise<void>;
 }) {
   const { showToast } = useUI();
   const [payOpen, setPayOpen] = useState(false);
+  const [paidDailySaving, setPaidDailySaving] = useState(false);
   const [draft, setDraft] = useState<PayDraft | null>(null);
   const days = isAr ? DAYS_AR : DAYS_EN;
   const bt = settingsText("teamBranches", isAr ? "ar" : "en");
@@ -253,6 +258,57 @@ export default function SettingsTab({
           </form>
         )}
       </Section>
+
+      {/* --- paid daily: the dentist takes their share from each payment (lib/dailyPay.ts) ---- */}
+      {dentist && (
+        <Section
+          title={isAr ? "بياخد نصيبه إزاي" : "How their share is paid"}
+          note={
+            isAr
+              ? "لو بياخد نصيبه من كل دفعة وقت ما المريض يدفع، شغّل ده: نصيبه بيتسجل إنه اتدفع على طول، والمالية بتنزّل سطر واحد كل يوم «نصيب اليوم». الشركات والخصومات زي ما هي."
+              : "If they take their share from each payment the moment the patient pays, switch this on: their share is marked paid straight away, and Finance shows one \"Day's share\" line a day. Insurance shares and deductions work as before."
+          }
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[16px] font-extrabold text-ink">
+                {staff.paidDaily
+                  ? isAr ? "بياخد نصيبه يومي — من كل دفعة" : "Paid daily — takes their share from each payment"
+                  : isAr ? "نصيبه بيتجمع لحد ما تدفعله من هنا" : "Their share adds up until you pay it from here"}
+              </p>
+              {staff.paidDaily && staff.paidDailyFrom ? (
+                <p className="mt-1 text-[14px] font-semibold text-ink-muted">
+                  {isAr ? "من يوم" : "Since"} <bdi className="font-figure" dir="ltr">{staff.paidDailyFrom}</bdi>
+                </p>
+              ) : null}
+            </div>
+            {canEdit ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={Boolean(staff.paidDaily)}
+                disabled={paidDailySaving}
+                onClick={async () => {
+                  const next = !staff.paidDaily;
+                  if (!next && !(await askConfirm({
+                    ar: "توقف الدفع اليومي؟ من دلوقتي نصيبه هيتجمع كمستحق لحد ما تسجّل دفعة. الأيام اللي اتسجلت هتفضل زي ما هي.",
+                    en: "Stop paying daily? From now on their share adds up as owed until you record a payout. Days already recorded stay as they are.",
+                  }))) return;
+                  setPaidDailySaving(true);
+                  try {
+                    await onSetPaidDaily(next);
+                  } finally {
+                    setPaidDailySaving(false);
+                  }
+                }}
+                className={`${staff.paidDaily ? btnDark : btnGhost} disabled:opacity-50`}
+              >
+                {staff.paidDaily ? (isAr ? "شغّال — اقفله" : "On — turn off") : isAr ? "شغّل الدفع اليومي" : "Turn on paid daily"}
+              </button>
+            ) : null}
+          </div>
+        </Section>
+      )}
 
       {/* --- what this dentist earns on each company and each price list ---------------------- */}
       {dentist && rateRows.length > 0 && (

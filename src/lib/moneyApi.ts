@@ -324,6 +324,11 @@ export function deleteStaffSettlement(id: string, clinicId?: string | null) {
   return post("/api/staff/settlements", { action: "delete", id, clinicId });
 }
 
+/** Turn "Paid daily" on or off for one dentist (lib/dailyPay.ts). */
+export function setStaffPaidDaily(staffId: string, paidDaily: boolean, clinicId?: string | null) {
+  return post<{ ok: true; paidDaily: boolean; paidDailyFrom: string | null }>("/api/staff/daily-pay", { staffId, paidDaily, clinicId });
+}
+
 /**
  * Correct what a treatment was charged for its lab work, from what the lab actually agreed.
  *

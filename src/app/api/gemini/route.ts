@@ -15,6 +15,7 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { syncDailyPayFor, touchedByRows } from "@/lib/server/dailyPaySync";
 import { SCREEN_MAP } from "@/lib/screenMap";
 import { buildTourInstruction } from "@/lib/tourPrompt";
 import { logAiAction } from "@/lib/serverLogger";
@@ -1358,6 +1359,8 @@ export async function POST(req: Request) {
                clinicId, kind: "create", collection: col, documentId: newRef.id,
                userId, userName, userRole: authz.role, after: data,
              });
+             // A payment for a paid-daily dentist moves their automatic day's share.
+             if (col === "ledger") await syncDailyPayFor(clinicId, touchedByRows(data));
 
              toolResult = { success: true, message: `Created document ${newRef.id}`, id: newRef.id };
 
@@ -1398,6 +1401,7 @@ export async function POST(req: Request) {
                userId, userName, userRole: authz.role,
                before: priorSnap.exists ? priorSnap.data() : null, after: data,
              });
+             if (col === "ledger") await syncDailyPayFor(clinicId, touchedByRows(priorSnap.data(), data));
 
              toolResult = { success: true, message: `Updated document ${id}` };
 

@@ -36,6 +36,9 @@ export type ProfileStaff = {
   permissions?: string[];
   /** Branches this person may work in; absent = every branch. */
   branchIds?: string[];
+  /** Takes their share from each payment (lib/dailyPay.ts); the day it was switched on. */
+  paidDaily?: boolean;
+  paidDailyFrom?: string | null;
 };
 
 /**

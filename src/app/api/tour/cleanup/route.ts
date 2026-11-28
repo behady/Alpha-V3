@@ -3,6 +3,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
 import { reportServerError } from "@/lib/server/reportError";
+import { syncDailyPayFor, touchedByRows } from "@/lib/server/dailyPaySync";
 import { DEMO_RECORD_NAMES } from "@/lib/tourDemo";
 
 export const runtime = "nodejs";
@@ -91,6 +92,8 @@ export async function cleanTourRecords(clinicId: string, olderThanMs = DAY_MS): 
         await kid.ref.delete();
         bump(child);
       }
+      // A demo payment credited to a paid-daily dentist was in their day's share; take it back out.
+      if (child === "ledger") await syncDailyPayFor(clinicId, touchedByRows(...kids.docs.map((k) => k.data())));
     }
     await doc.ref.delete();
     bump("patients");
