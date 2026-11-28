@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
-  Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
+  Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock,
   Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-  X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
+  Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
 } from "lucide-react";
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
 import NoApprovalTag from "@/components/appointments/NoApprovalTag";
@@ -77,18 +77,6 @@ type PhoneView = "day" | "week" | "dentists" | "rooms";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
-}
-
-function getWelcomeName(name?: string): string {
-  if (!name) return "";
-  const parts = name.split(" ").filter(Boolean);
-  if (parts.length > 1) {
-    const firstLower = parts[0].toLowerCase().replace(/\.$/, ""); // remove trailing dot
-    if (["dr", "د", "دكتور", "doctor", "prof", "أستاذ", "استاذ"].includes(firstLower)) {
-      return `${parts[0]} ${parts[1]}`;
-    }
-  }
-  return parts[0] || "";
 }
 
 function getEndTimeStr(timeStr: string, durationMin: number): string {
@@ -167,29 +155,6 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
     discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
     discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
   };
-}
-
-function DashboardClockWidget({ language, showTime = true }: { language: string, showTime?: boolean }) {
-  const [time, setTime] = useState(new Date());
-  useEffect(() => {
-    // Update once a minute since we don't display seconds
-    const timer = setInterval(() => setTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  if (!showTime) {
-    return (
-      <>{time.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short' })}</>
-    );
-  }
-
-  return (
-    <>
-      <span className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-400" /> {time.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-      <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-      <span className="flex items-center gap-1.5"><Clock size={14} className="text-slate-400" /> {time.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
-    </>
-  );
 }
 
 export default function MobileDashboard() {
@@ -990,13 +955,10 @@ export default function MobileDashboard() {
     <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-clip lg:overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
 
-        {/* The greeting and the two quick actions now sit in the layout's black band, so they
-            are there on a phone too — this bar used to be `hidden lg:flex` inside a component
-            that only ever renders below `lg`, which meant nobody had ever seen it. */}
-        <PageHeader
-          title={<><span className="font-light">{language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'}</span> {getWelcomeName(user?.name)}</>}
-          eyebrow={<span className="inline-flex items-center gap-2"><DashboardClockWidget language={language} /></span>}
-        >
+        {/* Only the quick actions sit in the black band. The "Welcome in, <name>" line and the
+            date/clock above it were removed at the owner's request (2026-11-28): the phone
+            already shows the time, and the line pushed the day's list further down. */}
+        <PageHeader>
           <HomeViewTabs />
           <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
             <Plus size={17} strokeWidth={3} />
@@ -1059,60 +1021,17 @@ export default function MobileDashboard() {
               the top of every screen already carries both, and two of them stacked read as a
               mistake. */}
 
-          {/* 2. Daily Overview (Stats + Income) */}
-          <div className="flex flex-col gap-2 mx-1">
-             <div className="flex items-center justify-between px-2">
-                 <h3 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{language === 'ar' ? 'نظرة عامة' : 'Daily Overview'}</h3>
-             </div>
-             
-             <div className="grid grid-cols-2 gap-2">
-                {/* Income Card (Spans half) */}
-                <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col relative overflow-hidden">
-                    <div className="flex justify-between items-start w-full relative z-10 mb-2">
-                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{language === 'ar' ? 'دخل اليوم' : 'Today\'s Income'}</span>
-                       <div className="p-1.5 bg-emerald-50 rounded-full"><Wallet size={14} className="text-emerald-600" /></div>
-                    </div>
-                    <div className="flex-1 flex flex-col items-center justify-center relative z-10 min-h-[80px]">
-                        {hideIncome ? "—" : dailyIncome === null ? (
-                            <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                        ) : (
-                            <div className="flex items-baseline justify-center gap-1 w-full">
-                                <span className="text-4xl font-black tracking-tighter leading-none truncate text-center text-ink drop-shadow-sm">{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest shrink-0">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Status Cards (2x2 grid inside the other half) - Cleaner palette with icons */}
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-sky-500" /> {language === 'ar' ? 'مؤكد' : 'Confirm'}</span>
-                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.confirmed}</span>
-                    </div>
-                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><Clock size={12} strokeWidth={3} className="text-amber-500" /> {language === 'ar' ? 'متأخر' : 'Delay'}</span>
-                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.delayed}</span>
-                    </div>
-                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-emerald-500" /> {language === 'ar' ? 'تمت' : 'Done'}</span>
-                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.completed}</span>
-                    </div>
-                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><X size={12} strokeWidth={3} className="text-rose-500" /> {language === 'ar' ? 'ملغي' : 'Cancel'}</span>
-                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.canceled}</span>
-                    </div>
-                </div>
-             </div>
-          </div>
+          {/* The "Daily Overview" block (today's income + confirmed / late / done / cancelled
+              counts) was removed at the owner's request (2026-11-28); the quick actions now
+              open the column. */}
 
           {/* Clock In / Attendance widget (Hidden on Mobile for now) */}
           {/* <div className="mt-1 mx-1">
             <UserClockWidget mobileVariant={true} />
           </div> */}
 
-          {/* 3. Vertical Quick Actions Stack (Moved down) */}
-          <div className="flex flex-col gap-2 px-1 pb-1 mt-2">
+          {/* Vertical Quick Actions Stack */}
+          <div className="flex flex-col gap-2 px-1 pb-1">
             <button
               onClick={() => setActiveModal('patient')}
               className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-[#FACC15] hover:bg-[#EAB308] shadow-sm active:scale-[0.98] transition-transform"

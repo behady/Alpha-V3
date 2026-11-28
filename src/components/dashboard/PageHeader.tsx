@@ -30,7 +30,9 @@ export default function PageHeader({
   compact = false,
   children,
 }: {
-  title: React.ReactNode;
+  /** Optional: a page may put only actions in the band (the phone home does). With no title,
+      eyebrow or back link the title block is not drawn at all, so it leaves no gap. */
+  title?: React.ReactNode;
   subtitle?: React.ReactNode;
   /** Small line above the title — a breadcrumb, a date, a clinic name. */
   eyebrow?: React.ReactNode;
@@ -53,6 +55,7 @@ export default function PageHeader({
   if (!ctx?.slot) return null;
 
   const Back = isRTL ? ArrowRight : ArrowLeft;
+  const hasTitleBlock = !!(title || eyebrow || backHref);
 
   return createPortal(
     <div
@@ -60,6 +63,7 @@ export default function PageHeader({
     >
       {/* max-w-full: in the phone's column layout `items-start` sizes this to its content, so a
           long title or subtitle pushed the whole page sideways instead of truncating. */}
+      {hasTitleBlock && (
       <div className="flex min-w-0 max-w-full items-center gap-3">
         {backHref && (
           <Link
@@ -86,6 +90,7 @@ export default function PageHeader({
           )}
         </div>
       </div>
+      )}
 
       {/* Below lg the actions may not fit beside the title, or even in one line: Reports carries a
           branch picker, a range, two dates and Refresh. A row that cannot shrink made the whole
