@@ -10,7 +10,7 @@
  * at all, with the switch showing "on" in its settings.
  */
 const assert = require("node:assert");
-const { nudgeText, nudgeRoute, nudgeAddress, shouldNudge, sendNudge, standingAppointment, offeredTimeAhead } = require("./quietNudge");
+const { nudgeText, nudgeRoute, nudgeAddress, shouldNudge, sendNudge, standingAppointment, offeredTimeAhead, cleanNudgeText, NUDGE_TEXT_MAX } = require("./quietNudge");
 
 const MIN = 60 * 1000;
 const now = Date.UTC(2026, 10, 14, 15, 0);
@@ -122,6 +122,22 @@ assert.ok(nudgeText(offered, "x", morning).includes("من اللي بعتهال�
 assert.ok(!/شايل|محجوز|حجزتلك/.test(nudgeText(offered, "x", morning)), "never says the times are held");
 assert.ok(nudgeText({ pendingSlots: ["2026-11-14|03:00 PM|"] }, "x", cairo3pm).includes("أحجزلك ميعاد"), "a time that has passed is not pointed at");
 assert.ok(nudgeText({ pendingSlots: ["2026-11-14|03:20 PM|"] }, "x", cairo3pm).includes("أحجزلك ميعاد"), "nor one twenty minutes away");
+
+// ── the clinic's own words ─────────────────────────────────────────────────
+// Asnany's owner, 25/11/2026: "when someone goes quiet we send them this". The box in Settings
+// holds it; the reminder then says exactly that, to everyone, with nothing added around it.
+const OWN = "مساء الخير يا فندم ❤️\nبفكّر حضرتك بالعرض اللي كنا بعتناه قبل كده، هل حضرتك لسه مهتم أو حابب تستفسر عن أي تفاصيل؟ يسعدنا نساعد حضرتك 🌷";
+assert.equal(nudgeText({ patientName: "مروة محمد" }, "032262995", now, OWN), OWN, "the clinic's words, as written, no name in front");
+assert.equal(nudgeText(offered, "x", morning, OWN), OWN, "also when times are on the table");
+assert.equal(nudgeText({ lastLatin: true, lastText: "See you then" }, "x", now, OWN), OWN, "also in a chat the bot answers in English");
+assert.equal(nudgeText({}, "x", now, `  ${OWN}  \n\n`), OWN, "trimmed");
+// Empty, spaces only, or not text at all: the standard line.
+for (const none of ["", "   \n ", undefined, null, 5, {}]) {
+  assert.equal(nudgeText({ lastInterest: "كشف" }, "", now, none), "لسه معانا؟ 😊 لو حبيت أحجزلك ميعاد أو عندك أي سؤال تاني، أنا هنا.", `standard line for ${JSON.stringify(none)}`);
+}
+// A message is a message, not an essay: capped at the box's own limit.
+assert.equal(cleanNudgeText("ا".repeat(900)).length, NUDGE_TEXT_MAX);
+assert.equal(cleanNudgeText("سطر\n\n\n\n\nسطر"), "سطر\n\nسطر", "no tall gaps");
 assert.ok(nudgeText({ pendingSlots: ["2026-11-14|04:00 PM|Dr. Ali"] }, "x", cairo3pm).includes("من اللي بعتهالك"), "an hour away still counts");
 assert.ok(nudgeText({ pendingSlots: ["2026-11-15|03:00 PM|"] }, "x", cairo3pm).includes("من اللي بعتهالك"), "tomorrow is still ahead");
 assert.ok(nudgeText({ pendingSlots: null }, "x", morning).includes("أحجزلك ميعاد"), "no times, the plain line");
