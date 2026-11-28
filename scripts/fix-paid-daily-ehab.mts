@@ -189,7 +189,11 @@ console.log(`  payments naming him on neither id    ${String(nameOnly.length).pa
 console.log(`  old id in other collections          ${elsewhere.join(", ") || "none"}`);
 
 const problems: string[] = [];
-if (lumps.length !== 3 || lumpLedger.length !== 3) problems.push("the three lump payouts (and their Salary rows) are not all there");
+// The owner deleted the 28 Nov one by hand on 2026-11-28 (ledger_audit, staff/settlements:delete):
+// any lump already gone is fine; one still there must still have its Salary row.
+const alreadyGone = LUMP_SETTLEMENTS.filter((id) => !lumps.some((l) => l.id === id));
+if (alreadyGone.length > 0) console.log(`  lump payouts already removed by hand  ${alreadyGone.join(", ")}`);
+if (lumpLedger.length !== lumps.length) problems.push("a lump payout is missing its Salary row");
 if (nameOnly.length > 0) problems.push("some payments name him without either id — look at them first");
 if (elsewhere.length > 0) problems.push("the old id appears in other collections — look at them first");
 if (otherSettlements.some((d) => d.get("auto") !== "daily")) problems.push("he has other manual payouts or deductions — decide on them first");
