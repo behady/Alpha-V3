@@ -154,7 +154,22 @@ has no branches and no insurance rows.
 - Moving the 54 clinical notes on Dr Mohamed's old copy — **owner to decide** at review (it does not
   affect money; it would show those visits under his name).
 
-## 12. Release
+## 12. As built (2026-11-28)
+
+- **Where the line is kept in step:** inside `recordLedgerAudit` / `recordLedgerAuditBatch`
+  (`lib/server/ledgerAudit.ts`) — every audited money change re-works each dentist it names — plus
+  explicit calls in the AI assistant's direct ledger writes and AI-approved payments. A touched
+  dentist is re-checked over **all** days (the history is read anyway; only differing days are
+  written). Guard: `tests/dailyPayCoverage.test.mts`.
+- **Finance label:** the Salary row's description is "Day's share – <name>" ("نصيب اليوم – …").
+- **Live inventory, dry run 2026-11-28:** matches §8 exactly (119 / 31 / 10 payments, 83 old-copy
+  ledger rows, 54 notes, nothing naming him on neither id, old id nowhere else). The 28 Nov 11,800
+  payout had already been deleted by the Owner from the Team page that morning, so the fix removes
+  **two** lump payouts (21,700 and 7,050). 57 day lines (one day's payments all earned 0).
+  November becomes 7,050 → 11,800 (clinic profit −4,750); the other months are as in §8.
+- Clinical notes on the old copy are moved too (owner: "just do it").
+
+## 13. Release
 
 Built and tested in the `worktree-paid-daily` branch, committed locally. Nothing is pushed (pushing
 puts it live) and the one-time fix is not run without the owner's explicit yes, each separately.
