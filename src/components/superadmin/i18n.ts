@@ -30,7 +30,7 @@ const WORDS = {
     navPlatform: "Platform settings",
     navMigrate: "Data import",
     navAudit: "Data audit",
-    navTour: "Guided tour",
+    navUsage: "Usage",
     navTasks: "Tasks",
 
     eyebrow: "Platform · live",
@@ -211,7 +211,7 @@ const WORDS = {
     navPlatform: "إعدادات المنصة",
     navMigrate: "استيراد البيانات",
     navAudit: "مراجعة البيانات",
-    navTour: "الجولة التعريفية",
+    navUsage: "الاستخدام",
     navTasks: "المهام",
 
     eyebrow: "المنصة · مباشر",
