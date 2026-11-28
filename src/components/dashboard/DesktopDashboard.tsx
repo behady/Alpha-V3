@@ -9,6 +9,7 @@ import {
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
 import NoApprovalTag from "@/components/appointments/NoApprovalTag";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { hasInsurers } from "@/lib/payers";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { db, auth } from "@/lib/firebase";
 import { 
@@ -160,8 +161,6 @@ export default function DesktopDashboard() {
   const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode } = useUI();
   const router = useRouter();
   const { isAdmin, role, clinic } = useClinic();
-  /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
-  const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
   const [readApproval, setReadApproval] = useState(false);
   // The same gate the finance pages use. The week view prints money above each day, and a
   // receptionist without the finance permission should not read the clinic's week in pounds.
@@ -349,6 +348,9 @@ export default function DesktopDashboard() {
   const [patientHistory, setPatientHistory] = useState<Map<string, PatientHistory>>(new Map());
   /** The clinic's insurers, for the "No approval" tag on a card (components/appointments/NoApprovalTag). */
   const { payers } = usePricingPolicy();
+  /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on, and an insurer
+      set up — with none there is no approval to read. */
+  const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance") && hasInsurers(payers);
 
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {

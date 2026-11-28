@@ -29,6 +29,7 @@ import { stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
+import { discountReasonLabel } from "@/lib/priceLists";
 import { needsApproval, storedVisitPayer } from "@/lib/visitPayer";
 import { parseClaimLinks } from "@/lib/insurance/appointments";
 import { serviceMenuById } from "@/lib/serviceMenu";
@@ -1207,7 +1208,7 @@ export default function AppointmentMoneyTab({
                       shareReason === reason ? "bg-ink-slab text-white border-ink-slab" : "border-line text-ink-muted hover:bg-surface-muted bg-surface"
                     }`}
                   >
-                    {reason}
+                    {discountReasonLabel(reason, isAr)}
                   </button>
                 ))}
               </div>
@@ -1296,7 +1297,7 @@ export default function AppointmentMoneyTab({
                 : "border-line text-ink-muted hover:bg-surface-muted bg-surface"
             }`}
           >
-            {reason}
+            {discountReasonLabel(reason, isAr)}
           </button>
         ))}
       </div>

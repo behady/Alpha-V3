@@ -8,7 +8,7 @@
 //
 //   1. A mission pointing at a lesson that no longer exists. The button does nothing.
 //   2. A mission nobody can ever finish — no stored proof AND no lesson — so the percentage
-//      cannot reach 100 and the coach never stops asking for the same thing.
+//      cannot reach 100 and the guide asks for the same thing for ever.
 //   3. A gate that disagrees with its lesson's gate. A receptionist offered an admin mission gets
 //      a ring hunting for a tab their role does not render, which is exactly the failure
 //      `adminOnly` was added to `tutorials.ts` to prevent.
@@ -24,14 +24,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  COACH_SNOOZE_MS,
-  coachSnoozeMs,
   JOURNEY_STAGES,
   MISSIONS,
   MISSION_IDS,
   TRIAL_DAYS,
-  coachDecision,
-  coachGreeting,
   isMissionDone,
   journeyProgress,
   lockedMissionsFor,
@@ -73,7 +69,7 @@ for (const m of MISSIONS) {
   ok(
     !!m.signal || !!m.tutorialId,
     `mission "${m.id}" has neither a signal nor a lesson, so nothing can ever mark it done. ` +
-      `The progress bar can never reach 100% and the coach asks for it forever.`
+      `The progress bar can never reach 100%.`
   );
   ok(m.minutes > 0, `mission "${m.id}" claims ${m.minutes} minutes; the "minutes left" line is a sum of these`);
   ok(m.route.startsWith("/"), `mission "${m.id}" has route "${m.route}", which is not an app path`);
@@ -419,114 +415,16 @@ const DAY = 86400000;
 eq(trialStatus({ subscriptionTier: "Premium", createdAt: new Date() }).isTrial, false, "a paying clinic is not on trial");
 eq(trialStatus(null).isTrial, true, "an unread clinic is treated as a trial — the guide is the safe default");
 
-// --- 9. When the coach speaks, and when it must not ------------------------------------------------
-
 {
-  const unfinished = journeyProgress(missionsFor(ADMIN), {}, []);
-  const missions = missionsFor(ADMIN);
-  const allSignals: MissionSignals = {};
-  for (const m of missions) if (m.signal) allSignals[m.signal] = true;
-  const finished = journeyProgress(missions, allSignals, missions.map((m) => m.tutorialId!).filter(Boolean));
-
-  eq(coachDecision({ progress: unfinished }).speak, true, "with work left, the coach speaks");
-  eq(coachDecision({ progress: unfinished }).reason, "next-mission", "…about the next mission");
-
-  eq(coachDecision({ progress: finished }).speak, false, "it stops when the guide is finished");
-  eq(coachDecision({ progress: finished }).reason, "complete", "…and says why");
-
-  eq(
-    coachDecision({ progress: unfinished, tutorialRunning: true }).reason,
-    "tutorial-running",
-    "it never talks over a lesson's ring"
-  );
-  eq(
-    coachDecision({ progress: unfinished, dismissedForever: true }).reason,
-    "dismissed",
-    "switched off stays off"
-  );
-
-  const now = 1_800_000_000_000;
-  eq(
-    coachDecision({ progress: unfinished, snoozedUntil: now + COACH_SNOOZE_MS, now }).reason,
-    "snoozed",
-    "'Later' is honoured"
-  );
-  eq(
-    coachDecision({ progress: unfinished, snoozedUntil: now - 1, now }).speak,
-    true,
-    "…and expires"
-  );
-
-  // Precedence: a lesson on screen outranks every other reason, because the ring owns the viewport.
-  eq(
-    coachDecision({ progress: finished, tutorialRunning: true, dismissedForever: true }).reason,
-    "tutorial-running",
-    "the running lesson is checked first"
-  );
-}
-
-ok(COACH_SNOOZE_MS >= 60 * 60 * 1000, "'Later' means at least an hour — a token snooze is a button pressed eight times");
-
-/* Closing the bubble is an answer, and the same answer given three times means something stronger
-   than it did the first time. These assertions are what stop a future "simplify" flattening the
-   escalation back to one constant — which is the version the user actually complained about. */
-{
-  eq(coachSnoozeMs(0), COACH_SNOOZE_MS, "the first close quiets it for the rest of the day");
-  ok(coachSnoozeMs(1) > coachSnoozeMs(0), "closing it twice buys longer than closing it once");
-  ok(coachSnoozeMs(2) > coachSnoozeMs(1), "and a third time longer still");
-  ok(coachSnoozeMs(2) >= 7 * 24 * 60 * 60 * 1000, "by the third close it stops asking weekly");
-  eq(coachSnoozeMs(9), coachSnoozeMs(2), "it plateaus rather than running away to a year");
-  /* Never infinite: switching the guide off for good has its own button, its own wording and its
-     own way back on. A close button must not be able to do it by accident. */
-  ok(Number.isFinite(coachSnoozeMs(100)), "no number of closes silences the coach for ever");
-  eq(coachSnoozeMs(-3), coachSnoozeMs(0), "a nonsense count from hand-edited storage is treated as the first close");
-}
-
-// --- 10. What the coach actually says ---------------------------------------------------------------
-
-{
-  const progress = journeyProgress(missionsFor(ADMIN), {}, []);
-  const trial = trialStatus(
-    { subscriptionTier: "Free Trial", createdAt: new Date("2026-09-01T00:00:00Z") },
-    new Date("2026-09-05T00:00:00Z")
-  );
-
-  const en = coachGreeting({ progress, trial, isAr: false, firstName: "Nour" });
-  ok(en.includes("Nour"), "the greeting uses the person's first name when it has one");
-  ok(en.includes(progress.next!.title.en), "…and names the next step");
-  ok(en.includes(progress.next!.payoff.en), "…and says what it is worth");
-  ok(en.includes("Step 1 of"), "…and where they are in the route");
-  ok(en.includes(`${trial.daysLeft} days left`), "…and how much trial is left");
-
-  const ar = coachGreeting({ progress, trial, isAr: true, firstName: "نور" });
-  ok(ar.includes(progress.next!.title.ar), "the Arabic greeting is Arabic throughout");
-  ok(!ar.includes(progress.next!.title.en), "…with no English leaking into it");
-
-  const anonymous = coachGreeting({ progress, trial, isAr: false });
-  ok(!anonymous.startsWith("Hi "), "no name means no empty greeting");
-  ok(anonymous.includes(progress.next!.title.en), "…but still the next step");
-
-  // A single day is a day, not "1 days" — the line people read on the last day of the trial.
+  // A single day is a day — the line people read on the last day of the trial.
   const lastDay = trialStatus(
     { subscriptionTier: "Free Trial", createdAt: new Date("2026-09-01T00:00:00Z") },
     new Date(Date.UTC(2026, 8, 1, 12) + (TRIAL_DAYS - 1) * DAY)
   );
   eq(lastDay.daysLeft, 1, "the last day of a trial started on the 1st has one day left");
-  ok(coachGreeting({ progress, trial: lastDay, isAr: false }).includes("1 day left"), "…said as '1 day left'");
-
-  // A paying clinic still gets the guide, without a countdown that would make no sense.
-  const paid = trialStatus({ subscriptionTier: "Premium", createdAt: new Date("2026-01-01T00:00:00Z") }, new Date("2026-09-05T00:00:00Z"));
-  ok(!coachGreeting({ progress, trial: paid, isAr: false }).includes("left in your trial"), "a paying clinic is told nothing about a trial");
-
-  // And there is a graceful ending rather than a bubble that lingers with nothing to say.
-  const missions = missionsFor(ADMIN);
-  const allSignals: MissionSignals = {};
-  for (const m of missions) if (m.signal) allSignals[m.signal] = true;
-  const done = journeyProgress(missions, allSignals, missions.map((m) => m.tutorialId!).filter(Boolean));
-  ok(coachGreeting({ progress: done, trial, isAr: false }).length > 0, "a finished guide still has a sentence");
 }
 
-// --- 11. Nothing the guide teaches is unreachable ---------------------------------------------------
+// --- 9. Nothing the guide teaches is unreachable ----------------------------------------------------
 //
 // Not an equality: a lesson with no mission is legitimate and the guide's "More lessons" section
 // renders it. What must never happen is a lesson that NO surface offers — which is the state the
@@ -544,162 +442,6 @@ ok(COACH_SNOOZE_MS >= 60 * 60 * 1000, "'Later' means at least an hour — a toke
     );
   }
   ok(claimed.size > 0, "the journey claims at least some lessons");
-}
-
-// --- 12. "Meet Sara" opens by itself once, and then never again -----------------------------------
-//
-// The welcome screen is a black page over the whole app. Shown twice it is not a welcome, it is an
-// obstacle, and it kept being shown twice — three separate ways, each of which looks like the
-// screen "not remembering":
-//
-//   a. Closed before the clinic pointer arrived. The flag was stored under a key built from the
-//      clinic AND the person, so with no clinic there was no key and the write went nowhere.
-//   b. Opened at a second clinic. Same person, new key, question asked again.
-//   c. Storage cleared, or a second laptop, or a phone. A fresh browser meant a fresh person.
-//
-// (a) and (b) are fixed by a per-person flag that the clinic cannot invalidate, tested here. (c)
-// is fixed by a flag on the user's own document, which no test without Firestore can exercise —
-// so what is pinned below is that the code still writes and still reads it.
-{
-  const store = new Map<string, string>();
-  const fakeWindow = {
-    localStorage: {
-      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
-      setItem: (k: string, v: string) => void store.set(k, v),
-      removeItem: (k: string) => void store.delete(k),
-    },
-    dispatchEvent: () => true,
-  };
-  (globalThis as { window?: unknown }).window = fakeWindow;
-
-  const welcome = await import("../src/lib/welcomeStore");
-
-  // (a) No clinic yet — the close still has to count.
-  welcome.markTourIntroSeen({ clinicId: null, uid: "person-1" });
-  ok(
-    welcome.readTourProgress({ clinicId: "clinic-a", uid: "person-1" }).introSeen,
-    "closing the welcome screen before the clinic loaded must still count as shown"
-  );
-
-  // (b) Same person, a different clinic. Not a new person, so not a new welcome.
-  ok(
-    welcome.readTourProgress({ clinicId: "clinic-b", uid: "person-1" }).introSeen,
-    "switching clinic must not ask the same person to meet Sara again"
-  );
-
-  // The other direction: a close recorded the ordinary way is also person-wide.
-  welcome.markTourIntroSeen({ clinicId: "clinic-a", uid: "person-2" });
-  ok(
-    welcome.readIntroSeenLocal("person-2"),
-    "a close with a clinic present must still write the per-person flag"
-  );
-  ok(
-    welcome.readTourProgress({ clinicId: "clinic-z", uid: "person-2" }).introSeen,
-    "a person who met Sara at one clinic has met her at every clinic"
-  );
-
-  // And it is per PERSON, not per browser: the receptionist who joins in month three gets it.
-  ok(
-    !welcome.readTourProgress({ clinicId: "clinic-a", uid: "person-3" }).introSeen,
-    "a colleague sharing the same laptop has not met Sara and must still be offered the tour"
-  );
-
-  // Nothing here may turn the flag back off — every other tour write leaves it standing.
-  welcome.resetTourPosition({ clinicId: "clinic-a", uid: "person-1" });
-  welcome.saveTourDemoMode({ clinicId: "clinic-a", uid: "person-1" }, "off");
-  welcome.markTourComplete({ clinicId: "clinic-a", uid: "person-1" });
-  ok(
-    welcome.readTourProgress({ clinicId: "clinic-a", uid: "person-1" }).introSeen,
-    "starting over, answering the demo question or finishing the tour must not un-see the welcome"
-  );
-
-  // --- and the same three holes under the coach bubble ----------------------------------------
-  //
-  // The bubble is the other thing that speaks first, and it had every hole the welcome screen had
-  // plus one of its own: closing it only ever bought a snooze — six hours, then a day, then a week
-  // for ever — so it always came back eventually, which is a nag however politely it is spaced.
-  // Closing it is final now, and final has to mean everywhere.
-
-  // Off for good, decided before the clinic loaded.
-  welcome.dismissCoach({ clinicId: null, uid: "person-4" });
-  ok(
-    welcome.readWelcomeState({ clinicId: "clinic-a", uid: "person-4" }).dismissed,
-    "closing the coach before the clinic loaded must still switch it off"
-  );
-  ok(
-    welcome.readWelcomeState({ clinicId: "clinic-b", uid: "person-4" }).dismissed,
-    "the coach must not come back just because this person opened another clinic"
-  );
-  ok(
-    welcome.readWelcomeState({ clinicId: null, uid: "person-4" }).dismissed,
-    "and it must stay off during the gap before a clinic is chosen at all"
-  );
-
-  // Off at one clinic, off everywhere — and reversible, from the guide page only.
-  welcome.dismissCoach({ clinicId: "clinic-a", uid: "person-5" });
-  ok(
-    welcome.readWelcomeState({ clinicId: "clinic-q", uid: "person-5" }).dismissed,
-    "switching the coach off is a decision about a person, not about one clinic"
-  );
-  welcome.restoreCoach({ clinicId: "clinic-a", uid: "person-5" });
-  ok(
-    !welcome.readWelcomeState({ clinicId: "clinic-q", uid: "person-5" }).dismissed,
-    "bringing the coach back from Getting started must clear it everywhere too, or it is one-way"
-  );
-
-  // A colleague's own coach is untouched by either.
-  ok(
-    !welcome.readWelcomeState({ clinicId: "clinic-a", uid: "person-6" }).dismissed,
-    "one person switching the coach off must not silence it for everyone at the clinic"
-  );
-
-  delete (globalThis as { window?: unknown }).window;
-}
-
-// --- 13. The wiring behind both promises is still there -------------------------------------------
-//
-// Source text rather than behaviour: one half is a React component and the other is a Firestore
-// write, and both are one deleted line away from a screen that greets somebody every morning.
-{
-  const intro = readFileSync(join(REPO, "src/components/tour/TourIntro.tsx"), "utf8");
-  const context = readFileSync(join(REPO, "src/context/TourContext.tsx"), "utf8");
-
-  ok(
-    intro.includes("tour.noteIntroShown()"),
-    "TourIntro must record that it was shown ON SHOW — closing is not the only way off that screen"
-  );
-  ok(
-    /useState\(\(\) => tour\.progress\.introSeen\)/.test(intro),
-    "TourIntro must read `introSeen` once, at mount: reacting to its own write would close it mid-sentence"
-  );
-  ok(
-    context.includes('{ tourIntroSeen: true }') && context.includes('getClinicDoc("users"'),
-    "the welcome screen's 'seen' flag must also be written to the user's own document, or a cleared browser asks again"
-  );
-  ok(
-    context.includes("user?.tourIntroSeen !== true") || context.includes("user?.tourIntroSeen === true"),
-    "TourContext must read the flag back off the user document, or writing it achieves nothing"
-  );
-
-  const coach = readFileSync(join(REPO, "src/components/welcome/WelcomeCoach.tsx"), "utf8");
-  const welcomeCtx = readFileSync(join(REPO, "src/context/WelcomeContext.tsx"), "utf8");
-
-  ok(
-    /onClick=\{dismiss\}[\s\S]{0,400}aria-label/.test(coach),
-    "the coach bubble's close button must switch it off for good, not snooze it until next week"
-  );
-  ok(
-    !/onClick=\{snooze\}/.test(coach),
-    "nothing on the coach bubble may snooze it any more — a bubble that always returns is the nag itself"
-  );
-  ok(
-    welcomeCtx.includes("{ coachOff: off }") && welcomeCtx.includes('getClinicDoc("users"'),
-    "'stop coaching me' must reach the user's own document, or a cleared browser starts coaching again"
-  );
-  ok(
-    welcomeCtx.includes("user?.coachOff === true"),
-    "WelcomeContext must read coachOff back, or writing it achieves nothing"
-  );
 }
 
 console.log(`welcomeJourney: ${checks} checks passed across ${MISSIONS.length} missions and ${JOURNEY_STAGES.length} stages`);

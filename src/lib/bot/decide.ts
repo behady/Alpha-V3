@@ -3,7 +3,7 @@ import type { BotFacts } from "@/types/whatsapp";
 import { voiceFor, type Gender } from "@/lib/arabicNames";
 import { adGreetingLine, type AdReferral } from "./adReferral";
 import { needsHuman, triageMessage } from "./clinicalTriage";
-import { asksForLocation, quickIntent } from "./quickAnswers";
+import { asksForLocation, quickIntent, saysTooFar } from "./quickAnswers";
 import { nameFromReply } from "./nameGuard";
 
 /**
@@ -242,7 +242,9 @@ export function decide(args: { state: BotState; text: string; ctx: BotContext })
   // The two courtesies that cost nothing to get right. "تمام" confirms an appointment only when
   // there is one to confirm; after a sales pitch it is agreement, and agreement is the brain's.
   const intent = quickIntent(text);
-  if (intent === "thanks") return { reply: "العفو 🙏 تحت أمر حضرتك في أي وقت.", next: "awaiting_choice", handoff: false, reason: "thanks" };
+  // "لا شكرا بعيد عليا" thanks nobody: it refuses, with a reason the brain can answer (another
+  // branch, or a person). The fixed "العفو" closed that chat on 26/11/2026.
+  if (intent === "thanks" && !saysTooFar(text)) return { reply: "العفو 🙏 تحت أمر حضرتك في أي وقت.", next: "awaiting_choice", handoff: false, reason: "thanks" };
   if (intent === "ack" && ctx.hasSoonAppointment) return { reply: "", action: { type: "ack" }, next: "awaiting_choice", handoff: false, reason: "ack" };
 
   return AI(text, "awaiting_choice");

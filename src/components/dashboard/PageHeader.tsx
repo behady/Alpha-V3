@@ -28,15 +28,24 @@ export default function PageHeader({
   eyebrow,
   backHref,
   compact = false,
+  hideOnPhone = false,
   children,
 }: {
-  title: React.ReactNode;
+  /** Optional: a page may put only actions in the band (the phone home does). With no title,
+      eyebrow or back link the title block is not drawn at all, so it leaves no gap. */
+  title?: React.ReactNode;
   subtitle?: React.ReactNode;
   /** Small line above the title — a breadcrumb, a date, a clinic name. */
   eyebrow?: React.ReactNode;
   /** Renders a back arrow before the title. For detail pages under a list. */
   backHref?: string;
   compact?: boolean;
+  /**
+   * Below lg, draw no title strip at all: the black band is then the nav row alone. The home
+   * screens use it (owner's request, 2026-11-28) — on a phone the strip cost a fifth of the
+   * screen, and the home-view tabs moved up into the nav row (see TopNav).
+   */
+  hideOnPhone?: boolean;
   children?: React.ReactNode;
 }) {
   const ctx = usePageHeaderSlot();
@@ -46,13 +55,14 @@ export default function PageHeader({
 
   useEffect(() => {
     if (!register || !unregister) return;
-    register(compact);
-    return () => unregister(compact);
-  }, [register, unregister, compact]);
+    register(compact, hideOnPhone);
+    return () => unregister(compact, hideOnPhone);
+  }, [register, unregister, compact, hideOnPhone]);
 
   if (!ctx?.slot) return null;
 
   const Back = isRTL ? ArrowRight : ArrowLeft;
+  const hasTitleBlock = !!(title || eyebrow || backHref);
 
   return createPortal(
     <div
@@ -60,6 +70,7 @@ export default function PageHeader({
     >
       {/* max-w-full: in the phone's column layout `items-start` sizes this to its content, so a
           long title or subtitle pushed the whole page sideways instead of truncating. */}
+      {hasTitleBlock && (
       <div className="flex min-w-0 max-w-full items-center gap-3">
         {backHref && (
           <Link
@@ -86,6 +97,7 @@ export default function PageHeader({
           )}
         </div>
       </div>
+      )}
 
       {/* Below lg the actions may not fit beside the title, or even in one line: Reports carries a
           branch picker, a range, two dates and Refresh. A row that cannot shrink made the whole

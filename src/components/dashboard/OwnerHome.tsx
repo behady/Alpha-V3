@@ -344,6 +344,7 @@ export default function OwnerHome() {
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
         <PageHeader
+          hideOnPhone
           title={<><span className="font-light">{greeting}</span> {firstName}</>}
           subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
         >
@@ -351,6 +352,12 @@ export default function OwnerHome() {
           <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
           <HomeViewTabs />
         </PageHeader>
+
+        {/* Below lg there is no title strip, so the branch picker sits here. Nothing for a
+            single-site clinic (the picker draws nothing, and the empty wrapper hides itself). */}
+        <div className="flex items-center min-w-0 empty:hidden lg:hidden">
+          <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} />
+        </div>
 
         {/* Needs you: only what is actually wrong. Empty is the good news. */}
         <div className="rounded-[2rem] bg-ink-slab text-white p-5 md:p-6 shadow-[0_20px_50px_rgba(26,33,48,0.18)]">

@@ -27,16 +27,12 @@ import { currentBranchLabel } from "@/lib/branchScope";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import TopNav from "@/components/dashboard/TopNav";
 import { DIRECT_KEYS, SECTION_GROUPS } from "@/components/dashboard/navGroups";
+import UsageTracker from "@/components/usage/UsageTracker";
 import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderContext";
 import AiChatWidget from "@/components/AiChatWidget";
-import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
+import { TutorialProvider } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
-import { TourProvider, useTour } from "@/context/TourContext";
-import GrandTourOverlay from "@/components/tour/GrandTourOverlay";
-import TourIntro from "@/components/tour/TourIntro";
-import { TOUR_GUIDE } from "@/lib/grandTour";
 import { WelcomeProvider } from "@/context/WelcomeContext";
-import WelcomeCoach from "@/components/welcome/WelcomeCoach";
 import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
 import { DemoTourBanner } from "@/components/welcome/DemoTour";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
@@ -66,45 +62,6 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
 const plusJakartaSans = localFont({ src: "../../fonts/plus-jakarta-sans-latin-wght.woff2", weight: "400 800" });
 
 /**
- * Sits between the two providers so the welcome guide can know whether a lesson is on screen.
- *
- * `WelcomeProvider` takes that as a prop rather than reading `useTutorial()` itself — the guide
- * works perfectly well in an app with no tutorials, and the only reason it cares is to stop the
- * coach talking over a walkthrough's ring. A component is needed here because `DashboardLayout`
- * is the thing that renders `TutorialProvider` and therefore cannot consume it.
- */
-function WelcomeLayer({ children }: { children: React.ReactNode }) {
-  const { activeTutorial } = useTutorial();
-  // Sara's tour owns the screen the same way a lesson does: the coach stays quiet under it.
-  const { active: tourActive } = useTour();
-  return <WelcomeProvider tutorialRunning={!!activeTutorial || tourActive}>{children}</WelcomeProvider>;
-}
-
-/**
- * "Tour with Sara" as a menu row. A component of its own because the layout renders the tour
- * provider and therefore cannot consume it; the mobile sheet needs the row inside that provider.
- */
-function TourMenuRow({ className, onPick }: { className: string; onPick: () => void }) {
-  const tour = useTour();
-  const { language } = useLanguage();
-  if (tour.allStops.length === 0) return null;
-  const guide = language === "ar" ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        onPick();
-        tour.start();
-      }}
-      className={className}
-    >
-      <Sparkles size={22} />
-      <span className="text-base truncate">{language === "ar" ? `جولة مع ${guide}` : `Tour with ${guide}`}</span>
-    </button>
-  );
-}
-
-/**
  * The clinic switcher as the phone menu sheet shows it: the clinic's name, and under it the
  * branch on screen when the clinic has branches.
  *
@@ -126,9 +83,13 @@ function MenuClinicSwitcher() {
  * renders. `fallbackTitle` shows when a page has not adopted <PageHeader> yet, so the band never
  * appears as a bare black stripe with nothing in it.
  */
-function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
+function PageHeaderStrip({ fallbackTitle, isHome }: { fallbackTitle: string; isHome: boolean }) {
   const ctx = usePageHeaderSlot();
   const compact = !!ctx?.compact;
+  /* Below lg the home screens have no strip: the band is the nav row alone, and the home-view
+     tabs sit in that row (TopNav). `isHome` says so before the page has mounted, so the band does
+     not open tall and then drop; `phoneHidden` covers the same screens at other addresses. */
+  const phoneHidden = isHome || !!ctx?.phoneHidden;
   const empty = (ctx?.count ?? 0) === 0;
   const slotRef = useRef<HTMLDivElement>(null);
   const setSlot = ctx?.setSlot;
@@ -145,7 +106,7 @@ function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
 
   return (
     <div
-      className={`px-4 lg:px-7 ${compact ? "pb-3 pt-0.5" : "pb-6 pt-1 lg:pb-7"}`}
+      className={`px-4 lg:px-7 ${compact ? "pb-3 pt-0.5" : "pb-6 pt-1 lg:pb-7"} ${phoneHidden ? "max-lg:hidden" : ""}`}
     >
       {/* The portal target. Kept mounted always, so a page's header has somewhere to land on the
           very first render after a route change. */}
@@ -498,16 +459,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <TutorialProvider>
-    {/* The tour may show the calendar even when this person hid its link (a preference, not a
-        permission): the page exists and the day cannot be taught without it. */}
-    <TourProvider
-      visibleNavKeys={[
-        ...visibleItems.map((i) => i.key),
-        ...(!visibleItems.some((i) => i.key === "appointments") && canAccessNavItem("appointments", user, isAdmin) ? ["appointments"] : []),
-      ]}
-      showSettings={showSettings}
-    >
-    <WelcomeLayer>
+    <WelcomeProvider>
     <PageHeaderProvider>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${cairo.variable} ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       <ReceptionSummonOverlay />
@@ -541,7 +493,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onReturnToSuperAdmin={handleReturnToSuperAdmin}
           />
         }
-        strip={<PageHeaderStrip fallbackTitle={fallbackTitle} />}
+        strip={<PageHeaderStrip fallbackTitle={fallbackTitle} isHome={pathname === "/"} />}
       />
 
       {/* MOBILE MENU OVERLAY */}
@@ -652,7 +604,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Rocket size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
                </Link>
-               <TourMenuRow className={`w-full text-left rtl:text-right ${sheetRow(false)}`} onPick={() => setIsOpen(false)} />
                <Link href="/help" data-tour="menu-help" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/help'))}>
                   <LifeBuoy size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
@@ -740,7 +691,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              if (item.key === 'menu') {
                  return (
                     <button key="menu" data-tour="nav-menu"
-                       /* Everything in the sheet is reachable through this button — for the tour's hand. */
+                       /* Everything in the sheet is reachable through this button — for a lesson's ring. */
                        data-tour-opens={[...allNavItems.map((i) => `nav-${String(i.href).replace(/^\//, "")}`), "nav-settings", "menu-welcome", "menu-help"].join(" ")}
                        onClick={() => setIsOpen(true)}
                        aria-label={language === "ar" ? "القائمة" : "Menu"}
@@ -778,20 +729,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* AI CHAT WIDGET & BUBBLE */}
       <AiChatWidget />
 
-      {/* The assistant speaking first: the next setup step, above the same orb. Renders nothing
-          once the guide is finished, while a lesson runs, or after it has been sent away. */}
-      <WelcomeCoach />
-
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
 
-      {/* Sara: the one-time "meet me" screen, and the tour itself when it is running. */}
-      <TourIntro />
-      <GrandTourOverlay />
+
+      {/* Counts which screens are used and for how long (lib/usage). Draws nothing. */}
+      <UsageTracker />
     </div>
     </PageHeaderProvider>
-    </WelcomeLayer>
-    </TourProvider>
+    </WelcomeProvider>
     </TutorialProvider>
   );
 }

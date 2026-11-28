@@ -117,7 +117,27 @@ function speaksEnglish(c) {
   return c.lastLatin === true && /[A-Za-z]/.test(last) && !/[؀-ۿ]/.test(last);
 }
 
-function nudgeText(c, id = "", now = Date.now()) {
+/** The longest reminder a clinic may write. The Settings box stops at the same number. */
+const NUDGE_TEXT_MAX = 500;
+
+/**
+ * The clinic's own reminder, tidied, or "" when it wrote none (Settings → WhatsApp,
+ * `botQuietNudgeText`). Anything that is not text is none.
+ */
+function cleanNudgeText(raw) {
+  if (typeof raw !== "string") return "";
+  return raw.replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, NUDGE_TEXT_MAX).trim();
+}
+
+/*
+ * `own` is the clinic's own wording. When it wrote one, that is the whole message: as written, to
+ * everyone, with no name in front and no offer after it. The owner chose those words (Asnany,
+ * 25/11/2026: "when someone goes quiet we send them this"), and a line of ours glued to theirs is
+ * how a reminder starts reading like two people talking.
+ */
+function nudgeText(c, id = "", now = Date.now(), own = "") {
+  const written = cleanNudgeText(own);
+  if (written) return written;
   // First name only: "مروة محمد ابو ضيف، لسه معاك؟" is a form letter; "مروة، لسه معاكي؟" is a person.
   const name = String(c.patientName || "").trim().split(/\s+/)[0] || "";
   const hi = name ? `${name}، ` : "";
@@ -240,7 +260,7 @@ exports.quietNudge = onSchedule(
             if (!appts || standingAppointment(appts.docs.map((a) => a.data() || {}), cairoClock(now).dateKey)) continue;
           }
 
-          const text = nudgeText(c, doc.id, now);
+          const text = nudgeText(c, doc.id, now, settings.botQuietNudgeText);
           const sent = await sendNudge(route, to, text);
           const at = Date.now();
           await doc.ref.set({ nudgedAtMs: at, lastText: text.slice(0, 160), lastAt: at, lastDirection: "out", lastAuthor: "bot", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -264,6 +284,8 @@ exports.quietNudge = onSchedule(
 
 // For the offline checks (test-quietNudge.js); the deployed function is `quietNudge` alone.
 exports.nudgeText = nudgeText;
+exports.cleanNudgeText = cleanNudgeText;
+exports.NUDGE_TEXT_MAX = NUDGE_TEXT_MAX;
 exports.offeredTimeAhead = offeredTimeAhead;
 exports.standingAppointment = standingAppointment;
 exports.shouldNudge = shouldNudge;

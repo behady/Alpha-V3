@@ -6,7 +6,7 @@ import type { StaffCommission } from "@/lib/staffCommission";
 import type { StaffInsuranceWork } from "@/lib/staffInsurance";
 import type { StaffSettlementDraft } from "@/lib/moneyApi";
 import type { ClinicBranch } from "@/lib/clinicLocations";
-import type { EarningSettled } from "@/lib/staffSettlement";
+import type { EarningSettled, StaffSettlement } from "@/lib/staffSettlement";
 import {
   btnDark, btnGhost, dayOf, Empty, fieldInput, fieldLabel, money, PaidCell, PAY_METHODS, Section, tableHead, todayYmd,
   type SettlementForm, type SettlementView,
@@ -57,6 +57,12 @@ export default function MoneyTab({
 
   /** The settled part of one earning line, for the Paid column. */
   const settledOf = (key: string): EarningSettled | null => settlement?.byKey.get(key) ?? null;
+
+  /** What a payout list line is called; a paid-daily dentist's automatic line says so. */
+  const settlementLabel = (s: StaffSettlement) =>
+    s.auto === "daily"
+      ? isAr ? "نصيب اليوم (تلقائي)" : "Day's share (automatic)"
+      : s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction";
 
   /*
     Phones get each row as a stacked card instead of the table. The tables are 30–36rem wide, and in
@@ -242,7 +248,7 @@ export default function MoneyTab({
               <li key={s.id} className="flex items-start gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold text-ink">
-                    {s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction"}
+                    {settlementLabel(s)}
                     {s.method ? <span className="text-ink-muted"> · {(PAY_METHODS.find((m) => m.id === s.method) ?? { en: s.method, ar: s.method })[isAr ? "ar" : "en"]}</span> : null}
                   </p>
                   <p className="mt-0.5 text-[13px] font-semibold text-ink-muted">
@@ -256,7 +262,7 @@ export default function MoneyTab({
                     <bdi dir="ltr">{s.kind === "deduction" ? "−" : ""}{money(s.amount)}</bdi>
                   </span>
                   {canEdit && (
-                    <span className="-me-2 inline-flex gap-1">
+                    <span className={`-me-2 inline-flex gap-1 ${s.auto === "daily" ? "hidden" : ""}`}>
                       <button
                         type="button"
                         aria-label={isAr ? "تعديل" : "Edit"}
@@ -295,7 +301,7 @@ export default function MoneyTab({
                   <tr key={s.id} className="border-b border-line/60">
                     <td className="py-3 pe-3 font-semibold text-ink-muted">{dayOf(s.date, isAr)} {s.date.slice(0, 4)}</td>
                     <td className="py-3 pe-3 font-semibold text-ink">
-                      {s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction"}
+                      {settlementLabel(s)}
                       {s.method ? <span className="block text-[12px] font-semibold text-ink-muted">{(PAY_METHODS.find((m) => m.id === s.method) ?? { en: s.method, ar: s.method })[isAr ? "ar" : "en"]}</span> : null}
                     </td>
                     <td className="py-3 pe-3 font-medium text-ink-body">
@@ -307,7 +313,7 @@ export default function MoneyTab({
                     </td>
                     {canEdit && (
                       <td className="py-3 text-end">
-                        <span className="inline-flex gap-1">
+                        <span className={`inline-flex gap-1 ${s.auto === "daily" ? "hidden" : ""}`}>
                           <button
                             type="button"
                             aria-label={isAr ? "تعديل" : "Edit"}

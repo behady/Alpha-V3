@@ -49,6 +49,8 @@ jobs:
         run: npm run --silent test:ortho
       - name: Ledger arithmetic
         run: npm run --silent test:ledger
+      - name: Assistant ready answers (read policy, limits, money, debts, digest)
+        run: npm run --silent test:sara
       - name: Delete policy
         run: npm run --silent test:delete
       - name: Payment repair classifier
@@ -77,6 +79,9 @@ jobs:
         run: npm run --silent test:recyclebin
       - name: Clinic expiry gate
         run: npm run --silent test:clinicstatus
+      # Paid-daily dentists: the day's share, and that no ledger writer forgets to keep it in step.
+      - name: Paid-daily day's share
+        run: npm run --silent test:daily-pay && npm run --silent test:staff-settlement && npm run --silent test:daily-pay-coverage
       # When a free trial actually stops, and who decides. Sits beside the expiry gate above
       # because the two are halves of one mechanism: that one is the decision, this one is the
       # date it reads — and the date went unwritten for so long that the decision was dead code.

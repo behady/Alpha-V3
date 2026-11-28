@@ -2,6 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { buildPaymentRow } from "@/lib/ledgerWrite";
 import { logAiAction } from "@/lib/serverLogger";
+import { syncDailyPayFor, touchedByRows } from "@/lib/server/dailyPaySync";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { applyPatientOptOutFooter, resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
@@ -669,6 +670,8 @@ export async function resolvePendingAiAction(args: {
       clinicId, kind: "create", collection: "ledger", documentId: ref.id,
       userId, userName, userRole, after: record,
     });
+    // On account today (no dentist), so nothing moves; kept so a future dentist-linked payment cannot forget it.
+    await syncDailyPayFor(clinicId, touchedByRows(record));
     await markApproved();
 
     // Every payment screen sends the "we received your payment" receipt; a payment taken through

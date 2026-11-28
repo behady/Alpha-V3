@@ -31,6 +31,13 @@ export type StaffSettlement = {
   ledgerId: string | null;
   /** The branch the payout or deduction belongs to; absent on settlements from before branches. */
   branchId?: string;
+  /**
+   * "daily": the automatic day's share of a paid-daily dentist (`lib/dailyPay.ts`), written by the
+   * server and never by hand. It pays exactly `paymentIds` before any other settlement is poured.
+   */
+  auto?: "daily";
+  /** For an automatic daily payout: the payment rows whose share it is. */
+  paymentIds?: string[];
 };
 
 /** One thing the dentist earned: a payment's commission or an insurance line's share. */
@@ -87,7 +94,15 @@ export function parseSettlement(id: string, raw: unknown): StaffSettlement | nul
     method: r.kind === "payout" ? (typeof r.method === "string" && r.method.trim() ? r.method.trim() : "Cash") : null,
     ledgerId: typeof r.ledgerId === "string" && r.ledgerId ? r.ledgerId : null,
     ...(typeof r.branchId === "string" && r.branchId ? { branchId: r.branchId } : {}),
+    ...(r.kind === "payout" && r.auto === "daily"
+      ? { auto: "daily" as const, paymentIds: Array.isArray(r.paymentIds) ? r.paymentIds.filter((p): p is string => typeof p === "string" && p !== "") : [] }
+      : {}),
   };
+}
+
+/** The automatic day's share of a paid-daily dentist: shown, never edited or deleted by hand. */
+export function isAutoDailyPayout(s: Pick<StaffSettlement, "auto">): boolean {
+  return s.auto === "daily";
 }
 
 /**
@@ -97,24 +112,50 @@ export function parseSettlement(id: string, raw: unknown): StaffSettlement | nul
  * a deduction; the total covered is the same either way. Whatever is left after the last earning
  * is `ahead` — the owner paid before the work — and comes off `owed`, so a dentist paid 5,000
  * against 4,000 of work shows owed −1,000, not 0 with 1,000 vanished.
+ *
+ * Automatic daily payouts (`auto: "daily"`) go first and pay exactly the payments they list: a
+ * paid-daily dentist took that share from those payments, so an older unpaid insurance line must
+ * never swallow it. Anything a daily payout has left over (its payments shrank and the line has not
+ * been re-worked yet) is poured oldest-first with the rest, so no money vanishes.
  */
 export function settleEarnings(earnings: readonly Earning[], settlements: readonly StaffSettlement[]): SettlementResult {
   const lines = [...earnings]
     .filter((e) => e.amount > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
     .map((e) => ({ key: e.key, paid: 0, deducted: 0, remaining: round2(e.amount) }));
+  const lineByKey = new Map(lines.map((line) => [line.key, line]));
   const pool = [...settlements].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+  let paid = 0;
+  let deducted = 0;
+  const leftOf = new Map<string, number>();
+  for (const s of pool) {
+    const amount = round2(s.amount);
+    if (s.kind === "payout") paid = round2(paid + amount);
+    else deducted = round2(deducted + amount);
+    if (s.kind !== "payout" || s.auto !== "daily") continue;
+    let left = amount;
+    for (const key of s.paymentIds ?? []) {
+      const line = lineByKey.get(key);
+      if (!line || left <= 0) continue;
+      const take = Math.min(left, line.remaining);
+      line.paid = round2(line.paid + take);
+      line.remaining = round2(line.remaining - take);
+      left = round2(left - take);
+    }
+    leftOf.set(s.id, left);
+  }
 
   let cursor = 0;
   let ahead = 0;
-  let paid = 0;
-  let deducted = 0;
   for (const s of pool) {
-    let left = round2(s.amount);
-    if (s.kind === "payout") paid = round2(paid + left);
-    else deducted = round2(deducted + left);
+    let left = leftOf.get(s.id) ?? round2(s.amount);
     while (left > 0 && cursor < lines.length) {
       const line = lines[cursor];
+      if (line.remaining === 0) {
+        cursor += 1;
+        continue;
+      }
       const take = Math.min(left, line.remaining);
       if (s.kind === "payout") line.paid = round2(line.paid + take);
       else line.deducted = round2(line.deducted + take);

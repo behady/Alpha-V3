@@ -272,6 +272,7 @@ export async function deliverClinicNotification(
 
     const audience = kept.map((snap) => snap.id);
     const meta = event ? notifyEvent(event) : undefined;
+    const pagePath = actionUrl || screenToUrl(data?.screen) || null;
 
     let bellWritten = false;
     if (!whatsappOnly && (!resolved || resolved.bell)) {
@@ -281,7 +282,7 @@ export async function deliverClinicNotification(
           body: notification.body,
           eventType: event || "generic",
           group: meta?.group || null,
-          actionUrl: actionUrl || screenToUrl(data?.screen) || null,
+          actionUrl: pagePath,
           // Who this row is for. The bell queries on it, so a receptionist never sees the owner's
           // money digest even though every row lives in one clinic-wide collection.
           audience,
@@ -405,8 +406,11 @@ export async function deliverClinicNotification(
     const tokens = [...tokenOwner.keys()];
     if (tokens.length === 0) return { raised: true, bellWritten, pushed: 0, whatsapped, whatsappReason, reason: "no-devices" };
 
+    // `url` is where a tap on the browser notification goes; /firebase-messaging-sw.js reads it.
+    const openUrl = pushOpenUrl(pagePath, clinicId);
     const dataEntries = Object.entries({
       ...(data || {}),
+      ...(openUrl ? { url: openUrl } : {}),
       ...(channel ? { channel } : {}),
       ...(event ? { event } : {}),
     })
@@ -453,6 +457,19 @@ export async function deliverClinicNotification(
  * and every caller already supplies the screen name for the push. Mapping it here means a new
  * alert gets a working bell link without its author having to remember to pass two things.
  */
+/**
+ * Where a tap on the browser notification goes: the alert's page, in the clinic that raised it.
+ *
+ * Without `?clinic=` a tap opened whatever clinic the tab happened to be in — wrong for anyone
+ * who works at two clinics, and for a super admin looking at another one.
+ * Mirrored in functions/clinicPush.js.
+ */
+export function pushOpenUrl(path: string | null | undefined, clinicId: string | null | undefined): string | null {
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return null;
+  if (!clinicId) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}clinic=${encodeURIComponent(clinicId)}`;
+}
+
 export function screenToUrl(screen: string | undefined): string | null {
   switch (screen) {
     case "day":

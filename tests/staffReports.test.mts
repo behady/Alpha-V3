@@ -337,7 +337,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(staffLineSrc.includes("reportAccessForRole(sender.role).hr"), "the attendance shortcut is not role-gated on the line itself");
   const excluded = route.slice(route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS"), route.indexOf("]);", route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS")));
   // Screens cannot be shown in a WhatsApp bubble; everything else stays, gated by the person's own permissions.
-  for (const screenOnly of ["navigate_to", "trigger_pdf_generation", "open_appointment", "start_tutorial", "open_tour_stop", "file_bug_report", "file_feature_request"]) {
+  for (const screenOnly of ["navigate_to", "trigger_pdf_generation", "open_appointment", "start_tutorial", "file_bug_report", "file_feature_request"]) {
     ok(excluded.includes(`"${screenOnly}"`), `${screenOnly} is offered on WhatsApp, where it can only fail`);
   }
   for (const acting of ["set_appointment_status", "reschedule_appointment", "record_payment", "db_write", "db_delete"]) {

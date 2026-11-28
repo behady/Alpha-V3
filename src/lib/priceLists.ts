@@ -101,6 +101,24 @@ export const DEFAULT_DISCOUNT_REASONS = [
   "Other",
 ];
 
+/**
+ * Arabic words for the six default reasons. The stored value stays the English one (reports and
+ * old discounts group by it); only what the screen shows changes. A clinic's own reasons show as
+ * they were typed.
+ */
+const DEFAULT_REASON_AR: Record<string, string> = {
+  Promotion: "عرض",
+  "Family & friends": "أهل وأصدقاء",
+  Insurance: "تأمين",
+  Staff: "موظف",
+  "Complaint resolution": "حل شكوى",
+  Other: "سبب تاني",
+};
+
+export function discountReasonLabel(reason: string, ar: boolean): string {
+  return ar ? DEFAULT_REASON_AR[reason] ?? reason : reason;
+}
+
 /** The ceiling a non-Admin may discount to without an Admin. Configurable per clinic. */
 export const DEFAULT_MAX_DISCOUNT_PERCENT_NON_ADMIN = 20;
 

@@ -192,6 +192,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botPersonaName: typeof data?.botPersonaName === "string" ? data.botPersonaName : "",
     botHumanTouch: data?.botHumanTouch !== false,
     botQuietNudge: data?.botQuietNudge !== false,
+    // Always a string, like the coaching box: an empty box is "", never undefined.
+    botQuietNudgeText: typeof data?.botQuietNudgeText === "string" ? data.botQuietNudgeText : "",
     // Both default off (absent = off), the way the bot reads them.
     botHideDoctorNames: data?.botHideDoctorNames === true,
     botClosedNote: data?.botClosedNote === true,
@@ -722,6 +724,15 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           ? "مثال: د. محمد إيهاب — أخصائي زراعة وتركيبات، 10 سنين خبرة، هادي مع اللي بيخافوا من الدكتور. د. يحيى جمال — أخصائي تقويم…"
           : "e.g. Dr. Mohamed Ehab — implants and crowns, 10 years, calm with anxious patients. Dr. Yahia Gamal — orthodontics…",
       botQuietNudge: language === "ar" ? "لو المريض سكت في نص الكلام، البوت يسأله بعد 20 دقيقة «لسه معاك؟» مرة واحدة" : "If a patient goes quiet mid-chat, ask once after 20 minutes: \"still there?\"",
+      botQuietNudgeText: language === "ar" ? "كلامك انت في رسالة التذكير (اختياري)" : "Your own words for the reminder (optional)",
+      botQuietNudgeTextPh:
+        language === "ar"
+          ? "مثال: مساء الخير يا فندم ❤️ بفكّر حضرتك بالعرض اللي بعتناه، حضرتك لسه مهتم؟"
+          : "e.g. Good evening 🌷 A quick reminder about the offer we sent. Are you still interested?",
+      botQuietNudgeTextHint:
+        language === "ar"
+          ? "سيبها فاضية والبوت يبعت رسالته المعتادة. اللي تكتبه هنا بيتبعت زي ما هو بالظبط."
+          : "Leave it empty and the bot sends its usual line. What you write here is sent exactly as written.",
       botHideDoctorNames:
         language === "ar"
           ? "متقولش أسماء الدكاترة: مفيش أسماء في كروت الحجز ولا القوائم ولا ردود الذكاء الاصطناعي، والمريض بياخد أقرب كرسي فاضي"
@@ -1685,6 +1696,27 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               }}
             />
           </label>
+          {/* The clinic's own words for that reminder; empty keeps the standard line (functions/quietNudge.js). */}
+          {state.botQuietNudge !== false && (
+            <label className="block space-y-2 rounded-xl border border-line bg-surface-subtle p-4">
+              <span className="block text-xs font-bold text-ink leading-relaxed">{txt.botQuietNudgeText}</span>
+              <textarea
+                id="bot-quiet-nudge-text"
+                rows={3}
+                dir="auto"
+                maxLength={500}
+                className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
+                placeholder={txt.botQuietNudgeTextPh}
+                value={state.botQuietNudgeText ?? ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setState((s) => ({ ...s, botQuietNudgeText: value }));
+                }}
+                onBlur={() => void persist(state, "silent")}
+              />
+              <span className="block max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botQuietNudgeTextHint}</span>
+            </label>
+          )}
 
           <label className="flex items-center justify-between gap-4 cursor-pointer">
             <span className="text-xs font-bold text-ink leading-relaxed">{txt.botHideDoctorNames}</span>

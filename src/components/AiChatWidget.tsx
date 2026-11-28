@@ -2,20 +2,19 @@
 
 import React, { Suspense, useState, useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus } from "lucide-react";
+import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus, FileText } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useTutorial } from "@/context/TutorialContext";
-import { useTour } from "@/context/TourContext";
-import { TOUR_GUIDE } from "@/lib/grandTour";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
 import { currentBranchId, withBranch } from "@/lib/branchScope";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
 import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
+import { printAssistantReport, type PrintableReport } from "@/lib/sara/printTables";
 import { installErrorBreadcrumbs, getErrorBreadcrumbs } from "@/lib/errorBreadcrumbs";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { RECEPTIONIST_NAME } from "@/lib/receptionist";
@@ -41,6 +40,12 @@ interface ChatMessage {
   timestamp: Date;
   /** Data-URL of an image the user attached to this message — rendered as a thumbnail. */
   image?: string;
+  /** The assistant could not answer. Shown, but never sent back as history (and never charged). */
+  noAnswer?: boolean;
+  /** The full tables behind a ready-made answer, for the "Open PDF" button. */
+  pdf?: PrintableReport;
+  /** A deeper search the server offered for this question (Owner/Admin only). */
+  deepOffer?: { credits: number; question: string };
 }
 
 /**
@@ -86,9 +91,8 @@ export default function AiChatWidget() {
   const { clinic, clinicId, isAdmin } = useClinic();
   const { user } = useAuth();
   const { language, isRTL } = useLanguage();
-  const { receptionPanelActive, setAssistantPanelOpen } = useUI();
+  const { receptionPanelActive } = useUI();
   const { activeTutorial, startTutorial, cancelTutorial } = useTutorial();
-  const tour = useTour();
   const isAr = language === "ar";
   const router = useRouter();
   const alphaName = isAr ? RECEPTIONIST_NAME.ar : RECEPTIONIST_NAME.en; // "Sara"
@@ -217,20 +221,6 @@ export default function AiChatWidget() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isOpen, isLoading]);
 
-  /**
-   * Tell the rest of the shell that this panel is on screen.
-   *
-   * The welcome coach's bubble lives in the same corner, directly above the orb this panel
-   * unfolds from, so it has to step aside while the panel is open. Published rather than lifted:
-   * `isOpen` is closed over by a dozen handlers in here and moving it out would be a rewrite for
-   * one consumer. The cleanup matters as much as the set — this component returns null while a
-   * lesson is running, and a stale `true` would keep the coach hidden after the lesson ends.
-   */
-  useEffect(() => {
-    setAssistantPanelOpen(isOpen);
-    return () => setAssistantPanelOpen(false);
-  }, [isOpen, setAssistantPanelOpen]);
-
   if (!canUseAi) return null;
 
   /**
@@ -239,8 +229,6 @@ export default function AiChatWidget() {
    * pointing at. Cancelling is the overlay's job (its button, or Escape) while this is hidden.
    */
   if (activeTutorial) return null;
-  // Sara's tour has its own panel with its own question box; two assistants on screen is one too many.
-  if (tour.active) return null;
 
   const handleResolveAction = async (decision: "approve" | "reject") => {
     if (!pendingAction || resolvingAction) return;
@@ -430,7 +418,7 @@ export default function AiChatWidget() {
     setIsOpen(false);
   };
 
-  const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
+  const handleSendMessage = async (e?: React.FormEvent, customText?: string, opts?: { deep?: boolean }) => {
     if (e) e.preventDefault();
     const textToSend = customText || inputMessage;
     // An attached image alone is a legitimate message; the question is implied.
@@ -440,7 +428,10 @@ export default function AiChatWidget() {
     // The mode this message belongs to — the reply lands here even if the user switches hats
     // while it is in flight, and the history sent is this thread's, not whichever is on screen.
     const mode = assistantMode;
-    const outgoingHistory = threads[mode].map(m => ({ role: m.role, parts: [{ text: m.content }] }));
+    // A turn that got no answer is left out together with its question: sent back, the model
+    // reads its own failure as the way to reply and fails the next question the same way.
+    const kept = threads[mode].filter((m, i, all) => !m.noAnswer && !(m.role === "user" && all[i + 1]?.noAnswer));
+    const outgoingHistory = kept.map(m => ({ role: m.role, parts: [{ text: m.content }] }));
 
     setInputMessage("");
     setPendingImage(null);
@@ -484,12 +475,11 @@ export default function AiChatWidget() {
           // does not have — the model calls it, the server answers "Opened Khaled's 4 PM",
           // and nothing appears.
           client: "web-widget",
+          // The person said yes to the deeper search card. The server checks the role itself.
+          ...(opts?.deep ? { deepSearch: true } : {}),
           // Which hat the assistant wears this turn — normal chat, patient trainer, or support
           // triage. Same brain and tools; the mode shifts emphasis server-side.
           assistantMode: mode,
-          // The tour stops this person can be shown, so the model is only offered ones the
-          // client can actually open — see the client-capability note above.
-          tourStopIds: tour.allStops.map((s) => s.id),
           history: outgoingHistory
         })
       });
@@ -508,8 +498,12 @@ export default function AiChatWidget() {
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: data.reply || "...",
+        // The server never sends an empty reply now; this only covers an older deployment.
+        content: data.reply || (isAr ? "معرفتش أطلع الإجابة دي دلوقتي." : "I couldn't work that out this time."),
         timestamp: new Date(),
+        ...(data.noAnswer || !data.reply ? { noAnswer: true } : {}),
+        ...(data.reportPdf?.title && Array.isArray(data.reportPdf.sections) ? { pdf: data.reportPdf as PrintableReport } : {}),
+        ...(Number(data.deepSearchOffer?.credits) > 0 ? { deepOffer: { credits: Number(data.deepSearchOffer.credits), question: prompt } } : {}),
       };
 
       pushMessage(mode, assistantMsg);
@@ -547,11 +541,6 @@ export default function AiChatWidget() {
       // The model chose a lesson. Close the panel so the ring owns the screen.
       if (typeof data.startTutorial?.id === "string") {
         if (startTutorial(data.startTutorial.id)) setIsOpen(false);
-      }
-
-      // The model chose to show them around: Sara's tour opens at that stop.
-      if (typeof data.tourGoTo?.stopId === "string") {
-        if (tour.goTo(data.tourGoTo.stopId)) setIsOpen(false);
       }
 
       // A composed support ticket. Rendered as a card; nothing leaves until the user hits Send.
@@ -776,28 +765,6 @@ export default function AiChatWidget() {
                   </div>
                 </div>
 
-                {/* The whole system, narrated. Free, resumable, and the surest way to learn
-                    where everything is. */}
-                {tour.allStops.length > 0 && (
-                  <button
-                    onClick={() => {
-                      setIsOpen(false);
-                      tour.start();
-                    }}
-                    className="w-full text-start text-[11.5px] font-black text-white bg-ink-slab hover:bg-ink px-3.5 py-2.5 rounded-xl transition-colors flex items-center gap-2.5"
-                  >
-                    <Sparkles size={13} className="text-[#FACC15] shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {isAr
-                        ? `جولة على النظام كله مع ${TOUR_GUIDE.ar}`
-                        : `Tour the whole system with ${TOUR_GUIDE.en}`}
-                    </span>
-                    <span className="text-[9.5px] font-bold text-white/50 shrink-0">
-                      {isAr ? "ببلاش" : "free"}
-                    </span>
-                  </button>
-                )}
-
                 {/* Lessons: start instantly, cost nothing, and point at the real screen. */}
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1">
@@ -837,6 +804,35 @@ export default function AiChatWidget() {
                   )}
                   {/* Same split as the appointment panel: typed text literal, model reply parsed. */}
                   {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isRTL} />}
+                  {/* The full list behind a ready-made answer. Built by the system, not the model. */}
+                  {msg.pdf && (
+                    <button
+                      type="button"
+                      onClick={() => void printAssistantReport(msg.pdf!, clinic?.name)}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-subtle px-3 py-1.5 text-[12px] font-bold text-slate-700 hover:bg-surface transition-colors"
+                    >
+                      <FileText size={13} className="shrink-0" />
+                      {isAr ? "افتح التقرير PDF" : "Open the PDF report"}
+                    </button>
+                  )}
+                  {/* Offered by the server to an Owner or Admin when the reading limit stopped the answer. */}
+                  {msg.deepOffer && msg.id === messages[messages.length - 1]?.id && (
+                    <div className="mt-2 rounded-xl border border-line bg-surface-subtle px-3 py-2">
+                      <p className="text-[12px] text-ink-body leading-relaxed">
+                        {isAr
+                          ? `السؤال ده محتاج بحث أعمق في السجلات. هيتحسب ${msg.deepOffer.credits} رصيد.`
+                          : `This question needs a deeper search through the records. It uses ${msg.deepOffer.credits} credits.`}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => void handleSendMessage(undefined, msg.deepOffer!.question, { deep: true })}
+                        className="mt-2 rounded-lg bg-ink-slab px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-50 active:scale-[0.98] transition-transform"
+                      >
+                        {isAr ? `ابحث أعمق (${msg.deepOffer.credits} رصيد)` : `Search deeper (${msg.deepOffer.credits} credits)`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

@@ -13,18 +13,16 @@ import {
   Rocket,
   Settings,
   ShieldCheck,
-  Sparkles,
   Wand2,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 import { getClinicLogo } from "@/lib/clinicLogo";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import NotificationBell from "@/components/NotificationBell";
 import { DIRECT_KEYS, SECTION_GROUPS, type NavItem } from "@/components/dashboard/navGroups";
-import { useTourOptional } from "@/context/TourContext";
-import { TOUR_GUIDE } from "@/lib/grandTour";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
 
 /**
@@ -57,7 +55,6 @@ export default function TopNav({
       ? ({ Admin: "مدير", Owner: "المالك", Dentist: "طبيب", Receptionist: "استقبال", Assistant: "مساعد" } as Record<string, string>)[role] ?? role
       : role
     : "";
-  const tour = useTourOptional();
 
   const [logoUrl, setLogoUrl] = useState("");
   /** Which dropdown is open: a group title, "account", or null. One at a time. */
@@ -209,7 +206,6 @@ export default function TopNav({
             <button
               type="button"
               onClick={() => setOpen(open === group.id ? null : group.id)}
-              /* The tour opens each menu while describing it. */
               data-tour={`nav-group-${group.id.toLowerCase().replace(/[^a-z]+/g, "-")}`}
               /* Lets a guided lesson ring this button when the destination it wants is inside the
                  closed menu — see findVisibleAnchor in TutorialOverlay. */
@@ -258,10 +254,21 @@ export default function TopNav({
         ))}
       </nav>
 
+      {/* --- HOME VIEW TABS, on a phone --- */}
+      {/* Below lg the home screens have no title strip (PageHeader hideOnPhone), so the
+          owner / calendar / dentist tabs live here, in the middle of the nav row. From lg up each
+          home screen draws them in its own strip, as before. */}
+      {pathname === "/" && (
+        <div className="flex min-w-0 flex-1 justify-center lg:hidden">
+          <HomeViewTabs />
+        </div>
+      )}
+
       {/* --- SETTINGS / BELL / ACCOUNT --- */}
       <div className="ms-auto flex shrink-0 items-center gap-2">
-        {/* Shown on a phone too, unlike the gear beside it: the phone has Settings in its menu
-            sheet, but this is the button people are told to press to finish setting up. */}
+        {/* From lg up only (owner's request, 2026-11-28): on a phone Quick setup is the first row
+            of the account menu beside this, and the band has no room for a button most people
+            press once. */}
         {showQuickSetup && (
           <Link
             href={quickSetupHref}
@@ -271,7 +278,7 @@ export default function TopNav({
             aria-current={onSetup ? "page" : undefined}
             // Spelled out rather than layered on `iconButton`: two text colours on one element are
             // settled by stylesheet order, not by which is written last.
-            className={`grid size-9 place-items-center rounded-full border transition-colors ${
+            className={`hidden size-9 place-items-center rounded-full border transition-colors lg:grid ${
               onSetup
                 ? "border-[#FACC15]/40 bg-[#FACC15] text-ink"
                 : "border-white/15 bg-white/5 text-[#FACC15] hover:bg-white/15"
@@ -301,7 +308,7 @@ export default function TopNav({
           <button
             type="button"
             data-tour="account-menu"
-            /* Sara's hand opens this to reach Getting started and Help — see tourDemo.ts. */
+            /* Lets a guided lesson ring this button to reach Getting started and Help. */
             data-tour-opens="menu-welcome menu-help"
             onClick={() => setOpen(open === "account" ? null : "account")}
             className="flex items-center gap-2.5 rounded-full py-1 ps-1 pe-2 transition-colors hover:bg-white/10"
@@ -341,19 +348,6 @@ export default function TopNav({
                 <LifeBuoy size={18} className="shrink-0" />
                 {language === "ar" ? "مركز المساعدة" : "Help Center"}
               </Link>
-              {tour && tour.stops.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(null);
-                    tour.start();
-                  }}
-                  className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}
-                >
-                  <Sparkles size={18} className="shrink-0" />
-                  {language === "ar" ? `جولة مع ${TOUR_GUIDE.ar}` : `Tour with ${TOUR_GUIDE.en}`}
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => {

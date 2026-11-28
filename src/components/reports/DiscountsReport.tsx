@@ -6,6 +6,7 @@ import { DataTable, Note, Num, PatientLink, SectionTitle, fmt, fmtPct } from "@/
 import type { ReportProps } from "@/components/reports/types";
 import { discountLines, groupTotals, summarizeLedger, type DiscountLine } from "@/lib/reports/ledgerStats";
 import { dayText } from "@/lib/reportHelpers";
+import { discountReasonLabel } from "@/lib/priceLists";
 
 /**
  * What was given away, by whom, on what, and why.
@@ -20,7 +21,7 @@ export default function DiscountsReport({ ledger, isAr }: ReportProps) {
   const period = useMemo(() => summarizeLedger(ledger), [ledger]);
   const byDoctor = useMemo(() => groupTotals(lines, (l) => l.doctor, (l) => l.discount), [lines]);
   const byService = useMemo(() => groupTotals(lines, (l) => l.service, (l) => l.discount), [lines]);
-  const byReason = useMemo(() => groupTotals(lines, (l) => l.reason || (isAr ? "بدون سبب" : "No reason given"), (l) => l.discount), [lines, isAr]);
+  const byReason = useMemo(() => groupTotals(lines, (l) => (l.reason ? discountReasonLabel(l.reason, isAr) : isAr ? "بدون سبب" : "No reason given"), (l) => l.discount), [lines, isAr]);
   const egp = isAr ? "ج.م" : "EGP";
   const total = lines.reduce((s, l) => s + l.discount, 0);
   const listTotal = period.charged + total;
@@ -65,7 +66,7 @@ export default function DiscountsReport({ ledger, isAr }: ReportProps) {
             { key: "discount", label: isAr ? "الخصم" : "Discount", align: "end", render: (l) => <Num v={l.discount} bold bad />, total: <Num v={total} bold bad /> },
             { key: "pct", label: "%", align: "end", render: (l) => <span className="font-figure text-[12px] text-ink-muted">{l.pct}%</span> },
             { key: "price", label: isAr ? "بعد الخصم" : "Charged", align: "end", render: (l) => <Num v={l.price} /> },
-            { key: "reason", label: isAr ? "السبب" : "Reason", render: (l) => (l.reason ? <span className="line-clamp-1 text-[12px]">{l.reason}</span> : <span className="text-[11px] font-bold text-danger">{isAr ? "—" : "—"}</span>) },
+            { key: "reason", label: isAr ? "السبب" : "Reason", render: (l) => (l.reason ? <span className="line-clamp-1 text-[12px]">{discountReasonLabel(l.reason, isAr)}</span> : <span className="text-[11px] font-bold text-danger">{isAr ? "—" : "—"}</span>) },
           ]}
         />
         <Note>

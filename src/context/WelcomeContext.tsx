@@ -1,9 +1,8 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { hasFeature } from "@/lib/subscriptions";
@@ -18,22 +17,12 @@ import {
   type TrialWarning,
 } from "@/lib/trialPolicy";
 import { readWelcomeSignals } from "@/lib/welcomeSignals";
+import { WELCOME_CHANGED_EVENT, readWelcomeState, type WelcomeScope } from "@/lib/welcomeStore";
 import {
-  WELCOME_CHANGED_EVENT,
-  dismissCoach,
-  readWelcomeState,
-  restoreCoach,
-  snoozeCoach,
-  type WelcomeScope,
-} from "@/lib/welcomeStore";
-import {
-  coachSnoozeMs,
-  coachDecision,
   journeyProgress,
   lockedMissionsFor,
   missionsFor,
   trialStatus,
-  type CoachDecision,
   type JourneyProgress,
   type Mission,
   type MissionFeature,
@@ -44,18 +33,12 @@ import {
 /**
  * Where the welcome guide's state lives.
  *
- * Three surfaces read it — the coach bubble in the corner, the guide at `/welcome`, and the
- * progress card on the dashboard — and all three must agree, to the tick, at the same instant.
- * Given how the answer is assembled, that is not a nicety:
+ * More than one surface reads it — the guide at `/welcome` and the trial countdown banner — and
+ * they must agree. The signal probes cost thirteen Firestore reads, so they run ONCE per clinic
+ * per tab, not once per component that wants to know.
  *
- *  - the signal probes cost thirteen Firestore reads, so they run ONCE per clinic per tab, not
- *    once per component that wants to know;
- *  - the answer changes underneath the app (a lesson finishes, a payment posts), so a stale
- *    checklist beside a fresh coach would be two different opinions on screen at the same time.
- *
- * Mounted inside `TutorialProvider` in the dashboard layout, because the coach must fall silent
- * while a lesson's ring owns the screen — and outside nothing, because a page that is not the
- * dashboard has no clinic to be welcomed to.
+ * Mounted in the dashboard layout only, because a page that is not the dashboard has no clinic to
+ * be welcomed to.
  */
 
 interface WelcomeContextType {
@@ -75,34 +58,13 @@ interface WelcomeContextType {
    * actually on a trial.
    */
   trialEnding: TrialWarning;
-  /** Whether the coach should be on screen, and why not when it should not. */
-  coach: CoachDecision;
-  /** True while the coach has been switched off for good at this clinic. */
-  coachDismissed: boolean;
   /** Re-read the clinic signals. Called after a lesson finishes and from the guide's refresh. */
   refresh: () => void;
-  /** "Later" — quiet for the rest of the working day. */
-  snooze: () => void;
-  /** "Don't show this again" at this clinic. */
-  dismiss: () => void;
-  /** Bring the coach back, from the guide page. */
-  restore: () => void;
 }
 
 const WelcomeContext = createContext<WelcomeContextType | undefined>(undefined);
 
-export function WelcomeProvider({
-  children,
-  /**
-   * Whether a lesson is currently running. Passed in rather than read from `useTutorial()` so
-   * this provider carries no dependency on the tutorial system — the guide is perfectly coherent
-   * without one, and the coupling would only exist to silence a bubble.
-   */
-  tutorialRunning = false,
-}: {
-  children: React.ReactNode;
-  tutorialRunning?: boolean;
-}) {
+export function WelcomeProvider({ children }: { children: React.ReactNode }) {
   const { clinic, clinicId, isAdmin } = useClinic();
   const { user } = useAuth();
 
@@ -230,92 +192,11 @@ export function WelcomeProvider({
     [clinic, trial.isTrial, policy],
   );
 
-  const coach = useMemo(
-    () =>
-      // While the probes are still out, every mission looks unfinished. Speaking then means a
-      // fully set-up clinic is greeted with "register your first patient" for a second — so the
-      // coach waits for the answer rather than guessing at it.
-      loading
-        ? ({ speak: false, reason: "nothing-to-say" } as CoachDecision)
-        : coachDecision({
-            progress,
-            snoozedUntil: local.snoozedUntil,
-            // Either copy is enough. The remote one is the same answer on every device; the
-            // local one is the only one a storage-blocked browser has.
-            dismissedForever: local.dismissed || user?.coachOff === true,
-            tutorialRunning,
-          }),
-    [loading, progress, local.snoozedUntil, local.dismissed, user?.coachOff, tutorialRunning],
-  );
-
   const refresh = useCallback(() => setSignalTick((n) => n + 1), []);
-  /**
-   * Each close buys a longer silence than the last — see `coachSnoozeMs`. Closing the bubble is
-   * an answer, and asking the same question again tomorrow of somebody who has answered it three
-   * times is the behaviour people mean when they say an app nags.
-   */
-  const snooze = useCallback(
-    () => snoozeCoach(scope, Date.now() + coachSnoozeMs(local.snoozeCount)),
-    [scope, local.snoozeCount],
-  );
-  /**
-   * "Stop coaching me", kept on the person's own user document as well as in this browser.
-   *
-   * Local storage alone made this a promise the app could not keep. A cleared browser, a second
-   * laptop, a phone, a private window — each is a fresh localStorage, and a fresh localStorage
-   * read as somebody who had never asked her to stop. `users/{uid}` is readable and writable by
-   * its owner (see firestore.rules) and is already live-subscribed by AuthContext, so the answer
-   * is in hand on every device the moment they sign in. Merged, never set: this document carries
-   * roles granted server-side.
-   */
-  const writeCoachOffRemote = useCallback(
-    (off: boolean) => {
-      const uid = user?.uid;
-      if (!uid) return;
-      void setDoc(getClinicDoc("users", uid), { coachOff: off }, { merge: true }).catch(() => {
-        /* Offline or denied: the local flag still answers for this browser. */
-      });
-    },
-    [user?.uid],
-  );
-
-  const dismiss = useCallback(() => {
-    dismissCoach(scope);
-    writeCoachOffRemote(true);
-  }, [scope, writeCoachOffRemote]);
-
-  const restore = useCallback(() => {
-    restoreCoach(scope);
-    writeCoachOffRemote(false);
-  }, [scope, writeCoachOffRemote]);
-
-  /**
-   * A "stop" that only one browser knows gets carried up to the user document, once.
-   *
-   * Without this, everyone who had already switched the coach off before it was stored on the
-   * server would have to switch it off again, on every device, to make it stick.
-   */
-  useEffect(() => {
-    if (!user?.uid || !local.dismissed || user.coachOff === true) return;
-    writeCoachOffRemote(true);
-  }, [user?.uid, user?.coachOff, local.dismissed, writeCoachOffRemote]);
 
   const value = useMemo(
-    () => ({
-      loading,
-      missions,
-      locked,
-      progress,
-      trial,
-      trialEnding,
-      coach,
-      coachDismissed: local.dismissed || user?.coachOff === true,
-      refresh,
-      snooze,
-      dismiss,
-      restore,
-    }),
-    [loading, missions, locked, progress, trial, trialEnding, coach, local.dismissed, user?.coachOff, refresh, snooze, dismiss, restore],
+    () => ({ loading, missions, locked, progress, trial, trialEnding, refresh }),
+    [loading, missions, locked, progress, trial, trialEnding, refresh],
   );
 
   return <WelcomeContext.Provider value={value}>{children}</WelcomeContext.Provider>;

@@ -358,6 +358,15 @@ export const TeethChartSelector = memo(function TeethChartSelector({
     );
   });
 
+/**
+ * Today on the device's own clock. `toISOString()` is the UTC day, so in Egypt (UTC+2) a treatment
+ * recorded between midnight and 2 am was dated the day before.
+ */
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function ServiceEditorDrawer({
   isOpen, onClose, patientId, patientName, patientDefaultPriceListId, branchId = null, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false, layerClass = "z-[100]",
   hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false,
@@ -370,7 +379,7 @@ export default function ServiceEditorDrawer({
   const { user } = useAuth();
 
   // Form State
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(localToday);
   const [tooth, setTooth] = useState("");
   const [internalSelectedTeeth, setInternalSelectedTeeth] = useState<string[]>([]);
 
@@ -509,7 +518,7 @@ export default function ServiceEditorDrawer({
     seededForRef.current = seedKey;
 
     if (initialNote) {
-      setDate(initialNote.date || new Date().toISOString().split("T")[0]);
+      setDate(initialNote.date || localToday());
       setTooth(initialNote.tooth || "");
       setSelectedTeeth(parseTeethString(initialNote.tooth || ""));
       setProcedure(initialNote.serviceName || initialNote.procedure || initialNote.title || "");
@@ -551,7 +560,7 @@ export default function ServiceEditorDrawer({
       setPricingModeOverride(isPricingMode(initialNote.pricingMode) ? initialNote.pricingMode : null);
     } else {
       // Reset form
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(localToday());
       setTooth("");
       setProcedure(""); setMultiProceduresText(""); setCost(""); setNoteText("");
       setProcedureStatus('Planned');
@@ -658,7 +667,7 @@ export default function ServiceEditorDrawer({
         onSaved();
         onClose();
       } catch (err) {
-        showToast(err instanceof MoneyApiError ? err.message : "Error saving procedure", "error");
+        showToast(err instanceof MoneyApiError ? err.message : language === "ar" ? "ماتحفظش — جرّب تاني" : "Error saving procedure", "error");
         console.error(err);
       } finally {
         setIsSaving(false);
@@ -682,7 +691,7 @@ export default function ServiceEditorDrawer({
     }
 
     setIsSaving(true);
-    setSaveStatusText("Saving to Database...");
+    setSaveStatusText(language === "ar" ? "بيتحفظ…" : "Saving…");
 
     try {
       const extraProcedures = multiProceduresText.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -758,11 +767,11 @@ export default function ServiceEditorDrawer({
         }
       }
 
-      showToast(initialNote ? "Procedure Updated" : "Procedure Logged", "success");
+      showToast(language === "ar" ? "اتحفظ" : initialNote ? "Procedure Updated" : "Procedure Logged", "success");
       onSaved(labSeed);
       onClose();
     } catch (err) {
-        showToast(err instanceof MoneyApiError ? err.message : "Error saving procedure", "error");
+        showToast(err instanceof MoneyApiError ? err.message : language === "ar" ? "ماتحفظش — جرّب تاني" : "Error saving procedure", "error");
         console.error(err);
     } finally {
         setIsSaving(false);

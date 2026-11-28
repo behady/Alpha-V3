@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
-  Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
+  Calendar, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
   Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
   X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
 } from "lucide-react";
@@ -61,8 +61,8 @@ import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import CallsTodayCard from "@/components/calls/CallsTodayCard";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
-import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
-import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
+import PageHeader from "@/components/dashboard/PageHeader";
+import { hasInsurers } from "@/lib/payers";
 import { weekDaysFrom, daySummary, isOffDay, countsAsVisit } from "@/lib/weekSchedule";
 import { NO_DOCTOR, NO_ROOM, doctorColumns, roomColumns } from "@/lib/roomSchedule";
 import { generalDoctorLabel } from "@/lib/generalDentist";
@@ -77,18 +77,6 @@ type PhoneView = "day" | "week" | "dentists" | "rooms";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
-}
-
-function getWelcomeName(name?: string): string {
-  if (!name) return "";
-  const parts = name.split(" ").filter(Boolean);
-  if (parts.length > 1) {
-    const firstLower = parts[0].toLowerCase().replace(/\.$/, ""); // remove trailing dot
-    if (["dr", "د", "دكتور", "doctor", "prof", "أستاذ", "استاذ"].includes(firstLower)) {
-      return `${parts[0]} ${parts[1]}`;
-    }
-  }
-  return parts[0] || "";
 }
 
 function getEndTimeStr(timeStr: string, durationMin: number): string {
@@ -169,36 +157,14 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
   };
 }
 
-function DashboardClockWidget({ language, showTime = true }: { language: string, showTime?: boolean }) {
-  const [time, setTime] = useState(new Date());
-  useEffect(() => {
-    // Update once a minute since we don't display seconds
-    const timer = setInterval(() => setTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  if (!showTime) {
-    return (
-      <>{time.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short' })}</>
-    );
-  }
-
-  return (
-    <>
-      <span className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-400" /> {time.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-      <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-      <span className="flex items-center gap-1.5"><Clock size={14} className="text-slate-400" /> {time.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
-    </>
-  );
-}
-
 export default function MobileDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { clinic, role, isAdmin } = useClinic();
   /** The clinic's insurers, for the "No approval" tag on a card (components/appointments/NoApprovalTag). */
   const { payers } = usePricingPolicy();
   /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
-  const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
+  /* The add-on alone is not enough: with no insurer set up there is no approval to read. */
+  const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance") && hasInsurers(payers);
   const [readApproval, setReadApproval] = useState(false);
   const { user } = useAuth();
   // A dentist reaches this calendar from their menu now (it is the only calendar). The clinic's
@@ -990,25 +956,11 @@ export default function MobileDashboard() {
     <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-clip lg:overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
 
-        {/* The greeting and the two quick actions now sit in the layout's black band, so they
-            are there on a phone too — this bar used to be `hidden lg:flex` inside a component
-            that only ever renders below `lg`, which meant nobody had ever seen it. */}
-        <PageHeader
-          title={<><span className="font-light">{language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'}</span> {getWelcomeName(user?.name)}</>}
-          eyebrow={<span className="inline-flex items-center gap-2"><DashboardClockWidget language={language} /></span>}
-        >
-          <HomeViewTabs />
-          <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
-            <Plus size={17} strokeWidth={3} />
-            <span className="hidden sm:inline">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
-          </button>
-          {insuranceOn && (
-            <button onClick={() => setReadApproval(true)} className={headerButtonGhost}>
-              <ScanLine size={17} strokeWidth={2.5} />
-              <span className="hidden sm:inline">{language === 'ar' ? 'اقرأ موافقة' : 'Read approval'}</span>
-            </button>
-          )}
-        </PageHeader>
+        {/* No title strip on this screen (owner's request, 2026-11-28): below lg the black band is
+            the nav row alone, with the home-view tabs in it (TopNav). The greeting, the clock and
+            the two round shortcuts that sat here are gone — New patient and Read approval are the
+            big buttons just below. Still mounted, so the layout does not draw its fallback title. */}
+        <PageHeader hideOnPhone />
 
         {/* === DESKTOP: Floating High-Contrast Stats === */}
         <div className="hidden lg:flex items-center gap-12 shrink-0 py-4 px-2">

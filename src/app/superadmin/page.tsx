@@ -28,7 +28,8 @@ import MisplacedRecordsTab from "@/components/superadmin/MisplacedRecordsTab";
 import { PlatformTab } from "@/components/superadmin/PlatformTab";
 import { CostsTab } from "@/components/superadmin/CostsTab";
 import SupplyStoreTab from "@/components/superadmin/SupplyStoreTab";
-import { TourTab } from "@/components/superadmin/TourTab";
+import { UsageTab } from "@/components/superadmin/UsageTab";
+import { SaraQuestionsPanel } from "@/components/superadmin/SaraQuestionsPanel";
 import { TasksTab } from "@/components/superadmin/TasksTab";
 
 /** One row of the trash, as /api/admin/clinic-trash lists it. */
@@ -44,7 +45,7 @@ interface TrashedClinic {
 
 const TAB_TITLE: Record<SuperAdminTab, SAKey> = {
   clinics: "navClinics", users: "navUsers", costs: "navCosts", analytics: "navAnalytics", meta: "navMeta",
-  supply: "navSupply", platform: "navPlatform", migrate: "navMigrate", misplaced: "navAudit", tour: "navTour", tasks: "navTasks",
+  supply: "navSupply", platform: "navPlatform", migrate: "navMigrate", misplaced: "navAudit", tasks: "navTasks", usage: "navUsage",
 };
 
 export default function SuperAdminDashboard() {
@@ -356,8 +357,10 @@ export default function SuperAdminDashboard() {
           </>
         )}
 
-        {/* Where Sara's tour loses people, across every clinic. */}
-        {activeTab === "tour" && <DarkPanel><TourTab /></DarkPanel>}
+        {/* Who uses which screen, for how long, across every clinic. */}
+        {activeTab === "usage" && <DarkPanel><UsageTab /></DarkPanel>}
+        {/* What people asked the assistant, and which questions still need a ready-made answer. */}
+        {activeTab === "usage" && <DarkPanel><SaraQuestionsPanel /></DarkPanel>}
         {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}
         {activeTab === "costs" && <DarkPanel><CostsTab /></DarkPanel>}
         {activeTab === "analytics" && <AnalyticsTab clinics={clinics} />}

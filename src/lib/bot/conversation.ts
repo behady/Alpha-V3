@@ -154,6 +154,8 @@ export interface BotConversation {
   staffPaused?: boolean;
   /** When a staff member last wrote to this patient (0 after «رجّع البوت»). See lib/bot/staffHold. */
   staffWroteAtMs?: number;
+  /** Severity of a hand-off still waiting for a person; absent when none is open. See lib/bot/deskFirst. */
+  openHandoffSeverity?: HandoffSeverity;
   /** When staff took the thread over, while that take-over still holds. */
   pausedAtMs?: number;
   /** The service the model last heard the patient wanting; the treatment when a booking follows. */
@@ -347,6 +349,7 @@ export async function loadConversation(
     staffActive: humanActiveAtMs > now - humanClaimMs || paused,
     staffPaused: paused,
     staffWroteAtMs: humanActiveAtMs || undefined,
+    openHandoffSeverity: openHandoff ? (d.severity === "urgent" || d.severity === "complaint" ? d.severity : "normal") : undefined,
     pausedAtMs: paused ? pausedAt || undefined : undefined,
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
@@ -579,6 +582,18 @@ export async function markHumanActive(clinicId: string, address: string, uid?: s
     },
     { merge: true }
   );
+}
+
+/**
+ * The stamp of the latest staff message, read fresh.
+ *
+ * A turn loads the conversation once, then the model thinks for ten to thirty seconds. This is
+ * the second look, just before the send (lib/bot/deskFirst). Never throws: a failed read is 0,
+ * and the answer goes out as it did before the rule existed.
+ */
+export async function staffWroteAtNow(clinicId: string, phoneKey: string): Promise<number> {
+  const snap = await ref(clinicId, phoneKey).get().catch(() => null);
+  return Number(snap?.data()?.humanActiveAtMs) || 0;
 }
 
 /**

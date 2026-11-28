@@ -13,6 +13,7 @@ import {
   mentionsAi,
   strayClocks,
   strayNumbers,
+  wantsArabicOnly,
   wrongScript,
 } from "../src/lib/botPro/checks";
 import { isCannedAdGreeting } from "../src/lib/bot/adGreeting";
@@ -156,6 +157,51 @@ test("wrongScript ignores Meta's pre-filled ad opener", () => {
   assert.equal(isLatinMessage("Hello! Can I get more info on this?"), false);
   assert.equal(isLatinMessage("Hello! Do you do whitening?"), true);
   assert.equal(isCannedAdGreeting("مرحبًا! هل يمكنني الحصول على مزيد من المعلومات حول هذا؟"), false);
+});
+
+// Asnany, 24-28/11/2026: the owner's rule says Arabic always. The model obeyed, this check called
+// its Arabic answer to "Details" the wrong script, and the retry went out in English (once French).
+test("an Arabic-only clinic: Arabic is right whatever the patient wrote, English is wrong", () => {
+  const arabic = "أهلًا وسهلا بحضرتك، تبييض الأسنان بالليزر خلال جلسة واحدة";
+  const english = "Welcome! Laser teeth whitening in a single session for 1,000 EGP";
+  assert.equal(wrongScript("Details", arabic, true), false);
+  assert.equal(wrongScript("Hello! Do you do whitening?", arabic, true), false);
+  assert.equal(wrongScript("Details", english, true), true);
+  assert.equal(wrongScript("Hello! Can I get more info on this?", english, true), true, "the ad opener too");
+  assert.equal(wrongScript("بكام التبييض", english, true), true);
+  assert.equal(wrongScript("بكام التبييض", arabic, true), false);
+  // Without the rule nothing changes.
+  assert.equal(wrongScript("Details", arabic), true);
+});
+
+test("a link in the reply is not the reply's language", () => {
+  const withLink = "ده لينك الصفحة https://www.instagram.com/asnanydentalclinicadc?fqnt=aGNva3RzdmQxdmg5&utm_source=qr";
+  assert.equal(wrongScript("ممكن لينك الانستجرام", withLink), false);
+  assert.equal(wrongScript("Instagram link please", withLink, true), false);
+});
+
+test("wantsArabicOnly reads the owner's own words", () => {
+  // The two real ones: the published rule and the settings note.
+  assert.equal(wantsArabicOnly(["رد دايما بالعربي على كل الرسايل حتى لو المريض كتب بالإنجليزي"]), true);
+  assert.equal(wantsArabicOnly(["ابعت العنوان", "الرد فقط باللغه العربيه و بلاش تقول معاك ايمان من عيادة اسناني"]), true);
+  assert.equal(wantsArabicOnly(["الرد باللغة العربية فقط"]), true);
+  assert.equal(wantsArabicOnly(["اتكلم عربي بس"]), true);
+  assert.equal(wantsArabicOnly(["Always reply in Arabic"]), true);
+  assert.equal(wantsArabicOnly(["Arabic only, please"]), true);
+  // Not a blanket rule.
+  assert.equal(wantsArabicOnly(["رد بالعربي لو المريض كتب عربي"]), false);
+  assert.equal(wantsArabicOnly(["لو المريض كتب بالإنجليزي رد عليه بالإنجليزي"]), false);
+  assert.equal(wantsArabicOnly(["رحب بالمريض بأسلوب ذوق وودود"]), false);
+  assert.equal(wantsArabicOnly([]), false);
+  assert.equal(wantsArabicOnly(["", "   "]), false);
+});
+
+test("checkReply applies the clinic's Arabic-only rule", () => {
+  const base = { allowed: allowedNumbers([]), clocks: new Set<string>(), drugsAllowed: "" };
+  const arabic = "أهلًا وسهلا بحضرتك، تبييض الأسنان بالليزر خلال جلسة واحدة";
+  assert.deepEqual(checkReply({ ...base, question: "Details", reply: arabic, arabicOnly: true }).map((v) => v.rule), []);
+  assert.deepEqual(checkReply({ ...base, question: "Details", reply: arabic }).map((v) => v.rule), ["script"]);
+  assert.deepEqual(checkReply({ ...base, question: "Details", reply: "Welcome to our dental clinic", arabicOnly: true }).map((v) => v.rule), ["script"]);
 });
 
 test("wrongScript stays quiet on a too-short question or reply", () => {

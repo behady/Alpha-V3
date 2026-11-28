@@ -37,7 +37,7 @@ import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
-import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPaymentCommission, updateStaffSettlement, type StaffSettlementDraft } from "@/lib/moneyApi";
+import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPaymentCommission, setStaffPaidDaily, updateStaffSettlement, type StaffSettlementDraft } from "@/lib/moneyApi";
 import { owedBefore, parseSettlement, SETTLEMENTS_COLLECTION, settledInPeriod, settleEarnings, unpaidBefore, type Earning, type StaffSettlement } from "@/lib/staffSettlement";
 import FeatureGate from "@/components/FeatureGate";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -344,7 +344,10 @@ function TeamPage() {
       })),
       paidInPeriod: inPeriod.paid,
       deductedInPeriod: inPeriod.deducted,
-      items: [...historySettlements].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
+      // A paid-daily dentist has one automatic line per working day: only the period's are listed.
+      items: historySettlements
+        .filter((s) => s.auto !== "daily" || (s.date >= range.start && s.date <= range.end))
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
     };
   }, [history, selectedDoc, wording, range.start, range.end, scopeBranchId]);
 
@@ -366,6 +369,8 @@ function TeamPage() {
       registeredDeviceId: typeof d.registeredDeviceId === "string" ? d.registeredDeviceId : null,
       permissions: Array.isArray(d.permissions) ? (d.permissions as string[]) : [],
       branchIds: Array.isArray(d.branchIds) ? (d.branchIds as string[]) : undefined,
+      paidDaily: d.paidDaily === true,
+      paidDailyFrom: typeof d.paidDailyFrom === "string" ? d.paidDailyFrom : null,
     };
   }, [selectedDoc, isAr]);
 
@@ -454,6 +459,25 @@ function TeamPage() {
       }
     },
     [selectedDoc, canEdit, user, showToast, isAr],
+  );
+
+  /** "Paid daily": the dentist takes their share from each payment (lib/dailyPay.ts). */
+  const savePaidDaily = useCallback(
+    async (on: boolean): Promise<void> => {
+      if (!selectedDoc || !canEdit) return;
+      try {
+        await setStaffPaidDaily(selectedDoc.id, on, clinicId);
+        showToast(
+          on
+            ? isAr ? "اتسجل: بياخد نصيبه من كل دفعة" : "Saved: takes their share from each payment"
+            : isAr ? "اتسجل: نصيبه بيتجمع لحد ما تدفعله" : "Saved: their share adds up until you pay it",
+          "success",
+        );
+      } catch (err) {
+        showToast(err instanceof MoneyApiError ? err.message : isAr ? "مقدرناش نحفظ" : "Could not save that", "error");
+      }
+    },
+    [selectedDoc, canEdit, clinicId, showToast, isAr],
   );
 
   const selectedSchedule: { schedule: Schedule; assumed: boolean } = useMemo(
@@ -873,6 +897,7 @@ function TeamPage() {
                   onSetRate={setRate}
                   branches={branches}
                   onSaveBranchIds={saveBranchIds}
+                  onSetPaidDaily={savePaidDaily}
                   attendanceSheet={selectedSheet ?? sheetFor(selectedDoc as StaffDoc).sheet}
                   onExportAttendance={exportAttendance}
                 />

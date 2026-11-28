@@ -28,8 +28,8 @@
  *     offering times you are closed" is why, and why is what gets someone to spend three minutes
  *     of a working day on setup.
  *
- * Deliberately pure data with no client imports, exactly like `tutorials.ts`: the guide page, the
- * coach bubble and `tests/welcomeJourney.test.mts` all read it, and the test is what keeps a
+ * Deliberately pure data with no client imports, exactly like `tutorials.ts`: the guide page and
+ * `tests/welcomeJourney.test.mts` both read it, and the test is what keeps a
  * mission from pointing at a lesson that no longer exists.
  */
 
@@ -131,7 +131,7 @@ export interface Mission {
   id: string;
   stage: JourneyStageId;
   title: Localized;
-  /** What the clinic gets out of it. Shown under the title, and spoken by the coach. */
+  /** What the clinic gets out of it. Shown under the title. */
   payoff: Localized;
   /** The lesson that teaches it, by `TUTORIALS[].id`. Absent means "no ring for this one". */
   tutorialId?: string;
@@ -398,7 +398,7 @@ export const MISSIONS: Mission[] = [
   },
 ];
 
-/** Fast lookup, for the coach and the guide. */
+/** Fast lookup, for the guide. */
 export const MISSION_IDS = MISSIONS.map((m) => m.id);
 
 export function missionById(id: string): Mission | undefined {
@@ -427,7 +427,7 @@ function planAllows(mission: Mission, viewer: JourneyViewer): boolean {
 }
 
 /**
- * The missions this person can actually finish today. Everything counted, ticked and coached is
+ * The missions this person can actually finish today. Everything counted and ticked is
  * drawn from here, so a receptionist's guide is a receptionist's guide and reaches 100%.
  */
 export function missionsFor(viewer: JourneyViewer): Mission[] {
@@ -561,7 +561,7 @@ export interface TrialStatus {
  * stamps it from the platform trial policy, and the superadmin panel can move it per clinic.
  *
  * The `createdAt + TRIAL_DAYS` fallback is for the clinics that predate signup writing the field,
- * and for a policy with expiry switched off. It is a coaching estimate in both cases, never an
+ * and for a policy with expiry switched off. It is an estimate in both cases, never an
  * enforcement claim: nothing goes read-only on a date this function invented. A clinic whose
  * dates cannot be read at all gets `isTrial` from its tier and no countdown rather than a
  * made-up one.
@@ -597,123 +597,4 @@ export function trialStatus(
     endsAt,
     ended: msLeft <= 0,
   };
-}
-
-/**
- * Should the coach bubble speak right now?
- *
- * The bar is deliberately high. An unprompted bubble is the single easiest thing in an app to
- * hate, and every "no" below is a way it has earned that reaction elsewhere: talking after the
- * work is done, talking over a lesson it started itself, talking again on a screen it was just
- * dismissed on, and talking to somebody who has told it to stop.
- */
-export interface CoachDecision {
-  speak: boolean;
-  reason:
-    | "next-mission"
-    | "complete"
-    | "snoozed"
-    | "dismissed"
-    | "tutorial-running"
-    | "nothing-to-say";
-}
-
-export function coachDecision(args: {
-  progress: JourneyProgress;
-  /** Epoch millis the user snoozed until, or 0/undefined for "not snoozed". */
-  snoozedUntil?: number;
-  /** The user switched the coach off for this clinic for good. */
-  dismissedForever?: boolean;
-  /** A lesson is on screen; its ring owns the viewport. */
-  tutorialRunning?: boolean;
-  now?: number;
-}): CoachDecision {
-  const now = args.now ?? Date.now();
-  if (args.tutorialRunning) return { speak: false, reason: "tutorial-running" };
-  if (args.dismissedForever) return { speak: false, reason: "dismissed" };
-  if (args.snoozedUntil && args.snoozedUntil > now) return { speak: false, reason: "snoozed" };
-  if (args.progress.complete) return { speak: false, reason: "complete" };
-  if (!args.progress.next) return { speak: false, reason: "nothing-to-say" };
-  return { speak: true, reason: "next-mission" };
-}
-
-/** How long "Later" quiets the coach for: the rest of the working day, not a token five minutes. */
-export const COACH_SNOOZE_MS = 6 * 60 * 60 * 1000;
-
-/**
- * How long the coach stays quiet after being closed the 1st, 2nd, 3rd time, and so on.
- *
- * Closing it is a sentence, and saying it twice means something. A fixed snooze ignores that: the
- * person who closes the bubble every morning for a week is plainly not going to want it tomorrow
- * either, and making them say so again each day is the behaviour that earns an app the reputation
- * this one was about to get.
- *
- * It stops escalating at a week rather than at "forever" on purpose. Nothing here should be able
- * to switch the guide off permanently by accident — that stays an explicit choice, with its own
- * button and its own wording, reversible from the guide page.
- */
-const COACH_SNOOZE_STEPS_MS = [
-  COACH_SNOOZE_MS,           // the rest of today
-  24 * 60 * 60 * 1000,       // tomorrow too
-  7 * 24 * 60 * 60 * 1000,   // and then it stops asking weekly
-];
-
-/** `closedBefore` is how many times it has already been closed, so the first call passes 0. */
-export function coachSnoozeMs(closedBefore: number): number {
-  const i = Math.min(Math.max(closedBefore, 0), COACH_SNOOZE_STEPS_MS.length - 1);
-  return COACH_SNOOZE_STEPS_MS[i];
-}
-
-/**
- * The line the coach opens with — greeting, then the one thing to do next.
- *
- * Kept here rather than in the component so the wording is testable and so the trial clock and
- * the mission stay in one sentence: "you have nine days left" on its own is a threat, and
- * "register your first patient" on its own is a chore. Together they are a reason.
- */
-export function coachGreeting(args: {
-  progress: JourneyProgress;
-  trial: TrialStatus;
-  isAr: boolean;
-  /** Used to open with "Hi Nour"; omitted, the greeting simply starts at the step. */
-  firstName?: string;
-}): string {
-  const { progress, trial, isAr } = args;
-  const who = (args.firstName || "").trim();
-
-  if (progress.complete) {
-    return isAr
-      ? "خلصت كل خطوات البداية 🎉 — لو احتجت أي حاجة أنا هنا."
-      : "You've finished every setup step 🎉 — I'm here whenever you need me.";
-  }
-
-  const next = progress.next;
-  if (!next) {
-    return isAr ? "أنا هنا لو احتجت أي حاجة." : "I'm here whenever you need me.";
-  }
-
-  const title = isAr ? next.title.ar : next.title.en;
-  const payoff = isAr ? next.payoff.ar : next.payoff.en;
-
-  // The count is the honest hook: "3 of 12" says the guide has a shape and an end.
-  const step = isAr
-    ? `الخطوة ${progress.done + 1} من ${progress.total}`
-    : `Step ${progress.done + 1} of ${progress.total}`;
-
-  const clock =
-    trial.isTrial && !trial.ended && trial.daysLeft > 0
-      ? isAr
-        ? ` — فاضل ${trial.daysLeft} يوم في التجربة`
-        : ` — ${trial.daysLeft} ${trial.daysLeft === 1 ? "day" : "days"} left in your trial`
-      : "";
-
-  const hello = who
-    ? isAr
-      ? `أهلاً يا ${who}! `
-      : `Hi ${who} — `
-    : "";
-
-  return isAr
-    ? `${hello}${step}${clock}: ${title}. ${payoff}`
-    : `${hello}${step}${clock}: ${title}. ${payoff}`;
 }

@@ -340,6 +340,21 @@ const DECLINE = [
   "not now", "later", "maybe later", "no thanks", "no thank you", "not interested", "some other time", "i'll think about it",
 ];
 
+/**
+ * Does the message say the clinic is too far? Whole words only, so a name or "بعيدا عن" in a long
+ * sentence is not it, and a question about distance ("هو بعيد عن المترو؟") is a question.
+ *
+ * Read by the engine beside the thank-you: "لا شكرا بعيد عليا" is a refusal with a reason the
+ * clinic can answer (another branch), not a courtesy. Asnany, 26/11/2026.
+ */
+const TOO_FAR = ["بعيد", "بعيده", "بعيدة", "مشوار", "too far", "far"];
+
+export function saysTooFar(raw: string): boolean {
+  if (/[?؟]/.test(raw)) return false;
+  const text = normalize(raw);
+  return Boolean(text) && has(text, TOO_FAR);
+}
+
 export function isDecline(raw: string): boolean {
   const text = normalize(raw);
   if (!text) return false;

@@ -31,6 +31,9 @@ import { restampStaffSettlements } from "@/lib/server/staffSettlementSync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** An automatic day's share follows the dentist's payments; nobody edits it by hand. */
+const AUTO_DAILY_MESSAGE = "This is the dentist's automatic day's share. It follows that day's payments — change the payments instead.";
+
 /** The expense category a payout files under: the one the Finance page already offers. */
 const PAYOUT_CATEGORY = "Salary";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -109,6 +112,7 @@ export async function POST(request: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     if (message === "NOT_FOUND") return bad("That entry no longer exists. Refresh and try again.", 404);
+    if (message === "AUTO_DAILY") return bad(AUTO_DAILY_MESSAGE, 409);
     reportServerError("staff/settlements failed", e, { action });
     return bad("Something went wrong saving that. Nothing was changed.", 500);
   }
@@ -198,6 +202,7 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
     const snap = await tx.get(ref);
     if (!snap.exists) throw new Error("NOT_FOUND");
     const before = snap.data() || {};
+    if (before.auto === "daily") throw new Error("AUTO_DAILY");
     const ledgerId = typeof before.ledgerId === "string" ? before.ledgerId : "";
     const ledgerRef = ledgerId ? adminClinicDoc(clinicId, "ledger", ledgerId) : null;
     const ledgerSnap = ledgerRef ? await tx.get(ledgerRef) : null;
@@ -242,6 +247,7 @@ async function remove(args: { clinicId: string; actor: Actor; body: Record<strin
     const snap = await tx.get(ref);
     if (!snap.exists) throw new Error("NOT_FOUND");
     const before = snap.data() || {};
+    if (before.auto === "daily") throw new Error("AUTO_DAILY");
     const ledgerId = typeof before.ledgerId === "string" ? before.ledgerId : "";
     const ledgerRef = ledgerId ? adminClinicDoc(clinicId, "ledger", ledgerId) : null;
     const ledgerSnap = ledgerRef ? await tx.get(ledgerRef) : null;

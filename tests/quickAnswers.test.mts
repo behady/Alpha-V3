@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { quickIntent, isDecline } from "../src/lib/bot/quickAnswers";
+import { quickIntent, isDecline, saysTooFar } from "../src/lib/bot/quickAnswers";
 import { readFileSync } from "node:fs";
 
 /**
@@ -88,6 +88,16 @@ run("nothing recognised returns null rather than guessing", () => {
   assert.equal(quickIntent("في بديل ارخص من الزيركون"), null);
   assert.equal(quickIntent("ايه الفرق بين التقويم المعدن والشفاف"), null);
   assert.equal(quickIntent(""), null);
+});
+
+// Asnany, 26/11/2026: "لا شكرا بعيد على" was answered "العفو 🙏" and the chat ended. "Too far" is
+// read here; the decider sends it to the brain (tests/botDecide.test.mts).
+run("'no thanks, it is far' is read as too far; a plain thank-you is not", () => {
+  for (const t of ["لا شكرا بعيد على", "شكرا بس بعيد عليا", "شكرا المكان بعيد", "thanks but too far"]) {
+    assert.ok(saysTooFar(t), `not read as too far: ${t}`);
+  }
+  assert.ok(!saysTooFar("شكرا"));
+  assert.ok(!saysTooFar("تسلمي يا سارة"));
 });
 
 run("the clinic-fact questions are recognised and routed by priority", () => {

@@ -91,6 +91,13 @@ test("thanks gets one free courtesy line", () => {
   assert.ok(d.reply.trim().length > 0);
 });
 
+test("'no thanks, it is far' is the brain's to answer, not a thank-you (Asnany, 26/11/2026)", () => {
+  for (const t of ["لا شكرا بعيد على", "شكرا بس بعيد عليا", "thanks but too far"]) {
+    assert.deepEqual(say("awaiting_choice", t).action, { type: "ai", question: t }, t);
+  }
+  assert.equal(say("awaiting_choice", "لا شكرا").reason, "thanks", "a plain thank-you still costs nothing");
+});
+
 test("a bare ok confirms an appointment only when there is one soon; otherwise it is the brain's", () => {
   assert.deepEqual(say("awaiting_choice", "تمام", { hasSoonAppointment: true }).action, { type: "ack" });
   assert.equal(say("awaiting_choice", "تمام").action?.type, "ai");

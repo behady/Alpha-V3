@@ -64,6 +64,13 @@ function resolveClinicId(user: UserProfile | null, current: string | null): stri
   const userClinics = Object.keys(user.clinicRoles || {});
   if (userClinics.length === 0) return null;
 
+  // A tapped notification arrives as /page?clinic=<id>, so someone who works at two clinics lands
+  // in the one that raised the alert. Only a clinic they hold a role in; anything else is ignored.
+  const fromUrl = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("clinic")
+    : null;
+  if (fromUrl && userClinics.includes(fromUrl)) return fromUrl;
+
   // A clinic entered on the login form wins over the stored default, but only if the user
   // genuinely holds a role in it — the login page already checked this, and re-checking here
   // means a hand-edited sessionStorage value falls back to the default instead of parking
@@ -164,6 +171,15 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
       if (!targetClinicId) {
         setLoading(false);
         return;
+      }
+      // A clinic that arrived in the URL (a tapped notification) sticks for the rest of this tab,
+      // the same way a switch from the clinic menu does — otherwise the next link drops ?clinic=
+      // and the tab falls back to the default clinic mid-task.
+      if (typeof window !== "undefined") {
+        const queryClinicId = new URLSearchParams(window.location.search).get("clinic");
+        if (queryClinicId && queryClinicId === targetClinicId) {
+          try { sessionStorage.setItem("preferredClinicId", targetClinicId); } catch { /* private mode */ }
+        }
       }
       setClinicIdState(targetClinicId);
       setGlobalClinicId(targetClinicId);

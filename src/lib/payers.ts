@@ -204,6 +204,15 @@ export function payersDocFrom(payers: readonly Payer[]): { payers: Payer[] } {
   };
 }
 
+/**
+ * Does this clinic bill anyone but the patient? True once an insurer or a company has been added.
+ * The insurance add-on being switched on is not enough: a clinic that never set an insurer up has
+ * no approval to read, so its "Read approval" shortcuts stay hidden.
+ */
+export function hasInsurers(payers: readonly Payer[]): boolean {
+  return payers.some((p) => p.id !== PRIVATE_PAYER_ID);
+}
+
 export function findPayer(payers: readonly Payer[], id: string | null | undefined): Payer | null {
   if (!id) return null;
   return payers.find((p) => p.id === id) || null;

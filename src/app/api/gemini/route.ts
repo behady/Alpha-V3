@@ -1,7 +1,6 @@
 import { reportServerError } from "@/lib/server/reportError";
 // src/app/api/gemini/route.ts
 import { NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -15,13 +14,12 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { syncDailyPayFor, touchedByRows } from "@/lib/server/dailyPaySync";
 import { SCREEN_MAP } from "@/lib/screenMap";
-import { buildTourInstruction } from "@/lib/tourPrompt";
 import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
-import { TOUR_GUIDE, TOUR_STOPS, tourStopById, type TourStop } from "@/lib/grandTour";
 import { getHelpArticle } from "@/lib/help";
 
 /**
@@ -46,7 +44,19 @@ import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
 import { buildProductionSection } from "@/lib/automation/briefing/money";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { suggestSlots } from "@/lib/automation/slotSuggestions";
-import { isFullAccessRole } from "@/lib/permissions";
+import { holdsPermission, isFullAccessRole } from "@/lib/permissions";
+import { readDenial, seesMoney, withoutPayFields } from "@/lib/sara/readPolicy";
+import { CEILING_MESSAGE, DEEP_LIMITS, DEEP_SEARCH_CREDITS, NORMAL_LIMITS, ReadBudget, rowsFor, slimDoc } from "@/lib/sara/readBudget";
+import { RESCUE_INSTRUCTION, needsRescue, noAnswerText, outcomeOf, withoutEmptyTurns } from "@/lib/sara/turnOutcome";
+import { moneyDayDigest, moneyDayPdfSections } from "@/lib/sara/cashAnswer";
+import { DEBT_FILTERS, debtsDigest, debtsPdfSections, type DebtFilter } from "@/lib/sara/debts";
+import { paymentChangesDigest, paymentChangesPdfSections } from "@/lib/sara/paymentChanges";
+import { digestReportDoc, docToPdfSections, type PdfSection } from "@/lib/sara/reportDigest";
+import { answerMoney, answerPaymentChanges, answerWhoOwes } from "@/lib/sara/answers.server";
+import { runSaraReport } from "@/lib/sara/reportRunner.server";
+import { REPORT_CATALOG } from "@/lib/reports/catalog";
+import { logSaraQuestion } from "@/lib/sara/questionLog.server";
+import type { Clinic } from "@/types/saas";
 import {
   AI_WRITABLE_COLLECTIONS,
   AI_DELETABLE_COLLECTIONS,
@@ -107,27 +117,6 @@ const RECEPTION_READABLE_COLLECTIONS = new Set([
 ]);
 
 /**
- * Tools the reception assistant may call.
- *
- * Everything here either reads or drives the user's own screen — nothing writes, sends, or bills.
- * Widening this set is what turns Phase 1 into Phase 2, and each addition needs its own
- * confirmation card before it goes in.
- */
-/**
- * What Sara may do while giving the tour: read, explain, start a lesson, move the tour. Nothing
- * that writes, sends, or navigates — the tour is a guided look, and the page under the spotlight
- * is locked for exactly as long as she is talking.
- */
-/**
- * The tour answers from its own notes only — no data tools. Two reasons: the answer to "what is
- * the teeth chart for?" is the same for every clinic, so it can be cached and served without a
- * model call at all (see `tour_answers` below); and the tour used to ride the general assistant's
- * prompt — schemas, directives, every tool — at ~23,000 input tokens a question. Without tools
- * that read data the prompt is a fraction of that, and a small model handles it.
- */
-const TOUR_TOOL_NAMES = new Set(["start_tutorial", "open_tour_stop"]);
-
-/**
  * What the staff line on WhatsApp may NOT call (lib/bot/staffAssistant.ts).
  *
  * The owner asked for the same reach on WhatsApp as in the app, so the person's role and
@@ -141,27 +130,17 @@ const WHATSAPP_STAFF_EXCLUDED_TOOLS = new Set([
   "trigger_pdf_generation",
   "open_appointment",
   "start_tutorial",
-  "open_tour_stop",
   "file_bug_report",
   "file_feature_request",
 ]);
 
-/** The tour's model: cheap, and adequate for "answer from these notes in 2-4 sentences". */
-const TOUR_MODEL = "gemini-3.1-flash-lite";
-
-/** Root collection of tour answers, shared by every clinic: the notes are the same everywhere. */
-const TOUR_ANSWERS_COLLECTION = "tour_answers";
-
-function tourAnswerKey(language: string, stopId: string, question: string): string {
-  const normalized = question.trim().toLowerCase().replace(/\s+/g, " ").replace(/[؟?!.،,]+$/g, "");
-  return createHash("sha1").update(`${TOUR_MODEL}|${language}|${stopId}|${normalized}`).digest("hex");
-}
-
-
-/** Questions a person may ask on their first tour without spending the clinic's credits. */
-const FREE_TOUR_QUESTIONS = 30;
-
-
+/**
+ * Tools the reception assistant may call.
+ *
+ * Everything here either reads or drives the user's own screen — nothing writes, sends, or bills.
+ * Widening this set is what turns Phase 1 into Phase 2, and each addition needs its own
+ * confirmation card before it goes in.
+ */
 const RECEPTION_TOOL_NAMES = new Set([
   "db_read",
   "find_patient",
@@ -379,69 +358,10 @@ export async function POST(req: Request) {
      * entirely different screens. Offering the tool elsewhere would have the model announce a
      * walkthrough no ring will ever join.
      */
-    /**
-     * Sara's tour asks from its own panel. It can start a lesson (the tour pauses under the
-     * ring) and jump the tour to another stop, and nothing else that changes the screen: the
-     * page is locked under a spotlight while she talks, so a `navigate_to` would push a route
-     * the tour immediately pushes back from.
-     */
-    const clientIsTour = client === "web-tour";
     const clientIsWhatsappStaff = client === "whatsapp-staff";
-    const clientCanRunTutorials = client === "web-widget" || clientIsTour;
-    /** The widget can hand over to the tour ("show me around"); the tour can move itself. */
-    const clientCanOpenTour = client === "web-widget" || clientIsTour;
+    const clientCanRunTutorials = client === "web-widget";
     /** Ticket drafts render as a card only the widget knows how to show — and send. */
     const clientCanFileTickets = client === "web-widget";
-
-    /**
-     * Which tour stops this client can actually open. Sent by the client because visibility is
-     * decided there (role, plan, connected features); offering the model a stop the person's
-     * menus do not have would print "let me show you the lab…" over nothing.
-     */
-    const offeredTourStops: TourStop[] = Array.isArray(body?.tourStopIds)
-      ? TOUR_STOPS.filter((s) => (body.tourStopIds as unknown[]).includes(s.id))
-      : TOUR_STOPS;
-
-    /** The stop Sara is standing on, when the tour is asking. */
-    const tourStop: TourStop | undefined =
-      clientIsTour && typeof body?.tour?.stopId === "string" ? tourStopById(body.tour.stopId) : undefined;
-    const replyLanguage: "ar" | "en" | null =
-      body?.language === "ar" ? "ar" : body?.language === "en" ? "en" : null;
-    const tourInstruction = clientIsTour ? buildTourInstruction(tourStop, offeredTourStops, replyLanguage) : "";
-    /**
-     * A person's first tour is free to ask on. The client says it is the first tour; the server
-     * believes it only while the user's own counter is under the allowance, so a widget that
-     * lies about it gets at most the same handful of free turns as an honest one.
-     */
-    const claimsFirstTour = clientIsTour && body?.tour?.firstTour === true;
-    /**
-     * A standalone tour question (no follow-up history, no image) is cacheable: the tour has no
-     * data tools, so the answer depends only on the stop's notes and the language — the same for
-     * every clinic. Served from the cache it costs nothing and counts against nothing.
-     */
-    const tourCacheRef =
-      clientIsTour && tourStop && replyLanguage && typeof prompt === "string" && prompt.trim() && !image && (!Array.isArray(history) || history.length === 0)
-        ? db.collection(TOUR_ANSWERS_COLLECTION).doc(tourAnswerKey(replyLanguage, tourStop.id, prompt))
-        : null;
-    const rememberTourAnswer = async (payload: { reply: string; tourGoTo?: { stopId: string }; startTutorial?: { id: string } }) => {
-      if (!tourCacheRef || !payload.reply.trim()) return;
-      try {
-        await tourCacheRef.set(
-          {
-            ...payload,
-            stopId: tourStop?.id ?? null,
-            language: replyLanguage,
-            question: String(prompt).trim(),
-            model: TOUR_MODEL,
-            hits: 0,
-            createdAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
-      } catch {
-        /* A cache miss next time is the only consequence. */
-      }
-    };
 
     /**
      * The widget's three hats: normal, trainer, support.
@@ -492,26 +412,23 @@ export async function POST(req: Request) {
     // their actions and learned facts to any colleague.
     const userId = authz.uid;
 
-    if (tourCacheRef) {
-      try {
-        const hit = await tourCacheRef.get();
-        const data = hit.data();
-        if (hit.exists && typeof data?.reply === "string" && data.reply.trim()) {
-          void tourCacheRef.set({ hits: FieldValue.increment(1), lastHitAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
-          return NextResponse.json({
-            reply: data.reply,
-            ...(data.tourGoTo?.stopId ? { tourGoTo: { stopId: String(data.tourGoTo.stopId) } } : {}),
-            ...(data.startTutorial?.id ? { startTutorial: { id: String(data.startTutorial.id) } } : {}),
-            cached: true,
-          });
-        }
-      } catch {
-        /* Fall through to the model. */
-      }
-    }
+    /**
+     * The deeper search: an Owner or Admin who was told the reading limit was reached may ask
+     * again with higher limits, for ten credits. The role is checked here, on the server — the
+     * flag in the body is only the person's yes.
+     */
+    const deepSearch = body?.deepSearch === true && client === "web-widget" && !isReception && isFullAccessRole(authz.role);
+    const limits = deepSearch ? DEEP_LIMITS : NORMAL_LIMITS;
+    const budget = new ReadBudget(limits);
+    const access = resolveBriefingAccess(authz.role, authz.permissions);
+    const mayMoney = seesMoney(authz.role, authz.permissions);
+    const mayReports = holdsPermission(authz.role, authz.permissions, "access.reports");
+    const mayPatients = holdsPermission(authz.role, authz.permissions, "access.patients");
+    /** Set by the quota block below; the report tool needs the clinic's add-ons. */
+    let clinicRecord: Clinic | null = null;
 
     // Images cost more to process, so they draw more credits.
-    const requiredCredits = image ? 3 : 1;
+    const requiredCredits = deepSearch ? DEEP_SEARCH_CREDITS : image ? 3 : 1;
 
     /**
      * What this turn costs US, as opposed to what it costs the clinic in credits.
@@ -519,7 +436,7 @@ export async function POST(req: Request) {
      * Declared here so the chargeCredits closure below can read it: the closure runs after the
      * tool loop has finished, by which point the meter holds every round the turn took.
      */
-    const meter = createUsageMeter(clientIsTour ? TOUR_MODEL : CHAT_MODEL);
+    const meter = createUsageMeter(CHAT_MODEL);
 
     // Set by the quota check below, invoked only once the turn has produced a real result.
     let chargeCredits: (() => Promise<void>) | null = null;
@@ -530,6 +447,7 @@ export async function POST(req: Request) {
         const clinicSnap = await db.collection("clinics").doc(clinicId).get();
         if (clinicSnap.exists) {
           const clinicData = { id: clinicSnap.id, ...clinicSnap.data() } as any;
+          clinicRecord = clinicData as Clinic;
 
           if (!hasFeature(clinicData, "aiChat")) {
             return NextResponse.json(
@@ -554,35 +472,7 @@ export async function POST(req: Request) {
           // Deliberately NOT charged here. Billing on entry means a clinic pays for requests that
           // error out or time out, which is the kind of charge that generates support tickets.
           // chargeCredits() runs once the turn has actually produced something.
-          let freeTourTurn = false;
-          if (claimsFirstTour) {
-            try {
-              const userRef = db.collection("users").doc(userId);
-              const userSnap = await userRef.get();
-              const used = Number(userSnap.data()?.tourFreeQuestionsUsed) || 0;
-              if (used < FREE_TOUR_QUESTIONS) {
-                freeTourTurn = true;
-                await userRef.set({ tourFreeQuestionsUsed: FieldValue.increment(1) }, { merge: true });
-              }
-            } catch {
-              /* Counting failed: charge as normal. */
-            }
-          }
           chargeCredits = async () => {
-            if (freeTourTurn) {
-              // Never metered against the clinic, but logged (feature "tour-free", 0 credits) so
-              // what the tour costs US stays visible — these turns were invisible before.
-              await logAiCreditUsage({
-                clinicId,
-                feature: "tour-free",
-                credits: 0,
-                userId,
-                userName: typeof userName === "string" ? userName : "",
-                detail: "",
-                usage: meter.snapshot(),
-              });
-              return;
-            }
             await usageRef.set(
               {
                 monthKey,
@@ -597,7 +487,7 @@ export async function POST(req: Request) {
               credits: requiredCredits,
               userId,
               userName: typeof userName === "string" ? userName : "",
-              detail: image ? "with image" : "",
+              detail: deepSearch ? "deep search" : image ? "with image" : "",
               usage: meter.snapshot(),
             });
           };
@@ -694,7 +584,9 @@ export async function POST(req: Request) {
     let formattedHistory: any[] = [];
     if (history && Array.isArray(history)) {
         // To save API costs in this SaaS, cap the history to the most recent 6 messages
-        const recentHistory = history.slice(-6);
+        // A turn that produced no answer is dropped with its question first, so the model is
+        // never shown its own "…" as an example of how to reply.
+        const recentHistory = withoutEmptyTurns(history).slice(-6);
         
         formattedHistory = recentHistory.map((msg: any) => ({
             role: msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user',
@@ -865,29 +757,6 @@ export async function POST(req: Request) {
         },
       },
       {
-        name: "open_tour_stop",
-        description:
-          `Opens ${TOUR_GUIDE.en}'s guided tour of the app at one stop: the page is spotlit and narrated, and the user can keep asking from there. ` +
-          "Use it when the user asks to be shown around, for a tour, or to be shown where a whole area of the app lives ('show me the settings', 'where is the lab page'). " +
-          "During the tour, use it to move to the stop that answers their question. Stops: " +
-          offeredTourStops.map((s) => `'${s.id}' (${s.title.en} — ${s.route}${s.demo ? " — demonstrates it live" : ""})`).join("; ") + ".",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            stopId: {
-              type: SchemaType.STRING,
-              enum: offeredTourStops.map((s) => s.id),
-              description: "The stop to open.",
-            },
-            reason: {
-              type: SchemaType.STRING,
-              description: "One short line in the user's language saying where you are taking them.",
-            },
-          },
-          required: ["stopId"],
-        },
-      },
-      {
         name: "navigate_to",
         description:
           "Opens a screen of the app for the user. Use this whenever they ask to open, show or go to something — a patient's file, the schedule, the finance page. " +
@@ -922,12 +791,61 @@ export async function POST(req: Request) {
       },
       {
         name: "generate_financial_summary",
-        description: "Accurately calculates Cash In, Expenses, Deductions, and Net Profit for a specific date range. ALWAYS use this instead of db_read when asked for financial reports or revenue.",
+        description:
+          "The clinic's money for a date range, already added up: collected, expenses, dentists' share, lab fees, net, split by payment method, by who collected and by branch, cash left in the drawer, and the first payment and expense lines with their patient, method and collector. ALWAYS use this for any 'how much did we collect / spend / make', 'cash or card', 'who collected', 'what is in the drawer' question — one call answers all of them. Never read the ledger with db_read for these. When the result says moreInPdf, give the totals and the first few lines and say the full list is in the PDF.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
             startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
-            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD)" }
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD)" },
+            pdf: { type: SchemaType.BOOLEAN, description: "true when the person asked for a PDF, a report, the details or the full list." }
+          },
+          required: ["startDate", "endDate"]
+        }
+      },
+      {
+        name: "who_owes",
+        description:
+          "Who owes the clinic money, already worked out from the whole ledger with the same balance as the patient file. ALWAYS use this for any question about debts, balances owed, or advance payments — never db_read. filter: 'all' everyone who owes; 'top' the biggest (limit, default 10); 'older' owed for at least `days` days (default 90); 'today' today's patients who still owe; 'patient' one patient (patientId from find_patient); 'credit' patients who paid in advance; 'finished' patients who owe and have no treatment planned or ongoing. Give the total, how many patients, and the first names; when moreInPdf is true say the full list is in the PDF.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            filter: { type: SchemaType.STRING, description: "all | top | older | today | patient | credit | finished" },
+            days: { type: SchemaType.INTEGER, description: "For 'older': the minimum number of days owed." },
+            limit: { type: SchemaType.INTEGER, description: "For 'top': how many." },
+            patientId: { type: SchemaType.STRING, description: "For 'patient': the patient's id." },
+            pdf: { type: SchemaType.BOOLEAN, description: "true when the person asked for a PDF, a report or the full list." }
+          },
+          required: ["filter"]
+        }
+      },
+      {
+        name: "run_report",
+        description:
+          "Builds one of the clinic's own reports (the same ones as the Reports page) and returns its figures and the first rows of each table. Use it for comparisons, expenses, discounts, treatments, payment methods, dentists, appointments, patients, lab, stock and marketing questions that the other tools do not answer directly. Never rebuild these numbers from db_read. Reports: " +
+          REPORT_CATALOG.map((r) => `${r.id} (${r.en}: ${r.hintEn})`).join("; ") +
+          ". When moreInPdf is true, say the full table is in the PDF.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            report: { type: SchemaType.STRING, description: "One report id from the list." },
+            startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD)" },
+            pdf: { type: SchemaType.BOOLEAN, description: "true when the person asked for a PDF, a report or the full list." }
+          },
+          required: ["report", "startDate", "endDate"]
+        }
+      },
+      {
+        name: "payment_changes",
+        description:
+          "Payments and expenses that were DELETED or EDITED in a date range, from the ledger's audit trail: who did it, when, the patient, and what the amount was and became. Use it for 'was any payment deleted / changed / edited'.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD)" },
+            pdf: { type: SchemaType.BOOLEAN, description: "true when the person asked for a PDF or the full list." }
           },
           required: ["startDate", "endDate"]
         }
@@ -1158,26 +1076,6 @@ export async function POST(req: Request) {
 - Say numbers, dates and times the way a person would speak them.`
       : "";
 
-    /**
-     * The tour's own system prompt: the language rule first (a small model reads the top of a
-     * prompt more reliably than the bottom), a short persona, the screen map, and the stop's
-     * notes. None of the schemas, directives or workflows the general assistant carries.
-     */
-    const tourLanguageRule =
-      replyLanguage === "ar"
-        ? "LANGUAGE RULE (applies to every reply): answer in Egyptian Arabic (عامية مصرية), even when the question is in English."
-        : replyLanguage === "en"
-          ? "LANGUAGE RULE (applies to every reply): answer in English, even when the question mixes in Arabic."
-          : "LANGUAGE RULE (applies to every reply): answer in the language the question was asked in.";
-    const screenMap = SCREEN_MAP;
-    const tourSystemInstruction = clientIsTour
-      ? `${tourLanguageRule}
-      You are Sara (in Arabic: سارة), the guide built into the Alpha Dental System. Never introduce yourself as an AI or a model. Current local time: ${currentDate}.
-
-      ${screenMap}
-      ${tourInstruction}`
-      : "";
-
     const receptionInstruction = `${RECEPTION_PERSONA}${voiceInstruction}
 
       Current local time: ${currentDate}.
@@ -1217,33 +1115,36 @@ export async function POST(req: Request) {
       - **TRAINER & SUPPORT**: When the user reports that a number looks wrong ("the balance is wrong", "this doesn't add up", "the count is off"): (1) call 'audit_patient_records' for a patient figure or 'run_clinic_report' for a clinic-wide figure — NEVER recompute by hand; (2) explain what was found in plain, kind language, naming the exact records and dates; (3) say precisely how to fix each finding in the app; (4) if 'start_tutorial' is available and a lesson would stop the mistake recurring, offer it; (5) if the audit is clean, explain how that number is defined (see HOW THE MONEY SCREENS CALCULATE) and what they might have expected instead. Data-entry slips are normal — never blame.
       - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
-      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}${tourInstruction}`;
+      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}`;
 
     // Reception gets a strict subset. Filtering the declarations rather than hiding them in the
     // prompt matters: a tool the model cannot see is one it cannot call, whatever it is asked.
     const activeTools = (
       isReception
         ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
-        : clientIsTour
-          ? functionDeclarations.filter((f) => TOUR_TOOL_NAMES.has(f.name))
-          : clientIsWhatsappStaff
-            ? functionDeclarations.filter((f) => !WHATSAPP_STAFF_EXCLUDED_TOOLS.has(f.name))
-            : functionDeclarations
+        : clientIsWhatsappStaff
+          ? functionDeclarations.filter((f) => !WHATSAPP_STAFF_EXCLUDED_TOOLS.has(f.name))
+          : functionDeclarations
     )
       // The pay sheet's own gate, applied to the tool rather than trusted to the prompt: a
       // receptionist who is not offered it cannot call it, whatever they ask.
       .filter((f) => f.name !== "attendance_report" || resolveBriefingAccess(authz.role, authz.permissions).hr)
       .filter((f) => f.name !== "dentist_shares" || resolveBriefingAccess(authz.role, authz.permissions).money)
+      // The assistant tells a person only what their screens show. Each of these is checked
+      // again in its handler; filtering here means the model is never told the tool exists.
+      .filter((f) => f.name !== "generate_financial_summary" || mayMoney)
+      .filter((f) => f.name !== "who_owes" || mayMoney || mayPatients)
+      .filter((f) => f.name !== "run_report" || mayReports)
+      .filter((f) => f.name !== "payment_changes" || isFullAccessRole(authz.role))
       // A PDF can only be delivered where there is a phone to deliver it to.
       .filter((f) => f.name !== "send_pdf_document" || clientIsWhatsappStaff)
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
-      .filter((f) => f.name !== "open_tour_stop" || clientCanOpenTour)
       .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
-      model: clientIsTour ? TOUR_MODEL : CHAT_MODEL,
-      systemInstruction: isReception ? receptionInstruction : clientIsTour ? tourSystemInstruction : generalInstruction,
+      model: CHAT_MODEL,
+      systemInstruction: isReception ? receptionInstruction : generalInstruction,
       tools: [{ functionDeclarations: activeTools }] as any
     });
 
@@ -1278,9 +1179,58 @@ export async function POST(req: Request) {
     let pendingAction: PendingActionPreview | null = null;
     /** A PDF the model laid out, for the WhatsApp staff line to render and send. */
     let documentToSend: { title: string; subtitle?: string; language: "ar" | "en"; sections: unknown[] } | null = null;
-    
-    while (result.response.functionCalls()?.length && callCount < 5) {
+    /** A ready-made answer's full tables, for the web chat's "Open PDF" button. Never passes through the model. */
+    let reportPdf: { title: string; subtitle?: string; language: "ar" | "en"; sections: PdfSection[] } | null = null;
+
+    const YMD = /^\d{4}-\d{2}-\d{2}$/;
+    const answerLang: "ar" | "en" = /[؀-ۿ]/.test(String(prompt || "")) ? "ar" : "en";
+    /**
+     * Hands a ready answer's full tables to whoever can show them: the web chat always gets
+     * them behind a button; the WhatsApp staff line gets a PDF only when one was asked for,
+     * since a file in the chat for every money question is noise. Returns whether the person
+     * will actually receive it, so the model never promises a PDF nobody gets.
+     */
+    const attachPdf = (doc: { title: string; subtitle?: string; sections: PdfSection[]; asked: boolean }): boolean => {
+      if (!doc.sections.some((s) => (s.rows?.length || 0) > 0)) return false;
+      const payload = { title: doc.title.slice(0, 80), ...(doc.subtitle ? { subtitle: doc.subtitle.slice(0, 120) } : {}), language: answerLang, sections: doc.sections };
+      if (client === "web-widget") {
+        reportPdf = payload;
+        return true;
+      }
+      if (clientIsWhatsappStaff && doc.asked) {
+        documentToSend = payload;
+        return true;
+      }
+      return false;
+    };
+
+    /** Every tool this turn called, for the question log. */
+    const toolsUsed: string[] = [];
+    /**
+     * Ends a turn: charges for it unless it produced no answer, and records the question either
+     * way. Every exit of this route goes through here so the log has no blind spots.
+     */
+    const finishTurn = async (opts: { noAnswer?: boolean; deepOffered?: boolean } = {}) => {
+      if (!opts.noAnswer) await chargeCredits?.();
+      await logSaraQuestion({
+        clinicId,
+        userId,
+        userName: typeof userName === "string" ? userName : "",
+        role: String(authz.role || ""),
+        client: isReception ? "web-reception" : client || "android",
+        question: typeof prompt === "string" ? prompt : "",
+        outcome: outcomeOf({ tools: toolsUsed, noAnswer: opts.noAnswer === true, deep: deepSearch, acted: pendingAction !== null }),
+        tools: toolsUsed,
+        ceilingHit: budget.hit,
+        deepOffered: opts.deepOffered === true,
+        credits: opts.noAnswer ? 0 : requiredCredits,
+        usage: meter.snapshot(),
+      });
+    };
+
+    while (result.response.functionCalls()?.length && callCount < limits.maxRounds) {
       const calls = result.response.functionCalls()!;
+      for (const c of calls) toolsUsed.push(c.name);
 
       // Append the model's own turn verbatim, so its call arguments go back exactly as issued
       // rather than being rebuilt from a partial reading of them.
@@ -1296,25 +1246,48 @@ export async function POST(req: Request) {
           if (call.name === "db_read") {
              const col = (call.args as any).collection;
              assertCollectionAllowed(col, "read", readableCollections);
-             const lim = (call.args as any).limit || 100;
              const wField = (call.args as any).whereField;
              const wOp = (call.args as any).whereOperator;
              const wVal = (call.args as any).whereValue;
              const startDate = (call.args as any).startDate;
              const endDate = (call.args as any).endDate;
 
-             let queryRef: any = adminClinicCollection(clinicId, col);
-             if (wField && wOp && wVal) {
-                 queryRef = queryRef.where(wField, wOp as any, wVal);
+             // The person's own screens decide what the assistant may read for them.
+             const denied = readDenial(col, { whereField: wField, whereOperator: wOp, whereValue: wVal }, authz.role, authz.permissions, isReception ? "reception" : "general");
+             if (denied) {
+                toolResult = { success: false, error: denied };
+             } else if (budget.hit || budget.remaining <= 0) {
+                toolResult = { success: false, error: CEILING_MESSAGE };
+             } else {
+                // Few rows, without the heavy fields, and never past the turn's ceiling: every
+                // row returned here is re-sent to the model on each later round of this turn.
+                const lim = rowsFor((call.args as any).limit, limits);
+
+                let queryRef: any = adminClinicCollection(clinicId, col);
+                if (wField && wOp && wVal) {
+                    queryRef = queryRef.where(wField, wOp as any, wVal);
+                }
+                if (startDate && endDate) {
+                    queryRef = queryRef.where("date", ">=", startDate).where("date", "<=", endDate);
+                }
+
+                const snap = await queryRef.limit(lim).get();
+                const found = snap.docs.map((d: any) => {
+                   const row = slimDoc({ id: d.id, ...d.data() });
+                   return col === "staff" && !access.hr ? withoutPayFields(row) : row;
+                });
+                const fitted = budget.fit(found);
+                toolResult = {
+                   success: true,
+                   count: fitted.docs.length,
+                   data: fitted.docs,
+                   ...(found.length === lim ? { note: `Only the first ${lim} records were read; there may be more. Do not present this as the complete list.` } : {}),
+                   ...(fitted.leftOut > 0
+                      ? { limitReached: `Only ${fitted.docs.length} of ${found.length} records fit the reading limit for this question. Do not read more. If you answer from these, say plainly that the answer covers only part of the records and may be incomplete.` }
+                      : {}),
+                };
              }
-             if (startDate && endDate) {
-                 queryRef = queryRef.where("date", ">=", startDate).where("date", "<=", endDate);
-             }
-             
-             const snap = await queryRef.limit(lim).get();
-             const docs = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-             toolResult = { success: true, count: docs.length, data: docs };
-             
+
           } else if (call.name === "db_write") {
              const col = (call.args as any).collection;
              assertCollectionAllowed(col, "write", readableCollections);
@@ -1358,6 +1331,8 @@ export async function POST(req: Request) {
                clinicId, kind: "create", collection: col, documentId: newRef.id,
                userId, userName, userRole: authz.role, after: data,
              });
+             // A payment for a paid-daily dentist moves their automatic day's share.
+             if (col === "ledger") await syncDailyPayFor(clinicId, touchedByRows(data));
 
              toolResult = { success: true, message: `Created document ${newRef.id}`, id: newRef.id };
 
@@ -1398,6 +1373,7 @@ export async function POST(req: Request) {
                userId, userName, userRole: authz.role,
                before: priorSnap.exists ? priorSnap.data() : null, after: data,
              });
+             if (col === "ledger") await syncDailyPayFor(clinicId, touchedByRows(priorSnap.data(), data));
 
              toolResult = { success: true, message: `Updated document ${id}` };
 
@@ -1452,7 +1428,7 @@ export async function POST(req: Request) {
                 const a = (apptSnap.data() || {}) as any;
                 const reason = String((call.args as any).reason || "").trim()
                    || `Opened ${a.patientName || "the appointment"} — ${a.date || ""} ${a.time || ""}`.trim();
-                await chargeCredits?.();
+                await finishTurn();
                 return NextResponse.json({ reply: reason, selectAppointmentId: wantedId });
              }
 
@@ -1666,6 +1642,9 @@ export async function POST(req: Request) {
 
              if (!allowedMetrics.includes(metric) || !allowedGroupBy.includes(groupBy)) {
                 toolResult = { success: false, error: `metric must be one of ${allowedMetrics.join(", ")} and groupBy one of ${allowedGroupBy.join(", ")}.` };
+             } else if (metric === "revenue" && !mayMoney) {
+                // Counts are open to anyone who sees the schedule; money billed is not.
+                toolResult = { success: false, error: "This person does not have access to the clinic's money. Tell them so plainly and do not give any figure." };
              } else {
                 const report = await runClinicReport({ clinicId, metric, groupBy, startDate, endDate });
                 toolResult = { success: true, report };
@@ -1932,7 +1911,7 @@ export async function POST(req: Request) {
                    error: "No contact number. Ask the user for a phone number the support team can call back on, then call this tool again with it.",
                 };
              } else {
-                await chargeCredits?.();
+                await finishTurn();
                 return NextResponse.json({
                    reply:
                      draftKind === "bug"
@@ -2104,27 +2083,8 @@ export async function POST(req: Request) {
                    || `Starting "${tutorial.title.en}" — follow the pulsing ring on screen.`;
                 // Ends the turn like navigate_to does: the client starts the overlay, and the
                 // walkthrough itself is free of the model from here on.
-                await chargeCredits?.();
-                await rememberTourAnswer({ reply: reason, startTutorial: { id: tutorial.id } });
+                await finishTurn();
                 return NextResponse.json({ reply: reason, startTutorial: { id: tutorial.id } });
-             }
-          } else if (call.name === "open_tour_stop") {
-             const wantedId = String((call.args as any).stopId || "").trim();
-             // offeredTourStops, not TOUR_STOPS: a stop this client cannot open must be refused.
-             const target = offeredTourStops.find((s) => s.id === wantedId);
-             if (!target) {
-                toolResult = {
-                   success: false,
-                   error: `No tour stop named '${wantedId}' is available here. Valid ids: ${offeredTourStops.map((s) => s.id).join(", ")}.`,
-                };
-             } else {
-                const reason = String((call.args as any).reason || "").trim()
-                   || `Let me show you — ${target.title.en}.`;
-                // Ends the turn like start_tutorial: the client moves the tour, and the stop's
-                // own narration takes it from here.
-                await chargeCredits?.();
-                await rememberTourAnswer({ reply: reason, tourGoTo: { stopId: target.id } });
-                return NextResponse.json({ reply: reason, tourGoTo: { stopId: target.id } });
              }
           } else if (call.name === "navigate_to") {
              const requested = (call.args as any).path;
@@ -2146,59 +2106,113 @@ export async function POST(req: Request) {
                 let reason = (call.args as any).reason;
                 if (!reason || !reason.trim()) reason = `Navigating to ${path}...`;
                 // Intercept execution and return the navigation command directly to frontend
-                await chargeCredits?.();
+                await finishTurn();
                 return NextResponse.json({ reply: reason, navigateTo: path });
              }
           } else if (call.name === "trigger_pdf_generation") {
              const title = (call.args as any).title;
              const content = (call.args as any).content;
-             await chargeCredits?.();
+             await finishTurn();
              return NextResponse.json({ reply: `Generating PDF for: ${title}`, triggerPdf: { title, content } });
           } else if (call.name === "generate_financial_summary") {
-             const startDate = (call.args as any).startDate;
-             const endDate = (call.args as any).endDate;
-             
-             const snap = await adminClinicCollection(clinicId, "ledger")
-                .where("date", ">=", startDate)
-                .where("date", "<=", endDate)
-                .get();
-             
-             let cashIn = 0;
-             let expenses = 0;
-             let deductions = 0;
-             
-             snap.docs.forEach((doc: any) => {
-                const d = doc.data();
-                const typ = String(d.type || "");
-                
-                // Clinic finance = cash only; treatment plans live on the patient ledger until payment.
-                if (typ === "procedure") return;
-                
-                let val = 0;
-                if (typ === "expense") val = Number(d.cost ?? d.amount ?? 0) || 0;
-                else val = Number(d.paid ?? d.amount ?? 0) || 0;
-
-                if (val <= 0) return;
-                
-                if (typ === "expense") {
-                    expenses += val;
+             // The Finance page's own permission. Checked here as well as at the offer.
+             const startDate = String((call.args as any).startDate || "");
+             const endDate = String((call.args as any).endDate || "");
+             if (!mayMoney) {
+                toolResult = { success: false, error: "This person does not have access to the clinic's money. Tell them so plainly and do not give any figure." };
+             } else if (!YMD.test(startDate) || !YMD.test(endDate) || startDate > endDate) {
+                toolResult = { success: false, error: "startDate and endDate must be YYYY-MM-DD, start on or before end." };
+             } else {
+                // Added up on the server with the Finance page's cash rule, for the branch on
+                // screen. The model gets the sums and the first lines; the PDF gets every line.
+                const answer = await answerMoney({ clinicId, uid: userId, role: authz.role, startDate, endDate, branchId: body.branchId });
+                if (!answer.ok) {
+                   toolResult = { success: false, error: answer.error };
                 } else {
-                    cashIn += val;
-                    deductions += (Number(d.doctorCommissionAmount ?? 0) || 0) + (Number(d.labFee ?? 0) || 0);
+                   // A period with no payment and no expense has nothing a PDF could add.
+                   const hasLines = answer.money.payments.length + answer.money.expenseLines.length > 0;
+                   const pdfReady = hasLines && attachPdf({
+                      title: answerLang === "ar" ? "ملخص الفلوس" : "Money summary",
+                      subtitle: [startDate === endDate ? startDate : `${startDate} → ${endDate}`, answer.branchLabel].filter(Boolean).join(" · "),
+                      sections: moneyDayPdfSections(answer.money, answerLang === "ar"),
+                      asked: (call.args as any).pdf === true,
+                   });
+                   toolResult = {
+                      success: true,
+                      ...moneyDayDigest(answer.money, 12, answer.hasBranches),
+                      ...(answer.branchLabel ? { branch: answer.branchLabel } : {}),
+                      pdfAttached: pdfReady,
+                   };
                 }
+             }
+          } else if (call.name === "who_owes") {
+             const filter = String((call.args as any).filter || "all") as DebtFilter;
+             const onePatient = filter === "patient";
+             if (!DEBT_FILTERS.includes(filter)) {
+                toolResult = { success: false, error: `filter must be one of: ${DEBT_FILTERS.join(", ")}.` };
+             } else if (onePatient ? !(mayMoney || mayPatients) : !mayMoney) {
+                // One patient's balance is on the patient file; the clinic-wide list is the Finance page's.
+                toolResult = { success: false, error: "This person does not have access to the clinic's balances. Tell them so plainly and do not give any figure." };
+             } else if (onePatient && !String((call.args as any).patientId || "").trim()) {
+                toolResult = { success: false, error: "patientId is required for filter 'patient'. Find the patient with find_patient first." };
+             } else {
+                const debts = await answerWhoOwes({
+                   clinicId,
+                   today: ymdInTimeZone(clinicTimeZone()),
+                   filter,
+                   days: Number((call.args as any).days) || undefined,
+                   limit: Number((call.args as any).limit) || undefined,
+                   patientId: String((call.args as any).patientId || "").trim() || undefined,
+                });
+                const pdfReady = onePatient || debts.lines.length === 0 ? false : attachPdf({
+                   title: answerLang === "ar" ? (filter === "credit" ? "دافعين مقدم" : "المستحقات") : filter === "credit" ? "Paid in advance" : "Who owes",
+                   subtitle: ymdInTimeZone(clinicTimeZone()),
+                   sections: debtsPdfSections(debts, answerLang === "ar"),
+                   asked: (call.args as any).pdf === true,
+                });
+                toolResult = { success: true, ...debtsDigest(debts), pdfAttached: pdfReady };
+             }
+          } else if (call.name === "run_report") {
+             const report = await runSaraReport({
+                clinicId,
+                clinic: clinicRecord,
+                reportId: String((call.args as any).report || ""),
+                startDate: String((call.args as any).startDate || ""),
+                endDate: String((call.args as any).endDate || ""),
+                lang: answerLang,
+                role: authz.role,
+                permissions: authz.permissions,
+                branchId: typeof body.branchId === "string" ? body.branchId : "",
              });
-             
-             const netProfit = cashIn - expenses - deductions;
-             
-             toolResult = {
-                 success: true,
-                 dateRange: `${startDate} to ${endDate}`,
-                 cashIn,
-                 expenses,
-                 deductions,
-                 netProfit,
-                 note: "These are exactly matched to the Finance Dashboard."
-             };
+             if (!report.ok) {
+                toolResult = { success: false, error: report.error };
+             } else {
+                const digest = digestReportDoc(report.doc);
+                const pdfReady = attachPdf({
+                   title: report.doc.title,
+                   subtitle: report.doc.allTime ? undefined : report.doc.range.label,
+                   sections: docToPdfSections(report.doc),
+                   asked: (call.args as any).pdf === true,
+                });
+                toolResult = { success: true, ...digest, pdfAttached: pdfReady };
+             }
+          } else if (call.name === "payment_changes") {
+             const startDate = String((call.args as any).startDate || "");
+             const endDate = String((call.args as any).endDate || "");
+             if (!isFullAccessRole(authz.role)) {
+                toolResult = { success: false, error: "The record of deleted and changed payments is for the owner and admins only. Tell them so plainly." };
+             } else if (!YMD.test(startDate) || !YMD.test(endDate) || startDate > endDate) {
+                toolResult = { success: false, error: "startDate and endDate must be YYYY-MM-DD, start on or before end." };
+             } else {
+                const changes = await answerPaymentChanges({ clinicId, startDate, endDate });
+                const pdfReady = changes.length === 0 ? false : attachPdf({
+                   title: answerLang === "ar" ? "مدفوعات اتمسحت أو اتعدلت" : "Payments deleted or changed",
+                   subtitle: `${startDate} → ${endDate}`,
+                   sections: paymentChangesPdfSections(changes, answerLang === "ar"),
+                   asked: (call.args as any).pdf === true,
+                });
+                toolResult = { success: true, period: `${startDate} to ${endDate}`, ...paymentChangesDigest(changes), pdfAttached: pdfReady };
+             }
           } else if (call.name === "find_patient") {
              const searchQuery = (call.args as any).searchQuery;
              // Every `find_patient` call read the clinic's entire patient book and filtered it
@@ -2221,7 +2235,10 @@ export async function POST(req: Request) {
                  return tokens.every((tok: string) => n.includes(tok));
                });
              
-             toolResult = { success: true, count: matches.length, data: matches.slice(0, 5) };
+             // One match keeps its tooth chart (the question may be about it); several are
+             // returned slim, since the chart of five patients is the heaviest thing here.
+             const shown = matches.slice(0, 5).map((p: any) => (matches.length === 1 ? p : slimDoc(p)));
+             toolResult = { success: true, count: matches.length, data: shown };
           }
         } catch (e: any) {
           reportServerError(`Tool execution failed for ${call.name}`, e);
@@ -2239,17 +2256,73 @@ export async function POST(req: Request) {
       meter.add(result.response);
       callCount++;
     }
-      let replyText = "";
-      try {
-         replyText = result.response.text();
-      } catch (e) {
-         // Gemini SDK throws if text is not available (e.g., empty response)
-         replyText = "Done.";
+      const textOf = (r: typeof result): string => {
+         try {
+            return r.response.text() || "";
+         } catch {
+            // The SDK throws when a response carries no text part at all.
+            return "";
+         }
+      };
+      let replyText = textOf(result);
+
+      /**
+       * Never an empty answer.
+       *
+       * When the model is still asking for a tool on its last allowed round, the response has
+       * no text: the widget printed "…" and the clinic paid for it. One more call, with tools
+       * switched off, makes it answer from what the tools already returned. A staged action
+       * (a confirmation card) is an answer in itself and needs no rescue.
+       */
+      const stillWantsTool = (result.response.functionCalls()?.length || 0) > 0;
+      if (needsRescue(replyText, stillWantsTool) && !(pendingAction && !stillWantsTool)) {
+         try {
+            const modelTurn = result.response.candidates?.[0]?.content;
+            const rescueContents = stillWantsTool
+               ? [
+                    ...contents,
+                    ...(modelTurn ? [modelTurn] : []),
+                    {
+                       role: "user",
+                       parts: [
+                          ...result.response.functionCalls()!.map((c) => ({ functionResponse: { name: c.name, response: { success: false, error: "No more tool calls are allowed for this question." } } })),
+                          { text: RESCUE_INSTRUCTION },
+                       ],
+                    },
+                 ]
+               : [...contents, { role: "user", parts: [{ text: RESCUE_INSTRUCTION }] }];
+            const rescue = await model.generateContent({
+               contents: rescueContents,
+               toolConfig: { functionCallingConfig: { mode: "NONE" } },
+            } as any);
+            meter.add(rescue.response);
+            replyText = textOf(rescue);
+         } catch (rescueError) {
+            reportServerError("Assistant rescue call failed", rescueError);
+            replyText = "";
+         }
       }
 
-      await chargeCredits?.();
-      if (!pendingAction) await rememberTourAnswer({ reply: replyText });
-      return NextResponse.json({ reply: replyText, pendingAction, ...(documentToSend ? { document: documentToSend } : {}) });
+      // Still nothing: say so, charge nothing, and keep it out of the next question's history.
+      const noAnswer = needsRescue(replyText, false) && !pendingAction;
+      if (noAnswer) replyText = noAnswerText(prompt);
+      else if (!replyText.trim()) replyText = answerLang === "ar" ? "تمام." : "Done.";
+
+      /**
+       * The deeper search is offered, never taken: only when the reading limit stopped this
+       * turn, only to an Owner or Admin, only where there is a card to show it on.
+       */
+      const offerDeep = budget.hit && !deepSearch && client === "web-widget" && !isReception && isFullAccessRole(authz.role);
+
+      await finishTurn({ noAnswer, deepOffered: offerDeep });
+      return NextResponse.json({
+         reply: replyText,
+         pendingAction,
+         ...(noAnswer ? { noAnswer: true } : {}),
+         ...(offerDeep ? { deepSearchOffer: { credits: DEEP_SEARCH_CREDITS } } : {}),
+         ...(reportPdf ? { reportPdf } : {}),
+         ...(documentToSend ? { document: documentToSend } : {}),
+      });
 
   } catch (error: any) {
     // The stack matters more than the message here — most failures in this route come from the
