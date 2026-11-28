@@ -28,6 +28,7 @@ export default function PageHeader({
   eyebrow,
   backHref,
   compact = false,
+  hideOnPhone = false,
   children,
 }: {
   /** Optional: a page may put only actions in the band (the phone home does). With no title,
@@ -39,6 +40,12 @@ export default function PageHeader({
   /** Renders a back arrow before the title. For detail pages under a list. */
   backHref?: string;
   compact?: boolean;
+  /**
+   * Below lg, draw no title strip at all: the black band is then the nav row alone. The home
+   * screens use it (owner's request, 2026-11-28) — on a phone the strip cost a fifth of the
+   * screen, and the home-view tabs moved up into the nav row (see TopNav).
+   */
+  hideOnPhone?: boolean;
   children?: React.ReactNode;
 }) {
   const ctx = usePageHeaderSlot();
@@ -48,9 +55,9 @@ export default function PageHeader({
 
   useEffect(() => {
     if (!register || !unregister) return;
-    register(compact);
-    return () => unregister(compact);
-  }, [register, unregister, compact]);
+    register(compact, hideOnPhone);
+    return () => unregister(compact, hideOnPhone);
+  }, [register, unregister, compact, hideOnPhone]);
 
   if (!ctx?.slot) return null;
 

@@ -19,6 +19,7 @@ import {
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 import { getClinicLogo } from "@/lib/clinicLogo";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import NotificationBell from "@/components/NotificationBell";
@@ -258,10 +259,21 @@ export default function TopNav({
         ))}
       </nav>
 
+      {/* --- HOME VIEW TABS, on a phone --- */}
+      {/* Below lg the home screens have no title strip (PageHeader hideOnPhone), so the
+          owner / calendar / dentist tabs live here, in the middle of the nav row. From lg up each
+          home screen draws them in its own strip, as before. */}
+      {pathname === "/" && (
+        <div className="flex min-w-0 flex-1 justify-center lg:hidden">
+          <HomeViewTabs />
+        </div>
+      )}
+
       {/* --- SETTINGS / BELL / ACCOUNT --- */}
       <div className="ms-auto flex shrink-0 items-center gap-2">
-        {/* Shown on a phone too, unlike the gear beside it: the phone has Settings in its menu
-            sheet, but this is the button people are told to press to finish setting up. */}
+        {/* From lg up only (owner's request, 2026-11-28): on a phone Quick setup is the first row
+            of the account menu beside this, and the band has no room for a button most people
+            press once. */}
         {showQuickSetup && (
           <Link
             href={quickSetupHref}
@@ -271,7 +283,7 @@ export default function TopNav({
             aria-current={onSetup ? "page" : undefined}
             // Spelled out rather than layered on `iconButton`: two text colours on one element are
             // settled by stylesheet order, not by which is written last.
-            className={`grid size-9 place-items-center rounded-full border transition-colors ${
+            className={`hidden size-9 place-items-center rounded-full border transition-colors lg:grid ${
               onSetup
                 ? "border-[#FACC15]/40 bg-[#FACC15] text-ink"
                 : "border-white/15 bg-white/5 text-[#FACC15] hover:bg-white/15"

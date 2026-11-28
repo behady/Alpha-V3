@@ -15,7 +15,7 @@ export default function HomeNoAccess() {
   return (
     <div className="min-h-full pb-24 lg:pb-6" dir={isRTL ? "rtl" : "ltr"}>
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 p-4 md:p-6 lg:p-5">
-        <PageHeader title={isAr ? "مقفول" : "Locked"}>
+        <PageHeader hideOnPhone title={isAr ? "مقفول" : "Locked"}>
           <HomeViewTabs />
         </PageHeader>
         <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">

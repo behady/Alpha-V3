@@ -110,9 +110,13 @@ function MenuClinicSwitcher() {
  * renders. `fallbackTitle` shows when a page has not adopted <PageHeader> yet, so the band never
  * appears as a bare black stripe with nothing in it.
  */
-function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
+function PageHeaderStrip({ fallbackTitle, isHome }: { fallbackTitle: string; isHome: boolean }) {
   const ctx = usePageHeaderSlot();
   const compact = !!ctx?.compact;
+  /* Below lg the home screens have no strip: the band is the nav row alone, and the home-view
+     tabs sit in that row (TopNav). `isHome` says so before the page has mounted, so the band does
+     not open tall and then drop; `phoneHidden` covers the same screens at other addresses. */
+  const phoneHidden = isHome || !!ctx?.phoneHidden;
   const empty = (ctx?.count ?? 0) === 0;
   const slotRef = useRef<HTMLDivElement>(null);
   const setSlot = ctx?.setSlot;
@@ -129,7 +133,7 @@ function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
 
   return (
     <div
-      className={`px-4 lg:px-7 ${compact ? "pb-3 pt-0.5" : "pb-6 pt-1 lg:pb-7"}`}
+      className={`px-4 lg:px-7 ${compact ? "pb-3 pt-0.5" : "pb-6 pt-1 lg:pb-7"} ${phoneHidden ? "max-lg:hidden" : ""}`}
     >
       {/* The portal target. Kept mounted always, so a page's header has somewhere to land on the
           very first render after a route change. */}
@@ -525,7 +529,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onReturnToSuperAdmin={handleReturnToSuperAdmin}
           />
         }
-        strip={<PageHeaderStrip fallbackTitle={fallbackTitle} />}
+        strip={<PageHeaderStrip fallbackTitle={fallbackTitle} isHome={pathname === "/"} />}
       />
 
       {/* MOBILE MENU OVERLAY */}

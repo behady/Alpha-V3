@@ -24,8 +24,10 @@ interface PageHeaderCtx {
   count: number;
   /** True when the mounted header asked for the slim one-line strip. */
   compact: boolean;
-  register: (compact: boolean) => void;
-  unregister: (compact: boolean) => void;
+  /** True when the mounted header asked for no strip at all below lg (the phone home screens). */
+  phoneHidden: boolean;
+  register: (compact: boolean, phoneHidden?: boolean) => void;
+  unregister: (compact: boolean, phoneHidden?: boolean) => void;
 }
 
 const Ctx = createContext<PageHeaderCtx | null>(null);
@@ -34,20 +36,23 @@ export function PageHeaderProvider({ children }: { children: React.ReactNode }) 
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [count, setCount] = useState(0);
   const [compactCount, setCompactCount] = useState(0);
+  const [phoneHiddenCount, setPhoneHiddenCount] = useState(0);
 
-  const register = useCallback((compact: boolean) => {
+  const register = useCallback((compact: boolean, phoneHidden?: boolean) => {
     setCount((n) => n + 1);
     if (compact) setCompactCount((n) => n + 1);
+    if (phoneHidden) setPhoneHiddenCount((n) => n + 1);
   }, []);
 
-  const unregister = useCallback((compact: boolean) => {
+  const unregister = useCallback((compact: boolean, phoneHidden?: boolean) => {
     setCount((n) => Math.max(0, n - 1));
     if (compact) setCompactCount((n) => Math.max(0, n - 1));
+    if (phoneHidden) setPhoneHiddenCount((n) => Math.max(0, n - 1));
   }, []);
 
   const value = useMemo(
-    () => ({ slot, setSlot, count, compact: compactCount > 0, register, unregister }),
-    [slot, count, compactCount, register, unregister]
+    () => ({ slot, setSlot, count, compact: compactCount > 0, phoneHidden: phoneHiddenCount > 0, register, unregister }),
+    [slot, count, compactCount, phoneHiddenCount, register, unregister]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
