@@ -5,10 +5,11 @@
  * patient paid at the counter, what the company has paid, and what it still owes — with "Mark
  * collected" on a row, or on every selected row at once.
  *
- * It is the company's whole account, whatever the page's period: every charge billed to it on
- * the branch on screen, from any date. The figures always cover all of it; "Only outstanding"
- * (on by default) only shortens the list to the unpaid rows. Otherwise "Billed 0" would greet a
- * company whose one treatment the patient happened to pay in cash.
+ * The figures and the list follow the page's dates (`period`): for a contract company a whole
+ * month is exactly that month's sheet (`chargeInPeriod`); for an approval insurer a treatment
+ * counts on its own date. What is still unpaid outside the dates is named in one line under the
+ * figures, and "Show all dates" opens the whole account: every charge on the branch on screen,
+ * from any date. "Only outstanding" (on by default) only shortens the list to the unpaid rows.
  *
  * The figures come from `insurerRows`, the same function the route recomputes with before it
  * writes, so the screen and the receipt can never disagree about what was owed. The charges'
@@ -40,7 +41,8 @@ import { insurerRows, insurerTotals, treatmentHasDentist, type InsurerRow, type 
 import { MoneyApiError } from "@/lib/moneyApi";
 import { buildInsuranceStatement, type StatementRowLite } from "@/lib/insuranceStatement";
 import { useStatementHeader } from "@/lib/insuranceStatementHeader";
-import { buildCompanySheets, companyStatement, scopeSheets, type SheetCharge } from "@/lib/insurance/companySheet";
+import { buildCompanySheets, companyStatement, placeCharges, scopeSheets, type SheetCharge } from "@/lib/insurance/companySheet";
+import { chargeInPeriod } from "@/lib/insurance/chargePeriod";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { useCompanySheet } from "@/components/insurance/useCompanySheet";
 import CompanySheetPanel from "@/components/insurance/CompanySheetPanel";
@@ -62,6 +64,7 @@ export default function InsurerTab({
   collect: post,
   collectClaim,
   statementPeriod,
+  period,
   sheetPanel,
 }: {
   payerId: string;
@@ -84,6 +87,8 @@ export default function InsurerTab({
   collectClaim: (claimId: string, branchId: string | null) => Promise<string | null>;
   /** The page's period, for the Excel statement; absent = no statement for this company (approval insurers). */
   statementPeriod?: { start: string; end: string };
+  /** The page's dates: the figures and the list show only these. Absent = the whole account. */
+  period?: { start: string; end: string };
   /** Show the monthly sheet (patients, their procedures, Mark as sent) INSTEAD of the money account. The Insurance page sets it; Finance does not. */
   sheetPanel?: boolean;
 }) {
@@ -91,6 +96,8 @@ export default function InsurerTab({
   const ar = language === "ar";
   const { confirm, showToast } = useUI();
   const [onlyOutstanding, setOnlyOutstanding] = useState(true);
+  /** "Show all dates": the whole account instead of the page's dates. */
+  const [allDates, setAllDates] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   /** Every payment against this company's charges, whatever its date, by payment id. */
@@ -125,7 +132,7 @@ export default function InsurerTab({
     }
     return rows.filter((r) => String(r.type || "") === "procedure" && text(r.payerId) === payerId);
   }, [useBacklog, backlog, scopeBranchId, rows, payerId]);
-  const loading = useBacklog ? backlog === null : isLoading;
+  const backlogLoading = useBacklog ? backlog === null : isLoading;
   const chargeKey = useMemo(() => charges.map((c) => c.id).sort().join(","), [charges]);
 
   useEffect(() => {
@@ -163,15 +170,48 @@ export default function InsurerTab({
     for (const [id, p] of livePayments) byId.set(id, p);
     return insurerRows([...charges, ...byId.values()], payerId);
   }, [rows, charges, livePayments, payerId]);
-  const totals = useMemo(() => insurerTotals(all), [all]);
-  const visible = useMemo(() => (onlyOutstanding ? all.filter((r) => r.outstanding > 0.009) : all), [all, onlyOutstanding]);
+
+  // --- The page's dates ----------------------------------------------------------------------------
+  const { clinicId } = useClinic();
+  // Every live charge of the company, ALL branches: whether a patient is finished does not depend on
+  // the branch on screen. The branch only narrows what is printed (`keep`, below). The tab's own cost
+  // (the whole price, as the company is billed), not the row's amount.
+  const sheetCharges = useMemo(
+    () =>
+      backlog
+        ? backlog
+            .filter((r) => !["deleted", "cancelled"].includes(String((r as Record<string, unknown>).status || "").toLowerCase()))
+            .map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as SheetCharge)
+        : null,
+    [backlog],
+  );
+  const { inputs, failed: sheetFailed } = useCompanySheet(clinicId, payerId, useBacklog && statementPeriod ? sheetCharges : null);
+  // A contract company's rows wait for the sheet's placements, so a month never flashes a wrong total.
+  // If the sheet cannot be read, each treatment counts on its own date.
+  const placing = Boolean(period && statementPeriod && useBacklog && !sheetPanel && !inputs && !sheetFailed);
+  const loading = backlogLoading || placing;
+  const placed = useMemo(() => (inputs ? placeCharges({ ...inputs, payerId }) : null), [inputs, payerId]);
+  const { shown, outsideUnpaid } = useMemo(() => {
+    if (!period) return { shown: all, outsideUnpaid: 0 };
+    const inside: InsurerRow[] = [];
+    let unpaid = 0;
+    for (const r of all) {
+      if (chargeInPeriod(r.charge, period, placed?.get(r.charge.id))) inside.push(r);
+      else unpaid += r.outstanding;
+    }
+    return { shown: allDates ? all : inside, outsideUnpaid: round2(unpaid) };
+  }, [all, period, placed, allDates]);
+
+  const totals = useMemo(() => insurerTotals(shown), [shown]);
+  const visible = useMemo(() => (onlyOutstanding ? shown.filter((r) => r.outstanding > 0.009) : shown), [shown, onlyOutstanding]);
   // An approval's insurer money is never held back for a missing dentist (the share was stamped at
   // assignment); a contract row's is, because the route refuses the whole batch without one.
   const canCollect = (r: InsurerRow) => r.collectable && (r.viaClaim || hasDentist(r.charge));
-  const selectable = useMemo(() => all.filter(canCollect), [all]);
+  const selectable = useMemo(() => shown.filter(canCollect), [shown]);
 
   // A new company, or a row that stopped being collectable (collected, or its dentist removed), drops out.
   useEffect(() => setSelected(new Set()), [payerId]);
+  useEffect(() => setAllDates(false), [payerId]);
   useEffect(() => {
     setSelected((prev) => {
       const ok = new Set(selectable.map((r) => r.charge.id));
@@ -186,22 +226,8 @@ export default function InsurerTab({
   const fmt = (n: number) => n.toLocaleString(ar ? "ar-EG" : "en-US");
 
   // --- The monthly statement ---------------------------------------------------------------------
-  const { clinicId } = useClinic();
   const [header] = useStatementHeader(clinicId);
   const [exporting, setExporting] = useState(false);
-  // Every live charge of the company, ALL branches: whether a patient is finished does not depend on
-  // the branch on screen. The branch only narrows what is printed (`keep`, below). The tab's own cost
-  // (the whole price, as the company is billed), not the row's amount.
-  const sheetCharges = useMemo(
-    () =>
-      backlog
-        ? backlog
-            .filter((r) => !["deleted", "cancelled"].includes(String((r as Record<string, unknown>).status || "").toLowerCase()))
-            .map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as SheetCharge)
-        : null,
-    [backlog],
-  );
-  const { inputs, failed: sheetFailed } = useCompanySheet(clinicId, payerId, useBacklog && statementPeriod ? sheetCharges : null);
   // The statement and the panel come from one call, so the Excel report is exactly what the panel shows.
   // While the sheet's inputs load there is no statement (the button waits); if the backlog could not be
   // read, today's per-visit statement from the period's rows is all there is.
@@ -386,6 +412,9 @@ export default function InsurerTab({
     );
   };
 
+  /** The page's dates are in force; `whole` = the whole account is on screen. */
+  const dated = Boolean(period) && !allDates;
+  const whole = useBacklog && !dated;
   const figures: { label: string; value: number; tone: string }[] = [
     { label: ar ? "إجمالي العلاج" : "Billed", value: totals.billed, tone: "text-white/80" },
     { label: ar ? "دفع المريض" : "Patient paid", value: totals.patientPaid, tone: "text-white/80" },
@@ -432,9 +461,13 @@ export default function InsurerTab({
           <p className="font-display text-lg font-extrabold">{payerName}</p>
         </div>
         <p className="mt-1 text-xs font-medium text-white/55">
-          {useBacklog
+          {whole
             ? ar ? `كل العلاج على حساب ${payerName}، من أي تاريخ.` : `Every treatment billed to ${payerName}, from any date.`
-            : ar ? "علاج الفترة اللي فوق." : "Treatments in the period above."}
+            : period && dated
+              ? period.start === period.end
+                ? ar ? `علاج يوم ${period.start}.` : `Treatments on ${period.start}.`
+                : ar ? `العلاج من ${period.start} لـ ${period.end}.` : `Treatments from ${period.start} to ${period.end}.`
+              : ar ? "علاج الفترة اللي فوق." : "Treatments in the period above."}
         </p>
         <dl className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4">
           {figures.map((f) => (
@@ -444,6 +477,25 @@ export default function InsurerTab({
             </div>
           ))}
         </dl>
+        {/* What the dates leave out, and the way to the whole account. */}
+        {period && useBacklog && !loading && (
+          <p className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/10 pt-4 text-xs font-semibold text-white/70">
+            {dated && outsideUnpaid > 0.009 && (
+              <span>
+                {ar ? "برّه التواريخ دي لسه متبقي " : "Outside these dates, still unpaid: "}
+                <span className="font-figure font-black text-white">{fmt(outsideUnpaid)}</span>
+                {ar ? " ج.م" : " EGP"}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setAllDates(!allDates)}
+              className="max-lg:min-h-10 rounded-full border border-white/25 px-3 py-1 font-bold text-white hover:border-white/60"
+            >
+              {allDates ? (ar ? "ارجع للتواريخ المختارة" : "Back to the chosen dates") : ar ? "اعرض كل التواريخ" : "Show all dates"}
+            </button>
+          </p>
+        )}
       </div>
 
       <div className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[320px] ring-1 ring-slate-100">
@@ -491,20 +543,22 @@ export default function InsurerTab({
         ) : visible.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16">
             <p className="font-bold text-ink-body">
-              {useBacklog
-                ? all.length === 0
+              {whole
+                ? shown.length === 0
                   ? ar ? `مفيش علاج على حساب ${payerName} لسه.` : `No ${payerName} treatments yet.`
                   : ar ? `مفيش حاجة متبقية على ${payerName}.` : `${payerName} owes nothing.`
-                : all.length === 0
+                : shown.length === 0
                   ? ar ? `مفيش علاج على حساب ${payerName} في الفترة دي.` : `No ${payerName} treatments in this period.`
                   : ar ? `مفيش حاجة متبقية على ${payerName} في الفترة دي.` : `${payerName} owes nothing for this period.`}
             </p>
             <p className="text-sm text-ink-muted mt-1">
-              {useBacklog
-                ? all.length === 0
+              {shown.length === 0
+                ? whole
                   ? ar ? "العلاج اللي يتسجل على حساب الشركة هيظهر هنا." : "Treatments charged to the company will show here."
-                  : ar ? "شيل \"المتبقي بس\" عشان تشوف كل العلاج." : "Untick \"Only outstanding\" to see every treatment."
-                : ar ? "غيّر التاريخ أو الفرع." : "Try another date or branch."}
+                  : ar ? "غيّر التاريخ أو الفرع." : "Try another date or branch."
+                : useBacklog
+                  ? ar ? "شيل \"المتبقي بس\" عشان تشوف كل العلاج." : "Untick \"Only outstanding\" to see every treatment."
+                  : ar ? "غيّر التاريخ أو الفرع." : "Try another date or branch."}
             </p>
           </div>
         ) : (

@@ -1498,6 +1498,7 @@ export default function FinancePage() {
               collect={collectForInsurer}
               collectClaim={collectClaimForInsurer}
               statementPeriod={activeInsurer.format ? undefined : periodBounds}
+              period={periodBounds}
             />
           ) : sheetTab ? (
             <DailySheetTab
