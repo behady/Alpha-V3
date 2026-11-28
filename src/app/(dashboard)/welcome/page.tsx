@@ -13,7 +13,6 @@ import {
   Lock,
   PartyPopper,
   RotateCcw,
-  Sparkles,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -29,10 +28,8 @@ import PageHeader from "@/components/dashboard/PageHeader";
 /**
  * Getting started — the whole route, on one page.
  *
- * The coach bubble says one thing at a time, which is right for an interruption and wrong for
- * someone who has sat down to set the clinic up properly. This is the other half: every step in
- * order, what each one buys, what is already done and how it was proved, and how long the rest
- * takes. Nothing here is a demo — every button either rings the real screen or opens it.
+ * Every step in order, what each one buys, what is already done and how it was proved, and how
+ * long the rest takes. Nothing here is a demo — every button either rings the real screen or opens it.
  *
  * A step is ticked because the clinic HAS the thing (a patient exists, the schedule was saved) or
  * because this person finished its lesson. Both are shown the same way and neither can be clicked
@@ -81,7 +78,7 @@ export default function WelcomePage() {
   const { clinic, clinicId, isAdmin } = useClinic();
   const { user } = useAuth();
   const { startTutorial } = useTutorial();
-  const { loading, progress, trial, locked, coachDismissed, restore, refresh } = useWelcome();
+  const { loading, progress, trial, locked, refresh } = useWelcome();
   const router = useRouter();
 
   const isAr = language === "ar";
@@ -206,24 +203,6 @@ export default function WelcomePage() {
                 : "Your clinic is fully up and running. Anything you need, open the assistant from the orb below and just ask."}
             </p>
           </div>
-        </div>
-      )}
-
-      {/* --- The coach was switched off; offer it back ---------------------------------------- */}
-      {coachDismissed && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface-subtle px-5 py-4">
-          <p className="text-[12.5px] font-semibold text-ink-body">
-            {isAr
-              ? "المدرّب متوقف. تحب يرجع يقولك الخطوة اللي بعدها وانت شغال؟"
-              : "Coaching is switched off. Want the next step offered to you again as you work?"}
-          </p>
-          <button
-            onClick={restore}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-[11.5px] font-black text-ink-on-accent transition-colors hover:bg-accent-strong"
-          >
-            <Sparkles size={13} />
-            {isAr ? "رجّع المدرّب" : "Turn coaching back on"}
-          </button>
         </div>
       )}
 

@@ -119,7 +119,7 @@ export default function TutorialOverlay() {
        * It is written straight to the local store instead of through WelcomeContext on purpose:
        * this overlay predates the guide, is mounted by the layout, and must keep working
        * unchanged if the guide is ever removed. The store fires an event the provider listens
-       * for, so the checklist and the coach update without the two knowing about each other.
+       * for, so the checklist updates without the two knowing about each other.
        */
       markLessonDone({ clinicId, uid: user?.uid }, activeTutorial!.id);
       showToast(

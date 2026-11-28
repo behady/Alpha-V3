@@ -29,14 +29,13 @@ import TopNav from "@/components/dashboard/TopNav";
 import { DIRECT_KEYS, SECTION_GROUPS } from "@/components/dashboard/navGroups";
 import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderContext";
 import AiChatWidget from "@/components/AiChatWidget";
-import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
+import { TutorialProvider } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
 import { TourProvider, useTour } from "@/context/TourContext";
 import GrandTourOverlay from "@/components/tour/GrandTourOverlay";
 import TourIntro from "@/components/tour/TourIntro";
 import { TOUR_GUIDE } from "@/lib/grandTour";
 import { WelcomeProvider } from "@/context/WelcomeContext";
-import WelcomeCoach from "@/components/welcome/WelcomeCoach";
 import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
 import { DemoTourBanner } from "@/components/welcome/DemoTour";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
@@ -64,21 +63,6 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
 
 // A local file, not next/font/google — see the note in src/app/layout.tsx.
 const plusJakartaSans = localFont({ src: "../../fonts/plus-jakarta-sans-latin-wght.woff2", weight: "400 800" });
-
-/**
- * Sits between the two providers so the welcome guide can know whether a lesson is on screen.
- *
- * `WelcomeProvider` takes that as a prop rather than reading `useTutorial()` itself — the guide
- * works perfectly well in an app with no tutorials, and the only reason it cares is to stop the
- * coach talking over a walkthrough's ring. A component is needed here because `DashboardLayout`
- * is the thing that renders `TutorialProvider` and therefore cannot consume it.
- */
-function WelcomeLayer({ children }: { children: React.ReactNode }) {
-  const { activeTutorial } = useTutorial();
-  // Sara's tour owns the screen the same way a lesson does: the coach stays quiet under it.
-  const { active: tourActive } = useTour();
-  return <WelcomeProvider tutorialRunning={!!activeTutorial || tourActive}>{children}</WelcomeProvider>;
-}
 
 /**
  * "Tour with Sara" as a menu row. A component of its own because the layout renders the tour
@@ -507,7 +491,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ]}
       showSettings={showSettings}
     >
-    <WelcomeLayer>
+    <WelcomeProvider>
     <PageHeaderProvider>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${cairo.variable} ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       <ReceptionSummonOverlay />
@@ -778,10 +762,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* AI CHAT WIDGET & BUBBLE */}
       <AiChatWidget />
 
-      {/* The assistant speaking first: the next setup step, above the same orb. Renders nothing
-          once the guide is finished, while a lesson runs, or after it has been sent away. */}
-      <WelcomeCoach />
-
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
 
@@ -790,7 +770,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <GrandTourOverlay />
     </div>
     </PageHeaderProvider>
-    </WelcomeLayer>
+    </WelcomeProvider>
     </TourProvider>
     </TutorialProvider>
   );

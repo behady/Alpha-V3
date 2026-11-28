@@ -86,7 +86,7 @@ export default function AiChatWidget() {
   const { clinic, clinicId, isAdmin } = useClinic();
   const { user } = useAuth();
   const { language, isRTL } = useLanguage();
-  const { receptionPanelActive, setAssistantPanelOpen } = useUI();
+  const { receptionPanelActive } = useUI();
   const { activeTutorial, startTutorial, cancelTutorial } = useTutorial();
   const tour = useTour();
   const isAr = language === "ar";
@@ -216,20 +216,6 @@ export default function AiChatWidget() {
     }
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isOpen, isLoading]);
-
-  /**
-   * Tell the rest of the shell that this panel is on screen.
-   *
-   * The welcome coach's bubble lives in the same corner, directly above the orb this panel
-   * unfolds from, so it has to step aside while the panel is open. Published rather than lifted:
-   * `isOpen` is closed over by a dozen handlers in here and moving it out would be a rewrite for
-   * one consumer. The cleanup matters as much as the set — this component returns null while a
-   * lesson is running, and a stale `true` would keep the coach hidden after the lesson ends.
-   */
-  useEffect(() => {
-    setAssistantPanelOpen(isOpen);
-    return () => setAssistantPanelOpen(false);
-  }, [isOpen, setAssistantPanelOpen]);
 
   if (!canUseAi) return null;
 
