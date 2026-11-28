@@ -101,38 +101,3 @@ export function closingLine(args: { gender?: Gender; facts?: BotFacts; alreadyBo
   const ask = f ? "تحبي أحجزلك" : "تحب أحجزلك";
   return consult ? `${consult} — ${ask} كشف؟ 👇` : `${ask} كشف عشان الدكتور يشوف الحالة ويقولك بالظبط؟ 👇`;
 }
-
-/** "It's expensive." Instalments if any, the value line if any, then the consultation close. */
-export function expensiveReply(args: { gender?: Gender; facts?: BotFacts }): { text: string; known: boolean } {
-  const f = args.gender === "female";
-  const lines: string[] = [];
-  const inst = args.facts?.installments?.trim();
-  const why = args.facts?.whyUs?.trim();
-  if (inst) lines.push(`💳 ${inst}`);
-  if (why) lines.push(why);
-  if (!lines.length) return { text: "", known: false };
-  const opener = f ? "فاهمين حضرتك تماماً 🙏" : "فاهمين حضرتك تماماً 🙏";
-  return { text: [opener, "", ...lines].join("\n"), known: true };
-}
-
-/** "I'll think about it." No pressure, one open door, and the lead gets a follow-up tomorrow. */
-export function thinkingReply(args: { gender?: Gender; patientName?: string }): string {
-  const f = args.gender === "female";
-  return [
-    `براحتك تماماً 🙏 ${f ? "خدي" : "خد"} وقتك.`,
-    `لو حبيت${f ? "ي" : ""} في أي وقت ${f ? "تبعتيلنا" : "تبعتلنا"} كلمة واحدة وهنحجزلك أقرب ميعاد يناسبك 🦷`,
-  ].join("\n");
-}
-
-/** "Somewhere else is cheaper." The clinic's own reasons, or nothing to say but a person. */
-export function competitorReply(args: { facts?: BotFacts }): { text: string; known: boolean } {
-  const why = args.facts?.whyUs?.trim();
-  if (!why) return { text: "", known: false };
-  return { text: ["كل عيادة ليها أسلوبها، وإحنا بنراهن على حاجات معينة 👇", "", why].join("\n"), known: true };
-}
-
-/** The "offers" question after the offer ended: honest, and still a door to a booking. */
-export function offersExpiredReply(gender?: Gender): string {
-  const f = gender === "female";
-  return `العرض اللي كان موجود انتهى 🙏 بس الاستقبال بيقول${f ? "ك" : "ك"} على أي عرض جديد أول ما ينزل.`;
-}

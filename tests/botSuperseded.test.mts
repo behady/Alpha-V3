@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isNewerPatientLine, newerLinesOf } from "../src/lib/bot/thread";
 import { lineTakesOver } from "../src/lib/bot/supersede";
-import type { BotContext, BotState } from "../src/lib/bot/engine";
+import type { BotContext, BotState } from "../src/lib/bot/decide";
 
 function test(name: string, fn: () => void) {
   fn();
@@ -115,11 +115,9 @@ test("a voice note is its words; two untranscribed voice notes are not one repea
 // --------------------------------------------------------------- who may take an answer's place --
 const ctx: BotContext = {
   clinicName: "عيادة",
-  aiFirst: true,
   aiAvailable: true,
   clinicalMode: "handoff",
   canOfferBooking: true,
-  scripts: [{ id: "s1", triggers: ["العنوان"], reply: "عنواننا ٣٠٠أ" }],
 };
 let lookups = 0;
 const takes = (l: Record<string, unknown>, o: { soon?: boolean; state?: BotState; ctx?: Partial<BotContext> } = {}) =>
@@ -133,7 +131,7 @@ const takes = (l: Record<string, unknown>, o: { soon?: boolean; state?: BotState
     },
   });
 
-await testAsync("a newer message takes over only when its own turn goes to the model (or it is a stop)", async () => {
+await testAsync("a newer message takes over only when its own turn goes to the brain (or it is a stop)", async () => {
   for (const [what, l, o] of [
     ["a greeting", line("السلام عليكم", T0), {}],
     ["a price question", line("السعر كام", T0), {}],
@@ -141,7 +139,8 @@ await testAsync("a newer message takes over only when its own turn goes to the m
     ["a voice note still being transcribed", line("[audio]", T0, "v", { media: "audio" }), {}],
     ["a captioned photo", line("ده سني", T0, "p", { media: "image" }), {}],
     ["a stop request", line("stop", T0), {}],
-    ["a digit with no menu on the screen", line("2", T0), {}],
+    ["a digit (there is no menu any more)", line("2", T0), {}],
+    ["a day word at a legacy list state", line("بكره", T0), { state: "booking_day" as BotState }],
     ["English", line("how much is cleaning", T0), {}],
   ] as const) {
     assert.equal(await takes(l, o), true, what);
@@ -152,13 +151,10 @@ await testAsync("a fixed line, or no answer at all, keeps the older answer", asy
   for (const [what, l, o] of [
     ["thanks", line("شكرا", T0), {}],
     ["تمام confirming tomorrow's appointment", line("تمام", T0), { soon: true }],
-    ["the clinic's own script", line("العنوان", T0), {}],
     ["an album photo", line("[image]", T0, "p", { media: "image" }), {}],
     ["a sticker", line("[sticker]", T0, "s", { media: "sticker" }), {}],
     ["a voice note that said thanks", line("[audio]", T0, "v", { media: "audio", transcript: "شكرا" }), {}],
     ["a name at the name step", line("محمد احمد", T0), { state: "booking_name" as BotState }],
-    ["a day word at the day list", line("بكره", T0), { state: "booking_day" as BotState, ctx: { optionCount: 3 } }],
-    ["a digit with the menu on the screen", line("2", T0), { ctx: { menuShown: true } }],
   ] as const) {
     assert.equal(await takes(l, o), false, what);
   }
@@ -174,12 +170,12 @@ await testAsync("the appointment is looked up only for an acknowledgement", asyn
 });
 
 // ------------------------------------------------------------------------------------ the wiring --
-test("respond.ts drops only a sales-mode AI answer: before the first bubble, and before each later one", () => {
+test("respond.ts drops only a plain AI answer: before the first bubble, and before each later one", () => {
   const src = readFileSync(new URL("../src/lib/bot/respond.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  assert.ok(src.includes('const supersedable = !args.dryRun && reason === "ai_answer" && settings.aiFirst && !photoToModel;'), "never a photo reading, assisted mode or the playground");
+  assert.ok(src.includes('const supersedable = !args.dryRun && reason === "ai_answer" && !photoToModel;'), "never a photo reading or the playground");
   assert.ok(src.includes("const ownLineAt = args.receivedAt ?? now;"), "measured from the message's own line");
   assert.ok(src.includes("newerPatientLines(clinicId, chatId, ownLineAt, { text, messageId: args.messageId })"));
-  assert.ok(src.includes("lineTakesOver(line, { state: engineState, ctx, today: clinicNow().dateKey, soonAppointment })"), "the engine decides who may take over");
+  assert.ok(src.includes("lineTakesOver(line, { state: conversation.state, ctx, today: clinicNow().dateKey, soonAppointment })"), "the decider decides who may take over");
   const gate = 'if (supersedable && (await wroteAgain())) {\n      return skip("superseded");';
   assert.ok(src.includes(gate), "the gate is there");
   const i = src.indexOf(gate);

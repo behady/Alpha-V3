@@ -52,7 +52,6 @@ async function runForClinic(clinicId: string): Promise<{ updated: number; skippe
    */
   const settings = ((await adminClinicDoc(clinicId, "settings", "whatsapp").get()).data() || {}) as Record<string, unknown>;
   if (settings.botEnabled !== true) return { updated: 0, skipped: 0 };
-  if (settings.botAiEnabled !== true && settings.botMode !== "ai_first") return { updated: 0, skipped: 0 };
   const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
   if (!clinicSnap.exists || !hasFeature({ id: clinicSnap.id, ...clinicSnap.data() } as Clinic, "aiChat")) {
     return { updated: 0, skipped: 0 };

@@ -177,7 +177,7 @@ async function findSlots(args: Record<string, unknown>, env: ToolEnv): Promise<R
       .map((x) => minutesToTimeKey(x.m));
     for (const time of spread(free)) {
       if (slots.length >= MAX_SLOTS) break;
-      const id = `s${env.shown.size + 1}`;
+      const id = slotIdFor(env.shown.size);
       const label = env.dayLabel(day, time, doctor);
       env.shown.set(id, { key: `${day}|${time}|${doctor}`, label });
       slots.push({ id, label });
@@ -216,6 +216,21 @@ async function getPatientFile(args: Record<string, unknown>, env: ToolEnv): Prom
   if (env.person.patientId) allowed.add(env.person.patientId);
   if (!id || !allowed.has(id)) return { error: "not_on_this_number" };
   return { file: await env.patientFile(id) };
+}
+
+/**
+ * The id the model echoes back for the n-th slot shown this turn (0-based): slotA, slotB … slotZ,
+ * slotAA … Letters, never digits: the ids were "s1".."s8" until a patient wrote "بكره س٦"
+ * (Egyptian for "tomorrow at 6") and the model booked "s6" — the sixth slot, 10:30 م (16/11/2026).
+ */
+export function slotIdFor(n: number): string {
+  let i = Math.max(0, Math.floor(n));
+  let letters = "";
+  do {
+    letters = String.fromCharCode(65 + (i % 26)) + letters;
+    i = Math.floor(i / 26) - 1;
+  } while (i >= 0);
+  return `slot${letters}`;
 }
 
 export async function runTool(name: string, args: Record<string, unknown>, env: ToolEnv): Promise<Record<string, unknown>> {

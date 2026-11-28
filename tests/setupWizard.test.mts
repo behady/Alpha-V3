@@ -20,7 +20,6 @@ import {
   WEEK_DAYS,
   answerModeOf,
   answersFromSettings,
-  chosenAnswerMode,
   bookingAnswersFrom,
   bookingDocFrom,
   clampAnswerMode,
@@ -141,29 +140,26 @@ for (const shown of ["contact", "hours"] as const) {
 }
 assert.equal(SETUP_STEPS.indexOf("team"), SETUP_STEPS.indexOf("booking") + 1, "the booking step says dentists are added in the next step");
 
-const ALL = { messages: true, bot: true, ai: true };
-const NONE = { messages: false, bot: false, ai: false };
+const ALL = { messages: true, bot: true };
+const NONE = { messages: false, bot: false };
 
+// One switch since 2026-11-07: on means the AI receptionist answers, off means the team does.
+// The retired mode fields still on old documents are read as "on".
 assert.equal(answerModeOf(undefined), "off");
-assert.equal(answerModeOf({ botEnabled: true }), "bot");
-assert.equal(answerModeOf({ botEnabled: true, botAiEnabled: true }), "both");
+assert.equal(answerModeOf({ botEnabled: true }), "ai");
+assert.equal(answerModeOf({ botEnabled: true, botAiEnabled: true }), "ai");
 assert.equal(answerModeOf({ botEnabled: true, botMode: "ai_first", botAiEnabled: true }), "ai");
+assert.equal(answerModeOf({ botEnabled: true, botMode: "assisted" }), "ai", "a menu-era clinic is on, not stranded");
 assert.equal(answerModeOf({ botEnabled: false, botMode: "ai_first" }), "off", "off wins over a stale mode");
 
-// The mode the owner chose survives the on/off switch, so AI-only can be set up and rehearsed while off.
-assert.equal(chosenAnswerMode(undefined), "bot");
-assert.equal(chosenAnswerMode({ botEnabled: false, botMode: "ai_first", botAiEnabled: true }), "ai");
-assert.equal(chosenAnswerMode({ botEnabled: false, botAiEnabled: true }), "both");
-assert.equal(chosenAnswerMode({ botEnabled: true, botMode: "assisted" }), "bot");
-
-assert.equal(clampAnswerMode("ai", { ...ALL, ai: false }), "bot", "no AI add-on: AI falls back to the bot, not to silence");
-assert.equal(clampAnswerMode("both", { ...ALL, ai: false }), "bot");
-assert.equal(clampAnswerMode("bot", { ...ALL, bot: false }), "off", "no bot add-on: nobody answers");
+assert.equal(clampAnswerMode("ai", ALL), "ai");
+assert.equal(clampAnswerMode("ai", { ...ALL, bot: false }), "off", "no bot add-on: nobody answers");
+assert.equal(clampAnswerMode("off", ALL), "off");
 
 // A clinic that never opened WhatsApp settings starts from the recommended, cautious answers.
 const fresh = answersFromSettings(undefined);
 assert.equal(fresh.autoMessages, true);
-assert.equal(fresh.answerMode, "bot");
+assert.equal(fresh.answerMode, "ai", "a fresh clinic starts with the receptionist on");
 assert.equal(fresh.answerStrangers, false, "strangers off: the ban-protection default");
 assert.equal(fresh.autoConfirm, false, "bookings reviewed by the desk by default");
 assert.deepEqual(Object.keys(fresh.facts).sort(), [...SETUP_FACT_KEYS].sort());
@@ -182,31 +178,22 @@ assert.equal(existing.answerMode, "ai");
 assert.equal(existing.answerStrangers, true);
 assert.equal(existing.facts.parking, "Garage");
 
-// Round trip: stored → answers → stored changes nothing the wizard reads.
+// Round trip: stored → answers → stored changes nothing the wizard reads, and never touches the retired fields.
 const round = whatsappDocFromAnswers(existing, ALL);
 assert.equal(round.isPatientAutomationEnabled, false);
 assert.equal(round.botEnabled, true);
-assert.equal(round.botMode, "ai_first");
-assert.equal(round.botAiEnabled, true);
+assert.ok(!("botMode" in round) && !("botAiEnabled" in round) && !("botAiBrain" in round), "the retired mode fields are never written");
 assert.equal(answerModeOf(round), "ai");
 assert.ok(!("aftercare" in (round.botFacts as object)), "facts the wizard does not ask about are left to the merge");
 
-// The four modes write exactly what the settings chooser writes.
-const modeDoc = (m: "off" | "bot" | "both" | "ai") => {
-  const d = whatsappDocFromAnswers({ ...fresh, answerMode: m }, ALL);
-  return [d.botEnabled, d.botMode, d.botAiEnabled];
-};
-assert.deepEqual(modeDoc("off"), [false, "assisted", false]);
-assert.deepEqual(modeDoc("bot"), [true, "assisted", false]);
-assert.deepEqual(modeDoc("both"), [true, "assisted", true]);
-assert.deepEqual(modeDoc("ai"), [true, "ai_first", true]);
+// The two answers write exactly the switch the settings screen writes.
+assert.equal(whatsappDocFromAnswers({ ...fresh, answerMode: "off" }, ALL).botEnabled, false);
+assert.equal(whatsappDocFromAnswers({ ...fresh, answerMode: "ai" }, ALL).botEnabled, true);
 
 // Nothing locked is written — not even as "off" — so a later upgrade finds the old setting.
 const locked = whatsappDocFromAnswers({ ...fresh, answerMode: "ai" }, NONE);
 assert.ok(!("isPatientAutomationEnabled" in locked), "messages not in plan: not written");
-assert.ok(!("botEnabled" in locked) && !("botMode" in locked), "bot not in plan: its stored mode is left alone, not switched off");
-const noAi = whatsappDocFromAnswers({ ...fresh, answerMode: "ai" }, { ...ALL, ai: false });
-assert.deepEqual([noAi.botEnabled, noAi.botMode, noAi.botAiEnabled], [true, "assisted", false], "AI locked: the bot answers");
+assert.ok(!("botEnabled" in locked), "bot not in plan: its stored switch is left alone, not switched off");
 
 // "No automatic messages" switches off the two sweeps that do not check the master switch.
 const noMsgs = whatsappDocFromAnswers({ ...fresh, autoMessages: false, recall: true, reviews: true }, ALL);

@@ -2,7 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import { waUserIdKey } from "@/lib/waUserId";
-import type { BotState } from "./engine";
+import type { BotState } from "./decide";
 import { readStoredAd, type AdReferral } from "./adReferral";
 import { mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { MAX_REPLIES_PER_MINUTE, REPLY_BURST_MS, repliesInLastMinute } from "./burstGuard";

@@ -1,6 +1,6 @@
 /**
  * Warmer Egyptian openings, and one welcome per sitting (lib/bot/wordingFix, plus the code's own
- * name questions in engine.ts and respond.ts and their English copies in localize.ts).
+ * name questions in respond.ts and their English copies in localize.ts).
  *
  * The lines are the real ones from 14/11/2026: "أهلاً بك! … العرض متاح بالفعل"، and "تمام 👍 /
  * أهلاً بيك 🙏 عشان أسجل الحجز باسمك…" arriving on a patient's fifth message. The pipeline below
@@ -16,7 +16,6 @@ import { tidyModelWording } from "../src/lib/bot/wordingFix";
 import { feminizeAddress } from "../src/lib/bot/voiceFix";
 import { stripRepeatIntro } from "../src/lib/bot/repeatIntro";
 import { localizeOutbound } from "../src/lib/bot/localize";
-import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
 
 function run(name: string, fn: () => void) {
   try {
@@ -145,47 +144,23 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = (p: string) => readFileSync(join(here, "..", p), "utf8");
 
 run("the code's own name questions do not greet a patient who is mid-conversation", () => {
-  for (const file of ["src/lib/bot/respond.ts", "src/lib/bot/engine.ts"]) {
-    const src = source(file);
-    assert.ok(!src.includes("${v.welcome} 🙏"), `${file}: no "أهلاً بيك 🙏" in front of a name question`);
-    assert.ok(!src.includes("أهلاً بيك 🌟"), `${file}: no "أهلاً بيك 🌟" in front of a name question`);
-  }
-  // The menu path (no model on that turn): typed "1" for a new number, and the book button.
-  const newPatient: BotContext = { clinicName: "Alpha Dental", canOfferBooking: false, canRegister: true };
-  for (const text of ["1", "m1"]) {
-    const d = decideBotReply({ state: "awaiting_choice", text, ctx: newPatient });
-    assert.ok(/^ask_name$/.test(d.reason), d.reason);
-    assert.ok(!/^\s*(أهلا|أهلاً|اهلا)/.test(d.reply), d.reply);
-  }
-  const she = decideBotReply({ state: "awaiting_choice", text: "1", ctx: { ...newPatient, gender: "female" } });
-  assert.equal(she.reply, "عشان نسجل الحجز، ياريت حضرتك تبعتيلنا الاسم الكامل 🙏");
+  const src = source("src/lib/bot/respond.ts");
+  assert.ok(!src.includes("${v.welcome} 🙏"), 'respond.ts: no "أهلاً بيك 🙏" in front of a name question');
+  assert.ok(!src.includes("أهلاً بيك 🌟"), 'respond.ts: no "أهلاً بيك 🌟" in front of a name question');
 });
 
 run("every name question, either gender, still reaches an English-writing patient in English", () => {
-  const tapped = decideBotReply({ state: "awaiting_choice", text: "m1", ctx: { clinicName: "Alpha Dental", canOfferBooking: false, canRegister: true } }).reply;
   const lines = [
     "عشان أسجل الحجز باسمك، ابعتلي اسمك الكامل 🙏",
     "عشان أسجل الحجز باسمك، ابعتيلي اسمك الكامل 🙏",
     "عشان نسجل الحجز، ياريت حضرتك تبعتلنا الاسم الكامل 🙏",
     "عشان نسجل الحجز، ياريت حضرتك تبعتيلنا الاسم الكامل 🙏",
-    tapped,
-    // respond.ts addresses a woman after the engine wrote the line: "ابعتلنا" → "ابعتيلنا".
-    feminizeAddress(tapped, "female"),
   ];
-  assert.notEqual(lines[4], lines[5], "the book button's line has a feminine form");
   for (const line of lines) {
     const en = localizeOutbound(line).text;
     assert.ok(!/[؀-ۿ]/.test(en), `still Arabic: ${en}`);
     // With the model's own line in front, as respond.ts sends it when slots were picked.
     assert.ok(!/[؀-ۿ]/.test(localizeOutbound(`تمام 👍\n\n${line}`).text));
-  }
-  // The first reply of a sitting carries the engine's welcome in front: English too, either gender.
-  const newPatient: BotContext = { clinicName: "Alpha Dental", canOfferBooking: false, canRegister: true };
-  for (const [text, gender] of [["m1", "male"], ["m1", "female"], ["book", "male"], ["book", "female"]] as const) {
-    const firstLine = feminizeAddress(decideBotReply({ state: "new", text, ctx: { ...newPatient, gender } }).reply, gender);
-    assert.ok(firstLine.startsWith("أهلاً وسهلاً 👋"), firstLine);
-    const en = localizeOutbound(firstLine).text;
-    assert.ok(!/[؀-ۿ]/.test(en) && en.startsWith("Welcome 👋"), `still Arabic: ${en}`);
   }
   // respond.ts's two templates, as it builds them for each gender.
   const respondSrc = source("src/lib/bot/respond.ts");

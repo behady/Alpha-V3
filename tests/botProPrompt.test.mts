@@ -1,8 +1,8 @@
 /**
  * The Pro brain's system prompt: the fixed rulebook and the per-turn clinic/patient layer.
  *
- * Pinned: the persona and voice lines are the standard assistant's, byte for byte (read from the
- * source of botPrompt.ts, so a drift on either side fails here); the rulebook is a pure function
+ * Pinned: the persona lines are the owner-approved wording (frozen below) and the voice lines are
+ * the exported SALES_VOICE, byte for byte; the rulebook is a pure function
  * of its two switches and carries no clinic data (Gemini's implicit prefix cache needs it
  * byte-identical); the turn layer shows every appointment on the number in the patient's Arabic
  * (phone-only reception bookings included), lists the whole family, marks the writer only when it
@@ -12,10 +12,8 @@
  * Run: npm run test:pro-prompt
  */
 import assert from "node:assert/strict";
-import { PHONE_HIDDEN_LINE } from "../src/lib/bot/botPrompt";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { PHONE_HIDDEN_LINE, SALES_VOICE } from "../src/lib/bot/botPrompt";
 import { PREVIOUS_SLOTS_HEADING, proRulebook, proTurnLayer } from "../src/lib/botPro/proPrompt";
 import type { BotPromptInput } from "../src/lib/bot/botPrompt";
 import type { ProAppointment, ProPerson } from "../src/lib/botPro/person";
@@ -26,34 +24,14 @@ function test(name: string, fn: () => void) {
   console.log(`ok - ${name}`);
 }
 
-const here = dirname(fileURLToPath(import.meta.url));
-const botPromptSource = readFileSync(join(here, "../src/lib/bot/botPrompt.ts"), "utf8");
-const sourceLines = botPromptSource.split(/\r?\n/);
-
-/** A JS string literal on one source line, unescaped. */
-function literal(line: string): string {
-  return JSON.parse(line.trim().replace(/,$/, "")) as string;
-}
-
-/** The string literal on the source line that starts with `prefix` (as written in the source), unescaped. */
-function sourceLine(prefix: string): string {
-  const line = sourceLines.find((l) => l.trim().startsWith(`"${prefix}`));
-  assert.ok(line, `botPrompt.ts has a line starting ${prefix}`);
-  return literal(line!);
-}
-
-/** Every literal of `const NAME = [ ... ];` in botPrompt.ts. */
-function sourceArray(name: string): string[] {
-  const start = sourceLines.findIndex((l) => l.startsWith(`const ${name} = [`));
-  assert.ok(start >= 0, `botPrompt.ts has ${name}`);
-  const out: string[] = [];
-  for (let i = start + 1; !sourceLines[i].startsWith("];"); i++) out.push(literal(sourceLines[i]));
-  return out;
-}
-
-const PERSONA_1 = sourceLine("- انت بتشتغل في الاستقبال");
-const PERSONA_2 = sourceLine("- بس لو المريض سأل سؤال مباشر");
-const SALES_VOICE = sourceArray("SALES_VOICE");
+/*
+ * The owner-approved wording, frozen here. These lines were the standard assistant's (botPrompt.ts)
+ * until that brain was retired; the Pro rulebook must still carry them byte for byte.
+ */
+const PERSONA_1 = "- انت بتشتغل في الاستقبال. اتكلم عن نفسك كموظف عادي: \"أنا في الاستقبال\"، \"هشوفلك\"، \"هسأل الدكتور وأرد عليك\". متقولش انك بوت أو ذكاء اصطناعي من نفسك، ومتحطش أي تنويه. وممنوع تقول إنك دكتور أو إنك بتكشف — لو حد افترض إنك الدكتور، صحّحله بلطف: \"أنا من الاستقبال، والدكتور هو اللي هيشوف حضرتك\".";
+const PERSONA_2 = "- بس لو المريض سأل سؤال مباشر — انت بوت؟ انت روبوت؟ انت ذكاء اصطناعي؟ انت انسان حقيقي؟ بتكلم حد حقيقي؟ are you a bot/AI/human/real person — لازم تقول الحقيقة فوراً وببساطة، من غير لف: إنك مساعد آلي بيرد على واتساب العيادة، وإن أي حد من الفريق يقدر يكلمه لو حب. الكذب في السؤال ده ممنوع منعاً باتاً مهما كان.";
+const DIFFERENCE_LINE = "- \"إيه الفرق بين ...؟\" سؤال معرفة عامة، مش سؤال محتاج موظف: الفرق بين أنواع الزراعة أو التقويم أو التلبيسات أو الحشو اشرحه ببساطة (الخامة، الوقت، المنظر، السعر بشكل عام) من غير ماركات ولا أسعار مش مكتوبة. handoff_other بس لو سأل عن ماركة بالاسم مش عارفين بنستخدمها ولا لأ.";
+const MEDICINE_BAN = "- ممنوع تدي دوا أو جرعة لطفل، أو لحامل أو مرضعة، أو لمريض سكر أو ضغط أو قلب، أو لحد بيقول عنده حساسية — أياً كان السؤال: handoff_medical.";
 
 const VARIANTS = [
   { clinical: false, canBook: true },
@@ -98,7 +76,7 @@ function lineWith(text: string, needle: string): string {
 /* Rulebook                                                                                     */
 /* ------------------------------------------------------------------------------------------- */
 
-test("rulebook carries both persona lines from botPrompt.ts verbatim, in every variant", () => {
+test("rulebook carries both owner-approved persona lines verbatim, in every variant", () => {
   assert.ok(PERSONA_1.length > 100 && PERSONA_2.length > 100);
   for (const v of VARIANTS) {
     const r = proRulebook(v);
@@ -107,7 +85,7 @@ test("rulebook carries both persona lines from botPrompt.ts verbatim, in every v
   }
 });
 
-test("rulebook carries every SALES_VOICE line from botPrompt.ts verbatim", () => {
+test("rulebook carries every SALES_VOICE line verbatim (imported, not copied)", () => {
   assert.equal(SALES_VOICE.length, 11);
   for (const v of VARIANTS) {
     const lines = proRulebook(v).split("\n");
@@ -199,7 +177,7 @@ test("clinical on: dentist script; clinical off: every medical question is hande
 
 test("restored old rules: difference questions, stranger booking, one concrete step", () => {
   const r = proRulebook({ clinical: false, canBook: true });
-  assert.ok(r.includes(sourceLine("- \\\"إيه الفرق بين ...؟\\\"")), "difference line verbatim");
+  assert.ok(r.includes(DIFFERENCE_LINE), "difference line verbatim");
   assert.ok(r.includes("handoff_other بس لو السؤال كله معندكش عنه أي معلومة"));
   assert.ok(r.includes("لو المريض غريب (مش معروف)، open_booking"));
   assert.ok(r.includes("اعرض خطوة واحدة محددة"));
@@ -208,7 +186,7 @@ test("restored old rules: difference questions, stranger booking, one concrete s
 });
 
 test("child/pregnant/nursing/chronic medicine ban in every variant, above the dentist script", () => {
-  const ban = sourceLine("- ممنوع تدي دوا أو جرعة لطفل");
+  const ban = MEDICINE_BAN;
   for (const v of VARIANTS) {
     const r = proRulebook(v);
     assert.ok(r.includes(ban), `ban in ${JSON.stringify(v)}`);
@@ -450,7 +428,7 @@ test("branches: the الفروع block next to the address, with the far-away ru
 });
 
 test("the hide rule's line break is written as \\n, not a raw line ending inside the template", () => {
-  const proSource = readFileSync(join(here, "../src/lib/botPro/proPrompt.ts"), "utf8");
+  const proSource = readFileSync(new URL("../src/lib/botPro/proPrompt.ts", import.meta.url), "utf8");
   assert.ok(proSource.includes("hide ? `\\n${HIDE_DOCTOR_NAMES_RULE}` : \"\""));
   const t = proTurnLayer({ ...withDentists(), hideDoctorNames: true }, named, TODAY);
   assert.ok(t.includes(`\n\n${HIDE_RULE}\n`) || t.includes(`\n${HIDE_RULE}\n`));

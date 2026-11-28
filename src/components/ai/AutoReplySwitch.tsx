@@ -5,7 +5,6 @@ import { onSnapshot, setDoc } from "firebase/firestore";
 import { getClinicDoc } from "@/lib/db-utils";
 import { isUnlocked } from "@/lib/featureCatalog";
 import { logActivity } from "@/lib/logger";
-import { chosenAnswerMode } from "@/lib/setupWizard";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -44,9 +43,6 @@ export default function AutoReplySwitch({ className = "" }: { className?: string
 
   const on = doc.botEnabled === true;
   const canFlip = isAdmin && !isReadOnly && !saving;
-  const mode = chosenAnswerMode(doc);
-  const modeName =
-    mode === "ai" ? (isAr ? "الذكاء الاصطناعي بس" : "AI only") : mode === "both" ? (isAr ? "البوت + الذكاء الاصطناعي" : "Bot + AI") : isAr ? "البوت بس" : "Bot only";
 
   const flip = async () => {
     if (!canFlip) return;
@@ -54,8 +50,8 @@ export default function AutoReplySwitch({ className = "" }: { className?: string
     if (next) {
       const ok = await confirm(
         isAr
-          ? `المرضى هيبدأوا ياخدوا ردود تلقائية من "${modeName}" على أي رسالة جديدة. تشغّل؟`
-          : `Patients will start getting automatic replies from "${modeName}" on every new message. Turn it on?`,
+          ? "المرضى هيبدأوا ياخدوا ردود تلقائية من المساعد على أي رسالة جديدة. تشغّل؟"
+          : "Patients will start getting automatic replies from the assistant on every new message. Turn it on?",
         { title: isAr ? "تشغيل الرد التلقائي" : "Turn auto-reply on", confirmLabel: isAr ? "شغّل" : "Turn on" }
       );
       if (!ok) return;

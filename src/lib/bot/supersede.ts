@@ -1,6 +1,5 @@
 import { isOptOutReply } from "@/lib/patientMessaging";
-import { decideBotReply, type BotContext, type BotState } from "./engine";
-import { parseDayWord } from "./dayWords";
+import { decide, type BotContext, type BotState } from "./decide";
 import { quickIntent } from "./quickAnswers";
 
 /**
@@ -9,12 +8,12 @@ import { quickIntent } from "./quickAnswers";
  * Several messages in quick succession each start their own turn. The newest turn's model reads the
  * whole thread, so an answer composed for an older message can be dropped and the newest turn
  * answers everything at once. That is only true when the newer message really reaches the model.
- * A fixed line (thanks, "تمام" confirming tomorrow's appointment, the clinic's own script, a menu
- * digit, a name at the name step) answers only itself, and an album photo or a sticker gets no
+ * A fixed line (thanks, "تمام" confirming tomorrow's appointment, a name at the name step) answers
+ * only itself, and an album photo or a sticker gets no
  * answer at all; letting one of those drop the older answer left the older question unanswered.
  *
- * So the engine itself is asked, with this clinic's own context: the newer message takes over only
- * if its turn will go to the model. A stop request also takes over (nothing more is sent to someone
+ * So the decider itself is asked, with this clinic's own context: the newer message takes over only
+ * if its turn will go to the brain. A stop request also takes over (nothing more is sent to someone
  * who asked us to stop), and so does a voice note still being transcribed: its own turn reads it.
  */
 
@@ -24,9 +23,9 @@ const PLACEHOLDER = /^\[[a-z_]+\]$/i;
 export async function lineTakesOver(
   line: Record<string, unknown>,
   turn: {
-    /** The state this turn's engine ran in. */
+    /** The state this turn's decider ran in. */
     state: BotState;
-    /** This turn's engine context (scripts, menu on screen, AI budget). */
+    /** This turn's decider context. */
     ctx: BotContext;
     /** The clinic's today, yyyy-mm-dd, for day words at the day list. */
     today: string;
@@ -43,13 +42,12 @@ export async function lineTakesOver(
   if (line.media && !words) return false;
   if (!words) return false;
   const ack = quickIntent(words) === "ack";
-  const decision = decideBotReply({
+  const decision = decide({
     state: turn.state,
     text: words,
     ctx: {
       ...turn.ctx,
       welcome: false,
-      dayWord: parseDayWord(words, turn.today) || undefined,
       hasSoonAppointment: ack ? await turn.soonAppointment() : turn.ctx.hasSoonAppointment,
     },
   });

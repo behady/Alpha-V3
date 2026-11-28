@@ -4,7 +4,7 @@
  * Run: npm run test:pro-tools
  */
 import assert from "node:assert/strict";
-import { PRO_REPLY_ACTIONS, PRO_TOOL_DECLARATIONS, runTool, type ToolEnv } from "../src/lib/botPro/tools";
+import { PRO_REPLY_ACTIONS, PRO_TOOL_DECLARATIONS, runTool, slotIdFor, type ToolEnv } from "../src/lib/botPro/tools";
 
 async function test(name: string, fn: () => Promise<void> | void) {
   await fn();
@@ -40,22 +40,31 @@ function makeEnv(over: Partial<ToolEnv> = {}): ToolEnv {
 
 const slotsOf = (r: Record<string, unknown>) => r.slots as Array<{ id: string; label: string }>;
 
-await test("find_slots over 30 days stays within today+14 and 8 slots, ids s1..s8", async () => {
+await test("find_slots over 30 days stays within today+14 and 8 slots, ids slotA..slotH", async () => {
   const env = makeEnv();
   const r = await runTool("find_slots", { from: TODAY, to: addDays(TODAY, 30) }, env);
   const slots = slotsOf(r);
   assert.equal(slots.length, 8);
-  assert.deepEqual(slots.map((s) => s.id), ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]);
+  assert.deepEqual(slots.map((s) => s.id), ["slotA", "slotB", "slotC", "slotD", "slotE", "slotF", "slotG", "slotH"]);
   const max = addDays(TODAY, 14);
   for (const { key } of env.shown.values()) assert.ok(key.split("|")[0] <= max);
-  assert.equal(env.shown.get("s1")?.key.split("|").length, 3);
+  assert.equal(env.shown.get("slotA")?.key.split("|").length, 3);
 });
 
-await test("a second find_slots call continues at s9", async () => {
+await test("slot ids carry no digit, so a patient's hour is never read as a slot (\"بكره س٦\" booked s6, 16/11/2026)", async () => {
+  assert.equal(slotIdFor(0), "slotA");
+  assert.equal(slotIdFor(7), "slotH");
+  assert.equal(slotIdFor(25), "slotZ");
+  assert.equal(slotIdFor(26), "slotAA");
+  for (let n = 0; n < 60; n++) assert.ok(!/\d/.test(slotIdFor(n)), slotIdFor(n));
+  assert.equal(new Set(Array.from({ length: 60 }, (_, n) => slotIdFor(n))).size, 60, "unique");
+});
+
+await test("a second find_slots call continues at slotI", async () => {
   const env = makeEnv();
   await runTool("find_slots", { from: TODAY, to: addDays(TODAY, 30) }, env);
   const r = await runTool("find_slots", { from: TODAY }, env);
-  assert.equal(slotsOf(r)[0].id, "s9");
+  assert.equal(slotsOf(r)[0].id, "slotI");
   assert.equal(env.shown.size, 16);
 });
 
@@ -116,7 +125,7 @@ await test("a fully booked window says so", async () => {
 await test("doctor is passed through and ends up in the key", async () => {
   const env = makeEnv();
   await runTool("find_slots", { from: TODAY, to: TODAY, doctor: "Dr Sara" }, env);
-  assert.equal(env.shown.get("s1")?.key, `${TODAY}|09:00 AM|Dr Sara`);
+  assert.equal(env.shown.get("slotA")?.key, `${TODAY}|09:00 AM|Dr Sara`);
 });
 
 await test("get_patient_file refuses an id that is not on the number", async () => {

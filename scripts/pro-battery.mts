@@ -44,7 +44,7 @@ import { allowedNumbers, checkReply } from "../src/lib/botPro/checks";
 import { answerWithPro, geminiProModel, type ProModel } from "../src/lib/botPro/answerWithPro";
 import type { ProArgs, ProContext, ProSink } from "../src/lib/botPro/proContext";
 import { loadReplayContext } from "../src/lib/botPro/replayContext";
-import type { AiThreadLine } from "../src/lib/bot/aiReply";
+import type { AiThreadLine } from "../src/lib/bot/aiTypes";
 import type { AiPatientContext } from "../src/lib/bot/botPrompt";
 import { CONVERSATIONS } from "./lib/battery-conversations";
 import { PRO_STRANGER, proKnownPerson, actionOf, replyTextOf } from "../src/lib/botPro/replay";

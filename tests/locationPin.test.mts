@@ -10,7 +10,7 @@ import path from "node:path";
 import { asksForLocation } from "../src/lib/bot/quickAnswers";
 import { LOCATION_PIN_LABEL, locationPinLine, withPin } from "../src/lib/bot/careNote";
 import { factLines } from "../src/lib/bot/botPrompt";
-import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
+import { decide, type BotContext } from "../src/lib/bot/decide";
 import { localizeOutbound } from "../src/lib/bot/localize";
 
 function run(name: string, fn: () => void) {
@@ -163,25 +163,17 @@ run("Asnany: its pasted field keeps both links; a link the model already sent is
   );
 });
 
-run("the engine: a location word at the name step is never a name; a menu clinic answers it with the link", () => {
-  const ctx = { clinicName: "X", addressText: addr, facts: { mapsUrl: url }, canRegister: true, canOfferBooking: false } as BotContext;
-  for (const aiFirst of [true, false]) {
-    for (const t of ["الموقع", "اللوكيش"]) {
-      const d = decideBotReply({ state: "booking_name", text: t, ctx: { ...ctx, aiFirst, aiAvailable: aiFirst } });
-      assert.notEqual(d.reason, "registered", `${t} (aiFirst ${aiFirst})`);
-    }
+run("the decider: a location word at the name step is never a name; it is the brain's question", () => {
+  const ctx = { clinicName: "X", addressText: addr, facts: { mapsUrl: url }, canRegister: true, canOfferBooking: false, aiAvailable: true } as BotContext;
+  for (const t of ["الموقع", "اللوكيش"]) {
+    const d = decide({ state: "booking_name", text: t, ctx });
+    assert.notEqual(d.reason, "registered", t);
+    assert.equal(d.action?.type, "ai", t);
   }
   // A real name is still a name.
-  assert.equal(decideBotReply({ state: "booking_name", text: "خميس الحلواني", ctx: { ...ctx, aiFirst: false, aiAvailable: false } }).reason, "registered");
-  for (const t of ["اللوكيش", "الموقع", "موقعكم فين"]) {
-    const m = decideBotReply({ state: "awaiting_choice", text: t, ctx: { ...ctx, aiFirst: false, aiAvailable: false } });
-    assert.equal(m.reason, "location", t);
-    assert.ok(m.reply.includes(url), t);
-    // ...and the pin adds nothing to it.
-    assert.equal(locationPinLine({ asked: t, reply: m.reply, addressText: addr, mapsUrl: url }), "", t);
-  }
-  // Sales mode: still the model's question to answer.
-  assert.equal(decideBotReply({ state: "awaiting_choice", text: "اللوكيش", ctx: { ...ctx, aiFirst: true, aiAvailable: true } }).action?.type, "ai");
+  assert.equal(decide({ state: "booking_name", text: "خميس الحلواني", ctx }).reason, "registered");
+  // Anywhere else it is the brain's question; the pin is added to the brain's reply by respond.ts.
+  assert.equal(decide({ state: "awaiting_choice", text: "اللوكيش", ctx }).action?.type, "ai");
 });
 
 run("the prompt is told a link exists, never the URL, and is never told not to write one", () => {

@@ -8,7 +8,7 @@
  *   - …785354: reception paused the bot, wrote two statements at 10:10, and the patient's
  *     "إيقاف.. ولكم الشكر" at 11:23 raised nothing: no flag, no push, seen by nobody.
  *
- * The rule is pure (lib/bot/staffHold) and tested directly; the engine is pure and tested directly;
+ * The rule is pure (lib/bot/staffHold) and tested directly; the decider is pure and tested directly;
  * respond.ts opens the database on import, so its wiring is checked at the source, as the other
  * respond.ts suites do. Run: npm run test:staff-hold
  */
@@ -22,7 +22,7 @@ import {
   staffQuestionCouldHold,
   type HoldLine,
 } from "../src/lib/bot/staffHold";
-import { clinicalReplyText, decideBotReply, type BotContext } from "../src/lib/bot/engine";
+import { clinicalReplyText, decide, type BotContext } from "../src/lib/bot/decide";
 
 function test(name: string, fn: () => void) {
   fn();
@@ -125,33 +125,33 @@ test("the desk is told: a paused chat, a staff question's answer, media, anythin
   assert.equal(deskHearsHeldMessage(quiet), false);
 });
 
-// ------------------------------------------------------------------------------------ the engine --
-const ctx: BotContext = { clinicName: "Alpha Dental", clinicPhone: "01000000000", canOfferBooking: true, aiAvailable: true, aiFirst: true };
+// ----------------------------------------------------------------------------------- the decider --
+const ctx: BotContext = { clinicName: "Alpha Dental", clinicPhone: "01000000000", canOfferBooking: true, aiAvailable: true };
 const dentist: BotContext = { ...ctx, clinicalMode: "dentist" };
 
 test("a held thread stays silent, and the model dentist does not talk over the person", () => {
-  const answer = decideBotReply({ state: "handed_off", text: "انا مفكره العيأده تابع اكس", ctx: { ...ctx, heldByStaff: true } });
+  const answer = decide({ state: "handed_off", text: "انا مفكره العيأده تابع اكس", ctx: { ...ctx, staffActive: true } });
   assert.equal(answer.reason, "already_with_a_human");
   assert.equal(answer.reply, "");
-  const held = decideBotReply({ state: "handed_off", text: "ضرسي بيوجعني من امبارح", ctx: { ...dentist, heldByStaff: true } });
+  const held = decide({ state: "handed_off", text: "ضرسي بيوجعني من امبارح", ctx: { ...dentist, staffActive: true } });
   assert.equal(held.reason, "already_with_a_human", "a symptom in a person's thread goes to that person");
   assert.equal(held.reply, "");
   assert.equal(held.action, undefined, "no model call at all");
 });
 
 test("an emergency phrase still gets the fixed safety line with the clinic's number, held or not", () => {
-  const sugar = decideBotReply({ state: "handed_off", text: "عندي سكر وضرسي وارم", ctx: { ...dentist, heldByStaff: true } });
+  const sugar = decide({ state: "handed_off", text: "عندي سكر وضرسي وارم", ctx: { ...dentist, staffActive: true } });
   assert.equal(sugar.reason, "clinical");
   assert.equal(sugar.handoff, true);
   assert.equal(sugar.reply, clinicalReplyText("01000000000"));
 });
 
 test("nothing changes where no person holds the thread, or the clinic is not in dentist mode", () => {
-  const free = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني من امبارح", ctx: dentist });
+  const free = decide({ state: "awaiting_choice", text: "ضرسي بيوجعني من امبارح", ctx: dentist });
   assert.equal(free.reason, "clinical_ai", "dentist mode still answers a symptom as the desk dentist");
-  const flagOnly = decideBotReply({ state: "handed_off", text: "ضرسي بيوجعني من امبارح", ctx: { ...dentist, heldByStaff: false } });
+  const flagOnly = decide({ state: "handed_off", text: "ضرسي بيوجعني من امبارح", ctx: { ...dentist, staffActive: false } });
   assert.equal(flagOnly.reason, "clinical_ai", "a bot-raised flag with nobody behind it is not a person's thread");
-  const handoffMode = decideBotReply({ state: "handed_off", text: "ضرسي بيوجعني من امبارح", ctx: { ...ctx, heldByStaff: true } });
+  const handoffMode = decide({ state: "handed_off", text: "ضرسي بيوجعني من امبارح", ctx: { ...ctx, staffActive: true } });
   assert.equal(handoffMode.reason, "clinical", "handoff mode keeps its fixed line, as before");
 });
 
@@ -162,12 +162,11 @@ const respond = src("src/lib/bot/respond.ts");
 test("respond.ts: a held thread says nothing — no photo to the model, no «وصلتنا», no model dentist", () => {
   for (const s of [
     "const heldByStaff = conversation.staffActive === true || staffAskedAtMs > 0;",
-    "ctx.heldByStaff = heldByStaff;",
+    // The decider reads the hold as the person owning the thread (its staffActive).
+    "ctx.staffActive = heldByStaff;",
     "const photoToModel = !heldByStaff &&",
     '? { reply: "", next: "handed_off" as const, handoff: false, reason: "already_with_a_human" }',
-    // The engine's state, kept in one place so a newer message is judged in it too (lib/bot/supersede).
-    'const engineState: BotState = heldByStaff ? "handed_off" :',
-    "decideBotReply({ state: engineState, text, ctx })",
+    "decide({ state: conversation.state, text, ctx })",
     "staffQuestionAt(lines, wrote, now)",
   ]) {
     assert.ok(respond.includes(s), s);
