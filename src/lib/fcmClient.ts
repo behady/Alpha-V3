@@ -14,7 +14,12 @@ export async function registerSummonServiceWorker(): Promise<ServiceWorkerRegist
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
   try {
     const existing = await navigator.serviceWorker.getRegistration(SW_PATH);
-    if (existing) return existing;
+    if (existing) {
+      // Ask for the latest worker now rather than whenever the browser gets round to it, so a fix
+      // to how notifications behave reaches phones on their next app open.
+      existing.update().catch(() => {});
+      return existing;
+    }
     return await navigator.serviceWorker.register(SW_PATH, { scope: "/" });
   } catch (e) {
     console.warn("FCM service worker registration failed", e);

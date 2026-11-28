@@ -18,7 +18,14 @@ export async function GET() {
   // Where to go: `data.url` (the alert's page plus ?clinic=, set by clinicPush.js and
   // notificationDelivery.ts). An alert with no page — the desk summon — only brings the app
   // forward, as before, so nobody loses what they were typing.
+  //
+  // skipWaiting + claim: this worker caches nothing (it only handles pushes), so there is no reason
+  // for a new version to wait. Without them a phone kept running the OLD worker for as long as any
+  // Alpha tab or the home-screen app stayed open — which on Android is practically forever.
   const body = `
+self.addEventListener('install', () => { self.skipWaiting(); });
+self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
+
 function alphaTapUrl(notification) {
   const own = notification.data || {};
   // A notification the Firebase SDK drew keeps the whole message under FCM_MSG.
