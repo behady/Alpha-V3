@@ -29,6 +29,7 @@ import { PlatformTab } from "@/components/superadmin/PlatformTab";
 import { CostsTab } from "@/components/superadmin/CostsTab";
 import SupplyStoreTab from "@/components/superadmin/SupplyStoreTab";
 import { UsageTab } from "@/components/superadmin/UsageTab";
+import { SaraQuestionsPanel } from "@/components/superadmin/SaraQuestionsPanel";
 import { TasksTab } from "@/components/superadmin/TasksTab";
 
 /** One row of the trash, as /api/admin/clinic-trash lists it. */
@@ -358,6 +359,8 @@ export default function SuperAdminDashboard() {
 
         {/* Who uses which screen, for how long, across every clinic. */}
         {activeTab === "usage" && <DarkPanel><UsageTab /></DarkPanel>}
+        {/* What people asked the assistant, and which questions still need a ready-made answer. */}
+        {activeTab === "usage" && <DarkPanel><SaraQuestionsPanel /></DarkPanel>}
         {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}
         {activeTab === "costs" && <DarkPanel><CostsTab /></DarkPanel>}
         {activeTab === "analytics" && <AnalyticsTab clinics={clinics} />}
