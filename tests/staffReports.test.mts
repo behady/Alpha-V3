@@ -599,4 +599,21 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(read("src/lib/reports/staffReportPdf.ts").includes("process.env.VERCEL ? DEFAULT_ARABIC_FONT_URL"), "the CDN font is fetched off Vercel too — a local test would reach the network");
 }
 
+{
+  // Meta drops free text to anyone silent for 24 hours. Reports to such a person must leave from
+  // another line, or they vanish after Meta answers "accepted" (Alpha Dental, Sep–Nov 2026).
+  const { metaWindowOpen, META_WINDOW_MS } = await import("../src/lib/staffWhatsapp");
+  const now = Date.UTC(2026, 10, 28, 5, 0, 0);
+  const ts = (ms: number) => ({ toMillis: () => ms });
+  ok(!metaWindowOpen(undefined, now), "a person with no chat on the official number counts as inside the window");
+  ok(!metaWindowOpen({}, now), "an empty chat counts as inside the window");
+  ok(metaWindowOpen({ lastInboundAt: now - 60 * 60 * 1000 }, now), "a patient-style message an hour ago does not open the window");
+  ok(metaWindowOpen({ staffLineAt: ts(now - 2 * 60 * 60 * 1000) }, now), "a staff message (Timestamp) two hours ago does not open the window");
+  ok(!metaWindowOpen({ lastInboundAt: now - 25 * 60 * 60 * 1000 }, now), "a message 25 hours ago still counts as open");
+  ok(!metaWindowOpen({ staffLineAt: ts(now - META_WINDOW_MS) }, now), "the safety margin at the window edge is gone");
+  ok(metaWindowOpen({ lastInboundAt: now - 30 * 60 * 60 * 1000, staffLineAt: ts(now - 60_000) }, now), "the newer of the two stamps is not the one used");
+  const src = read("src/lib/staffWhatsapp.ts");
+  ok((src.match(/gateway = await gatewayForRecipient\(/g) || []).length === 2, "text and document sends must both pick the line per recipient");
+}
+
 console.log(`staffReports: ${checks} checks passed`);

@@ -1,4 +1,6 @@
 import { adminBucket, adminDb } from "@/lib/firebaseAdmin";
+import { adminClinicDoc } from "@/lib/adminClinicDb";
+import { conversationKey } from "@/lib/bot/conversation";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadMetaWhatsappConfig, sendMetaWhatsappMedia, sendMetaWhatsappText, type MetaWhatsappConfig } from "@/lib/metaWhatsapp";
 import { loadPlatformWapilotConfig, loadWapilotConfig } from "@/lib/wapilotConfig";
@@ -28,6 +30,12 @@ import type { WapilotConfig } from "@/types/wapilot";
  *
  * A clinic whose own number is connected therefore never needs the add-on, which is the pricing
  * promise: "free once you connect your number".
+ *
+ * One exception, decided per recipient at send time: Meta drops free text to anyone who has not
+ * written to the number in the last 24 hours (error 131047, after answering "accepted"). Owners
+ * almost never write to their own clinic's number, so every morning report to Alpha Dental was
+ * dropped for two months. A recipient outside that window is therefore sent from the alerts line
+ * when the clinic holds it; without it, Meta is still tried, which is what happened before.
  */
 
 export type StaffGateway =
@@ -46,6 +54,13 @@ export async function resolveStaffGateway(
   } catch {
     /* fall through to Wapilot */
   }
+  return resolveNonMetaGateway(clinicId);
+}
+
+/** Steps 2–4 of the order above: everything below the official number. */
+async function resolveNonMetaGateway(
+  clinicId: string,
+): Promise<{ gateway: StaffGateway | null; reason?: StaffGatewayReason }> {
   try {
     const own = await loadWapilotConfig(clinicId);
     if (own.source === "clinic" && own.instanceId && own.token) {
@@ -54,6 +69,13 @@ export async function resolveStaffGateway(
   } catch {
     /* fall through to the platform line */
   }
+  return resolvePlatformGateway(clinicId);
+}
+
+/** Step 3: Alpha's alerts line, for a clinic that holds the add-on. */
+async function resolvePlatformGateway(
+  clinicId: string,
+): Promise<{ gateway: StaffGateway | null; reason?: StaffGatewayReason }> {
   if (await clinicHasFeature(clinicId, "ownerAlertsLine")) {
     const platform = await loadPlatformWapilotConfig();
     if (platform.source === "platform" && platform.instanceId && platform.token) {
@@ -62,6 +84,53 @@ export async function resolveStaffGateway(
     return { gateway: null, reason: "platform_not_configured" };
   }
   return { gateway: null, reason: "no_gateway" };
+}
+
+/**
+ * Meta's free-text window is 24 hours from the recipient's last message; half an hour is kept
+ * back so a report sent at the very edge is not the one that gets dropped.
+ */
+export const META_WINDOW_MS = 23.5 * 60 * 60 * 1000;
+
+function toMs(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (value && typeof (value as { toMillis?: unknown }).toMillis === "function") {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  return 0;
+}
+
+/**
+ * Whether this person wrote to the official number recently enough for free text to arrive.
+ *
+ * A patient's message stamps `lastInboundAt`; a registered staff member's message is kept out of
+ * the inbox and stamps `staffLineAt` instead (see interceptStaffInbound) — either opens it.
+ */
+export function metaWindowOpen(conversation: Record<string, unknown> | undefined, now = Date.now()): boolean {
+  if (!conversation) return false;
+  const last = Math.max(toMs(conversation.lastInboundAt), toMs(conversation.staffLineAt));
+  return last > 0 && now - last < META_WINDOW_MS;
+}
+
+/**
+ * The line this one message should leave from. Only a Meta gateway is ever swapped, and only for
+ * a recipient outside the window when the alerts line is available.
+ *
+ * Not the clinic's own Wapilot record: on a clinic that moved to the official number that record
+ * is a leftover from before (Alpha Dental still holds one from August), Meta always outranked it
+ * so it was never used, and the gateway "accepts" a send on a dead line — the trap that ate DENT
+ * INN's reports for two weeks.
+ */
+async function gatewayForRecipient(clinicId: string, to: string, gateway: StaffGateway): Promise<StaffGateway> {
+  if (gateway.kind !== "meta") return gateway;
+  try {
+    const snap = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(to)).get();
+    if (metaWindowOpen(snap.data())) return gateway;
+    const { gateway: fallback } = await resolvePlatformGateway(clinicId);
+    return fallback ?? gateway;
+  } catch {
+    return gateway;
+  }
 }
 
 /** What the settings page shows beside the WhatsApp column. */
@@ -112,6 +181,7 @@ export async function sendStaffWhatsApp(args: {
     if (!gateway) return { sent: false, reason: resolved.reason || "no_gateway" };
   }
   if (!gateway) return { sent: false, reason: "no_gateway" };
+  gateway = await gatewayForRecipient(args.clinicId, to, gateway);
 
   let text = args.text.trim();
   if (gateway.kind === "wapilot" && gateway.platform) {
@@ -165,6 +235,7 @@ export async function sendStaffDocument(args: {
     if (!gateway) return { sent: false, reason: resolved.reason || "no_gateway" };
   }
   if (!gateway) return { sent: false, reason: "no_gateway" };
+  gateway = await gatewayForRecipient(args.clinicId, to, gateway);
 
   const safeName = args.filename.replace(/[^\w.\-\u0600-\u06FF]+/g, "_") || "report.pdf";
   const storagePath = args.storagePath || `clinics/${args.clinicId}/reports/${Date.now()}_${safeName}`;
