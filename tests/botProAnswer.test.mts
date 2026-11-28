@@ -414,6 +414,27 @@ await test("wrong script after the corrective round is sent anyway, and charged 
   assert.deepEqual(sink.charges, [PRO_CREDITS_PER_REPLY]);
 });
 
+// Asnany, 24-28/11/2026: the owner's rule says Arabic always; the corrective round used to push English.
+await test("an Arabic-only clinic: an Arabic answer to an English message goes out first time", async () => {
+  const model = fakeModel([reply({ action: "answer", reply: "أهلاً بحضرتك، التنضيف متاح عندنا" })]);
+  const layer = { ...EMPTY_LAYER, rules: ["رد دايما بالعربي على كل الرسايل حتى لو المريض كتب بالإنجليزي"] };
+  const r = await answerWithPro(args({ question: "hello, do you do cleaning?" }), { model, context: makeContext({ layer }), sink: fakeSink() });
+  assert.equal(model.calls.length, 1, "no corrective round");
+  assert.equal(r.kind, "answer");
+});
+
+await test("an Arabic-only clinic, told so in the settings note: an English answer is sent back once, to Arabic", async () => {
+  const model = fakeModel([
+    reply({ action: "answer", reply: "Welcome! Cleaning is available at our clinic" }),
+    reply({ action: "answer", reply: "أهلاً بحضرتك، التنضيف متاح عندنا" }),
+  ]);
+  const r = await answerWithPro(args({ question: "hello, do you do cleaning?", coaching: "الرد فقط باللغه العربيه" }), { model, context: makeContext(), sink: fakeSink() });
+  assert.equal(model.calls.length, 2);
+  assert.match(JSON.stringify(model.calls[1]), /العيادة بترد بالعربي بس/);
+  if (r.kind === "answer") assert.match(r.text, /التنضيف متاح/);
+  else assert.fail("expected an answer");
+});
+
 await test("a hand-off text failing only the script rule keeps its text", async () => {
   const model = fakeModel([reply({ action: "handoff_staff", reply: "هخلي حد من الفريق يكلم حضرتك حالاً" })]);
   const r = await answerWithPro(args({ question: "can I talk to someone please" }), { model, context: makeContext(), sink: fakeSink() });

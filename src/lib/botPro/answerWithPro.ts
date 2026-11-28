@@ -25,7 +25,7 @@ import { briefLines, serviceNamesOnly } from "@/lib/bot/brief";
 import { factLines, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { dossierLines } from "@/lib/bot/patientDossier";
 import { branchNumbersOf } from "@/lib/bot/ownerRules";
-import { allowedNumbers, checkReply, type Violation } from "./checks";
+import { allowedNumbers, checkReply, wantsArabicOnly, type Violation } from "./checks";
 import type { ProAppointment } from "./person";
 import { proClinicLayer, proRulebook, proTurnLayer } from "./proPrompt";
 import { firestoreProSink, loadProContext, PRO_CREDITS_PER_REPLY, PRO_THREAD_LINES, type ProArgs, type ProContext, type ProSink } from "./proContext";
@@ -169,7 +169,7 @@ function threadContents(thread: AiThreadLine[], question: string): Content[] {
 const apptLabel = (a: ProAppointment, hideDoctor = false) =>
   `${arabicDayLabel(a.date)} الساعة ${arabicTimeLabel(a.time)}${!hideDoctor && a.doctor?.trim() ? ` مع ${a.doctor.trim()}` : ""}`;
 
-function violationNote(vs: Violation[], question: string): string {
+function violationNote(vs: Violation[], question: string, arabicOnly = false): string {
   const arabicQuestion = (question.match(/[؀-ۿ]/g) || []).length >= (question.match(/[A-Za-z]/g) || []).length;
   const lines = vs.map((v) => {
     switch (v.rule) {
@@ -180,6 +180,7 @@ function violationNote(vs: Violation[], question: string): string {
       case "drug":
         return `ممنوع تسمّي دوا مش مكتوب في روشتة المريض ومش هو اللي ذكره: ${v.detail}. أعد نفس الرد من غير أي اسم دوا — قول "المسكّن اللي حضرتك متعوّد عليه" وخلاص.`;
       case "script":
+        if (arabicOnly) return "العيادة بترد بالعربي بس، حتى لو المريض كتب بالإنجليزي. أعد نفس الرد بالعامية المصرية.";
         return arabicQuestion
           ? "المريض كتب بالعربي وردك جه بالإنجليزي. أعد نفس الرد بالعامية المصرية."
           : "المريض كتب بالإنجليزي أو فرانكو وردك جه بالعربي. أعد نفس الرد بنفس لغة رسالته.";
@@ -294,6 +295,8 @@ async function runTurn(
   const toolOutputs: string[] = [];
   const appts = () => [...ctx.person.upcoming, ...ctx.person.past, ...person.upcoming, ...person.past];
   const labels = () => [...shown.values()].map((s) => s.label);
+  // The owner's own words decide the language check: an Arabic-only clinic is never pushed into English.
+  const arabicOnly = wantsArabicOnly([...(ctx.layer?.rules ?? []), coaching || ""]);
   const check = (reply: string) =>
     checkReply({
       question,
@@ -317,6 +320,7 @@ async function runTurn(
       ]),
       drugsAllowed: [question, ...(args.dossier?.prescriptions || []).flatMap((p) => p.items), ...toolOutputs].join(" \n "),
       neverSay: ctx.layer?.neverSay ?? [],
+      arabicOnly,
     });
 
   const firstIds = new Set(ctx.person.upcoming.map((a) => a.id));
@@ -376,7 +380,7 @@ async function runTurn(
     if (violations.length) {
       if (!corrected && round < MAX_ROUNDS) {
         corrected = true;
-        respond({ rejected: true, note: violationNote(violations, question) });
+        respond({ rejected: true, note: violationNote(violations, question, arabicOnly) });
         continue;
       }
       if (blocking.length) return { kind: "handoff", topic: blocking.some((v) => v.rule === "drug") ? "medical" : "other" };

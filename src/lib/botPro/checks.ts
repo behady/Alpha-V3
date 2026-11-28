@@ -243,19 +243,58 @@ export function strayClocks(reply: string, allowedClocks: Set<string>): string[]
 const arabicLetters = (s: string) => (s.match(/[؀-ۿ]/g) || []).length;
 const latinLetters = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
 
+/** A link is an address, not a language: its letters do not count toward the reply's script. */
+const withoutLinks = (s: string) => s.replace(/(?:https?:\/\/|www\.)\S+/gi, " ");
+
 /**
  * True when the reply is mostly in the other script from the patient's message. A question or a
  * reply too short to tell is never "wrong".
+ *
+ * `arabicOnly`: the clinic's own rule says every reply is in Arabic (wantsArabicOnly). Then Arabic
+ * is right whatever the patient wrote, and a mostly-Latin reply is wrong. Asnany, 24-28/11/2026:
+ * the model obeyed the owner and answered "Details" in Arabic, this check called that the wrong
+ * script, and the retry reached the patient in English.
  */
-export function wrongScript(question: string, reply: string): boolean {
+export function wrongScript(question: string, reply: string, arabicOnly = false): boolean {
+  if (!reply.trim()) return false;
+  const text = withoutLinks(reply);
+  const rArabic = arabicLetters(text);
+  const rLatin = latinLetters(text);
+  if (rArabic + rLatin < 6) return false;
+  if (arabicOnly) return rLatin > rArabic;
   if (isCannedAdGreeting(question)) return false; // Meta pre-filled it; it is not the patient's language
   const qArabic = arabicLetters(question);
   const qLatin = latinLetters(question);
-  if (!(qArabic >= 3 || qLatin >= 3) || !reply.trim()) return false;
-  const rArabic = arabicLetters(reply);
-  const rLatin = latinLetters(reply);
-  if (rArabic + rLatin < 6) return false;
+  if (!(qArabic >= 3 || qLatin >= 3)) return false;
   return qArabic > qLatin ? rLatin > rArabic : rArabic > rLatin;
+}
+
+const foldArabic = (s: string) =>
+  s
+    .replace(/[ً-ٰٟـ]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .toLowerCase();
+
+// "reply / speak / write … in Arabic", and a word that makes it a blanket rule on the same line.
+const AR_REPLY_IN_ARABIC = /(?:رد|ردود|اتكلم|تكلم|اكتب|جاوب)[^\n]{0,40}(?:عربي|العربيه)/;
+const AR_BLANKET = /دايما|دائما|فقط|(?:^|\s)بس(?:\s|$)|حتي لو|كل الرسايل|كل الرسائل|كل الردود/;
+const EN_ARABIC_ONLY = /\b(?:always|only)\b[^\n]{0,40}\barabic\b|\barabic\b[^\n]{0,20}\b(?:only|always)\b/;
+
+/**
+ * Did the owner tell the bot to answer in Arabic always? Read from their own lines: the published
+ * rules and the settings note. A conditional line ("answer in Arabic if the patient wrote Arabic")
+ * is not a blanket rule and reads false.
+ */
+export function wantsArabicOnly(lines: readonly string[]): boolean {
+  for (const raw of lines) {
+    for (const line of foldArabic(String(raw || "")).split(/\n+/)) {
+      if (EN_ARABIC_ONLY.test(line)) return true;
+      if (AR_REPLY_IN_ARABIC.test(line) && AR_BLANKET.test(line)) return true;
+    }
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------------------------------- */
@@ -374,8 +413,10 @@ export function checkReply(args: {
   drugsAllowed: string;
   /** Phrases the owner never wants said (the clinic layer); absent, this check does nothing. */
   neverSay?: string[];
+  /** The clinic's own rule: every reply in Arabic, whatever the patient wrote (wantsArabicOnly). */
+  arabicOnly?: boolean;
 }): Violation[] {
-  const { question, reply, allowed, allowedMoney, clocks, drugsAllowed, neverSay } = args;
+  const { question, reply, allowed, allowedMoney, clocks, drugsAllowed, neverSay, arabicOnly } = args;
   const out: Violation[] = [];
 
   const prices = strayNumbers(reply, allowed, allowedMoney);
@@ -387,7 +428,9 @@ export function checkReply(args: {
   const drugs = strayDrugNames(reply, drugsAllowed);
   if (drugs.length) out.push({ rule: "drug", detail: drugs.join(", ") });
 
-  if (wrongScript(question, reply)) out.push({ rule: "script", detail: "reply is in the other script from the patient's message" });
+  if (wrongScript(question, reply, arabicOnly === true)) {
+    out.push({ rule: "script", detail: arabicOnly ? "the clinic answers in Arabic only and the reply is not in Arabic" : "reply is in the other script from the patient's message" });
+  }
 
   if (claimsHuman(reply)) out.push({ rule: "claims_human", detail: "reply claims to be a person or denies being a bot" });
 

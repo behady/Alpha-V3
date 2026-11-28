@@ -20,7 +20,7 @@ import { factLines } from "@/lib/bot/botPrompt";
 import type { AiPatientContext } from "@/lib/bot/botPrompt";
 import type { AiThreadLine } from "@/lib/bot/aiReply";
 import { expectFromKind } from "@/lib/bot/testCases";
-import { allowedNumbers, checkReply } from "./checks";
+import { allowedNumbers, checkReply, wantsArabicOnly } from "./checks";
 import { answerWithPro, proMoneySources, type ProModel, type ProReplyResult } from "./answerWithPro";
 import type { ProAppointment, ProPerson } from "./person";
 import type { ClinicLayer, ReplaySummary } from "./layer";
@@ -247,6 +247,7 @@ async function runCase(
         ]),
         drugsAllowed: [t.q, ...thread.map((l) => l.text)].join(" \n "),
         neverSay: layer.neverSay,
+        arabicOnly: wantsArabicOnly([...layer.rules, baseArgs.coaching || ""]),
       }).map((v) => v.rule);
       if (rules.length) res.breaks.push({ caseId: c.id, q: t.q, reply: text, rules });
     }
