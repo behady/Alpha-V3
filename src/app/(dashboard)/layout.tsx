@@ -31,10 +31,6 @@ import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderConte
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
-import { TourProvider, useTour } from "@/context/TourContext";
-import GrandTourOverlay from "@/components/tour/GrandTourOverlay";
-import TourIntro from "@/components/tour/TourIntro";
-import { TOUR_GUIDE } from "@/lib/grandTour";
 import { WelcomeProvider } from "@/context/WelcomeContext";
 import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
 import { DemoTourBanner } from "@/components/welcome/DemoTour";
@@ -63,30 +59,6 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
 
 // A local file, not next/font/google — see the note in src/app/layout.tsx.
 const plusJakartaSans = localFont({ src: "../../fonts/plus-jakarta-sans-latin-wght.woff2", weight: "400 800" });
-
-/**
- * "Tour with Sara" as a menu row. A component of its own because the layout renders the tour
- * provider and therefore cannot consume it; the mobile sheet needs the row inside that provider.
- */
-function TourMenuRow({ className, onPick }: { className: string; onPick: () => void }) {
-  const tour = useTour();
-  const { language } = useLanguage();
-  if (tour.allStops.length === 0) return null;
-  const guide = language === "ar" ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        onPick();
-        tour.start();
-      }}
-      className={className}
-    >
-      <Sparkles size={22} />
-      <span className="text-base truncate">{language === "ar" ? `جولة مع ${guide}` : `Tour with ${guide}`}</span>
-    </button>
-  );
-}
 
 /**
  * The clinic switcher as the phone menu sheet shows it: the clinic's name, and under it the
@@ -486,15 +458,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <TutorialProvider>
-    {/* The tour may show the calendar even when this person hid its link (a preference, not a
-        permission): the page exists and the day cannot be taught without it. */}
-    <TourProvider
-      visibleNavKeys={[
-        ...visibleItems.map((i) => i.key),
-        ...(!visibleItems.some((i) => i.key === "appointments") && canAccessNavItem("appointments", user, isAdmin) ? ["appointments"] : []),
-      ]}
-      showSettings={showSettings}
-    >
     <WelcomeProvider>
     <PageHeaderProvider>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${cairo.variable} ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
@@ -640,7 +603,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Rocket size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
                </Link>
-               <TourMenuRow className={`w-full text-left rtl:text-right ${sheetRow(false)}`} onPick={() => setIsOpen(false)} />
                <Link href="/help" data-tour="menu-help" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/help'))}>
                   <LifeBuoy size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
@@ -728,7 +690,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              if (item.key === 'menu') {
                  return (
                     <button key="menu" data-tour="nav-menu"
-                       /* Everything in the sheet is reachable through this button — for the tour's hand. */
+                       /* Everything in the sheet is reachable through this button — for a lesson's ring. */
                        data-tour-opens={[...allNavItems.map((i) => `nav-${String(i.href).replace(/^\//, "")}`), "nav-settings", "menu-welcome", "menu-help"].join(" ")}
                        onClick={() => setIsOpen(true)}
                        aria-label={language === "ar" ? "القائمة" : "Menu"}
@@ -769,13 +731,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
 
-      {/* Sara: the one-time "meet me" screen, and the tour itself when it is running. */}
-      <TourIntro />
-      <GrandTourOverlay />
     </div>
     </PageHeaderProvider>
     </WelcomeProvider>
-    </TourProvider>
     </TutorialProvider>
   );
 }

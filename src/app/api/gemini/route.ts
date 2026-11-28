@@ -1,7 +1,6 @@
 import { reportServerError } from "@/lib/server/reportError";
 // src/app/api/gemini/route.ts
 import { NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -16,12 +15,10 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { SCREEN_MAP } from "@/lib/screenMap";
-import { buildTourInstruction } from "@/lib/tourPrompt";
 import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
-import { TOUR_GUIDE, TOUR_STOPS, tourStopById, type TourStop } from "@/lib/grandTour";
 import { getHelpArticle } from "@/lib/help";
 
 /**
@@ -107,27 +104,6 @@ const RECEPTION_READABLE_COLLECTIONS = new Set([
 ]);
 
 /**
- * Tools the reception assistant may call.
- *
- * Everything here either reads or drives the user's own screen — nothing writes, sends, or bills.
- * Widening this set is what turns Phase 1 into Phase 2, and each addition needs its own
- * confirmation card before it goes in.
- */
-/**
- * What Sara may do while giving the tour: read, explain, start a lesson, move the tour. Nothing
- * that writes, sends, or navigates — the tour is a guided look, and the page under the spotlight
- * is locked for exactly as long as she is talking.
- */
-/**
- * The tour answers from its own notes only — no data tools. Two reasons: the answer to "what is
- * the teeth chart for?" is the same for every clinic, so it can be cached and served without a
- * model call at all (see `tour_answers` below); and the tour used to ride the general assistant's
- * prompt — schemas, directives, every tool — at ~23,000 input tokens a question. Without tools
- * that read data the prompt is a fraction of that, and a small model handles it.
- */
-const TOUR_TOOL_NAMES = new Set(["start_tutorial", "open_tour_stop"]);
-
-/**
  * What the staff line on WhatsApp may NOT call (lib/bot/staffAssistant.ts).
  *
  * The owner asked for the same reach on WhatsApp as in the app, so the person's role and
@@ -141,27 +117,17 @@ const WHATSAPP_STAFF_EXCLUDED_TOOLS = new Set([
   "trigger_pdf_generation",
   "open_appointment",
   "start_tutorial",
-  "open_tour_stop",
   "file_bug_report",
   "file_feature_request",
 ]);
 
-/** The tour's model: cheap, and adequate for "answer from these notes in 2-4 sentences". */
-const TOUR_MODEL = "gemini-3.1-flash-lite";
-
-/** Root collection of tour answers, shared by every clinic: the notes are the same everywhere. */
-const TOUR_ANSWERS_COLLECTION = "tour_answers";
-
-function tourAnswerKey(language: string, stopId: string, question: string): string {
-  const normalized = question.trim().toLowerCase().replace(/\s+/g, " ").replace(/[؟?!.،,]+$/g, "");
-  return createHash("sha1").update(`${TOUR_MODEL}|${language}|${stopId}|${normalized}`).digest("hex");
-}
-
-
-/** Questions a person may ask on their first tour without spending the clinic's credits. */
-const FREE_TOUR_QUESTIONS = 30;
-
-
+/**
+ * Tools the reception assistant may call.
+ *
+ * Everything here either reads or drives the user's own screen — nothing writes, sends, or bills.
+ * Widening this set is what turns Phase 1 into Phase 2, and each addition needs its own
+ * confirmation card before it goes in.
+ */
 const RECEPTION_TOOL_NAMES = new Set([
   "db_read",
   "find_patient",
@@ -379,69 +345,10 @@ export async function POST(req: Request) {
      * entirely different screens. Offering the tool elsewhere would have the model announce a
      * walkthrough no ring will ever join.
      */
-    /**
-     * Sara's tour asks from its own panel. It can start a lesson (the tour pauses under the
-     * ring) and jump the tour to another stop, and nothing else that changes the screen: the
-     * page is locked under a spotlight while she talks, so a `navigate_to` would push a route
-     * the tour immediately pushes back from.
-     */
-    const clientIsTour = client === "web-tour";
     const clientIsWhatsappStaff = client === "whatsapp-staff";
-    const clientCanRunTutorials = client === "web-widget" || clientIsTour;
-    /** The widget can hand over to the tour ("show me around"); the tour can move itself. */
-    const clientCanOpenTour = client === "web-widget" || clientIsTour;
+    const clientCanRunTutorials = client === "web-widget";
     /** Ticket drafts render as a card only the widget knows how to show — and send. */
     const clientCanFileTickets = client === "web-widget";
-
-    /**
-     * Which tour stops this client can actually open. Sent by the client because visibility is
-     * decided there (role, plan, connected features); offering the model a stop the person's
-     * menus do not have would print "let me show you the lab…" over nothing.
-     */
-    const offeredTourStops: TourStop[] = Array.isArray(body?.tourStopIds)
-      ? TOUR_STOPS.filter((s) => (body.tourStopIds as unknown[]).includes(s.id))
-      : TOUR_STOPS;
-
-    /** The stop Sara is standing on, when the tour is asking. */
-    const tourStop: TourStop | undefined =
-      clientIsTour && typeof body?.tour?.stopId === "string" ? tourStopById(body.tour.stopId) : undefined;
-    const replyLanguage: "ar" | "en" | null =
-      body?.language === "ar" ? "ar" : body?.language === "en" ? "en" : null;
-    const tourInstruction = clientIsTour ? buildTourInstruction(tourStop, offeredTourStops, replyLanguage) : "";
-    /**
-     * A person's first tour is free to ask on. The client says it is the first tour; the server
-     * believes it only while the user's own counter is under the allowance, so a widget that
-     * lies about it gets at most the same handful of free turns as an honest one.
-     */
-    const claimsFirstTour = clientIsTour && body?.tour?.firstTour === true;
-    /**
-     * A standalone tour question (no follow-up history, no image) is cacheable: the tour has no
-     * data tools, so the answer depends only on the stop's notes and the language — the same for
-     * every clinic. Served from the cache it costs nothing and counts against nothing.
-     */
-    const tourCacheRef =
-      clientIsTour && tourStop && replyLanguage && typeof prompt === "string" && prompt.trim() && !image && (!Array.isArray(history) || history.length === 0)
-        ? db.collection(TOUR_ANSWERS_COLLECTION).doc(tourAnswerKey(replyLanguage, tourStop.id, prompt))
-        : null;
-    const rememberTourAnswer = async (payload: { reply: string; tourGoTo?: { stopId: string }; startTutorial?: { id: string } }) => {
-      if (!tourCacheRef || !payload.reply.trim()) return;
-      try {
-        await tourCacheRef.set(
-          {
-            ...payload,
-            stopId: tourStop?.id ?? null,
-            language: replyLanguage,
-            question: String(prompt).trim(),
-            model: TOUR_MODEL,
-            hits: 0,
-            createdAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
-      } catch {
-        /* A cache miss next time is the only consequence. */
-      }
-    };
 
     /**
      * The widget's three hats: normal, trainer, support.
@@ -492,24 +399,6 @@ export async function POST(req: Request) {
     // their actions and learned facts to any colleague.
     const userId = authz.uid;
 
-    if (tourCacheRef) {
-      try {
-        const hit = await tourCacheRef.get();
-        const data = hit.data();
-        if (hit.exists && typeof data?.reply === "string" && data.reply.trim()) {
-          void tourCacheRef.set({ hits: FieldValue.increment(1), lastHitAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
-          return NextResponse.json({
-            reply: data.reply,
-            ...(data.tourGoTo?.stopId ? { tourGoTo: { stopId: String(data.tourGoTo.stopId) } } : {}),
-            ...(data.startTutorial?.id ? { startTutorial: { id: String(data.startTutorial.id) } } : {}),
-            cached: true,
-          });
-        }
-      } catch {
-        /* Fall through to the model. */
-      }
-    }
-
     // Images cost more to process, so they draw more credits.
     const requiredCredits = image ? 3 : 1;
 
@@ -519,7 +408,7 @@ export async function POST(req: Request) {
      * Declared here so the chargeCredits closure below can read it: the closure runs after the
      * tool loop has finished, by which point the meter holds every round the turn took.
      */
-    const meter = createUsageMeter(clientIsTour ? TOUR_MODEL : CHAT_MODEL);
+    const meter = createUsageMeter(CHAT_MODEL);
 
     // Set by the quota check below, invoked only once the turn has produced a real result.
     let chargeCredits: (() => Promise<void>) | null = null;
@@ -554,35 +443,7 @@ export async function POST(req: Request) {
           // Deliberately NOT charged here. Billing on entry means a clinic pays for requests that
           // error out or time out, which is the kind of charge that generates support tickets.
           // chargeCredits() runs once the turn has actually produced something.
-          let freeTourTurn = false;
-          if (claimsFirstTour) {
-            try {
-              const userRef = db.collection("users").doc(userId);
-              const userSnap = await userRef.get();
-              const used = Number(userSnap.data()?.tourFreeQuestionsUsed) || 0;
-              if (used < FREE_TOUR_QUESTIONS) {
-                freeTourTurn = true;
-                await userRef.set({ tourFreeQuestionsUsed: FieldValue.increment(1) }, { merge: true });
-              }
-            } catch {
-              /* Counting failed: charge as normal. */
-            }
-          }
           chargeCredits = async () => {
-            if (freeTourTurn) {
-              // Never metered against the clinic, but logged (feature "tour-free", 0 credits) so
-              // what the tour costs US stays visible — these turns were invisible before.
-              await logAiCreditUsage({
-                clinicId,
-                feature: "tour-free",
-                credits: 0,
-                userId,
-                userName: typeof userName === "string" ? userName : "",
-                detail: "",
-                usage: meter.snapshot(),
-              });
-              return;
-            }
             await usageRef.set(
               {
                 monthKey,
@@ -865,29 +726,6 @@ export async function POST(req: Request) {
         },
       },
       {
-        name: "open_tour_stop",
-        description:
-          `Opens ${TOUR_GUIDE.en}'s guided tour of the app at one stop: the page is spotlit and narrated, and the user can keep asking from there. ` +
-          "Use it when the user asks to be shown around, for a tour, or to be shown where a whole area of the app lives ('show me the settings', 'where is the lab page'). " +
-          "During the tour, use it to move to the stop that answers their question. Stops: " +
-          offeredTourStops.map((s) => `'${s.id}' (${s.title.en} — ${s.route}${s.demo ? " — demonstrates it live" : ""})`).join("; ") + ".",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            stopId: {
-              type: SchemaType.STRING,
-              enum: offeredTourStops.map((s) => s.id),
-              description: "The stop to open.",
-            },
-            reason: {
-              type: SchemaType.STRING,
-              description: "One short line in the user's language saying where you are taking them.",
-            },
-          },
-          required: ["stopId"],
-        },
-      },
-      {
         name: "navigate_to",
         description:
           "Opens a screen of the app for the user. Use this whenever they ask to open, show or go to something — a patient's file, the schedule, the finance page. " +
@@ -1158,26 +996,6 @@ export async function POST(req: Request) {
 - Say numbers, dates and times the way a person would speak them.`
       : "";
 
-    /**
-     * The tour's own system prompt: the language rule first (a small model reads the top of a
-     * prompt more reliably than the bottom), a short persona, the screen map, and the stop's
-     * notes. None of the schemas, directives or workflows the general assistant carries.
-     */
-    const tourLanguageRule =
-      replyLanguage === "ar"
-        ? "LANGUAGE RULE (applies to every reply): answer in Egyptian Arabic (عامية مصرية), even when the question is in English."
-        : replyLanguage === "en"
-          ? "LANGUAGE RULE (applies to every reply): answer in English, even when the question mixes in Arabic."
-          : "LANGUAGE RULE (applies to every reply): answer in the language the question was asked in.";
-    const screenMap = SCREEN_MAP;
-    const tourSystemInstruction = clientIsTour
-      ? `${tourLanguageRule}
-      You are Sara (in Arabic: سارة), the guide built into the Alpha Dental System. Never introduce yourself as an AI or a model. Current local time: ${currentDate}.
-
-      ${screenMap}
-      ${tourInstruction}`
-      : "";
-
     const receptionInstruction = `${RECEPTION_PERSONA}${voiceInstruction}
 
       Current local time: ${currentDate}.
@@ -1217,18 +1035,16 @@ export async function POST(req: Request) {
       - **TRAINER & SUPPORT**: When the user reports that a number looks wrong ("the balance is wrong", "this doesn't add up", "the count is off"): (1) call 'audit_patient_records' for a patient figure or 'run_clinic_report' for a clinic-wide figure — NEVER recompute by hand; (2) explain what was found in plain, kind language, naming the exact records and dates; (3) say precisely how to fix each finding in the app; (4) if 'start_tutorial' is available and a lesson would stop the mistake recurring, offer it; (5) if the audit is clean, explain how that number is defined (see HOW THE MONEY SCREENS CALCULATE) and what they might have expected instead. Data-entry slips are normal — never blame.
       - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
-      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}${tourInstruction}`;
+      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}`;
 
     // Reception gets a strict subset. Filtering the declarations rather than hiding them in the
     // prompt matters: a tool the model cannot see is one it cannot call, whatever it is asked.
     const activeTools = (
       isReception
         ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
-        : clientIsTour
-          ? functionDeclarations.filter((f) => TOUR_TOOL_NAMES.has(f.name))
-          : clientIsWhatsappStaff
-            ? functionDeclarations.filter((f) => !WHATSAPP_STAFF_EXCLUDED_TOOLS.has(f.name))
-            : functionDeclarations
+        : clientIsWhatsappStaff
+          ? functionDeclarations.filter((f) => !WHATSAPP_STAFF_EXCLUDED_TOOLS.has(f.name))
+          : functionDeclarations
     )
       // The pay sheet's own gate, applied to the tool rather than trusted to the prompt: a
       // receptionist who is not offered it cannot call it, whatever they ask.
@@ -1238,12 +1054,11 @@ export async function POST(req: Request) {
       .filter((f) => f.name !== "send_pdf_document" || clientIsWhatsappStaff)
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
-      .filter((f) => f.name !== "open_tour_stop" || clientCanOpenTour)
       .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
-      model: clientIsTour ? TOUR_MODEL : CHAT_MODEL,
-      systemInstruction: isReception ? receptionInstruction : clientIsTour ? tourSystemInstruction : generalInstruction,
+      model: CHAT_MODEL,
+      systemInstruction: isReception ? receptionInstruction : generalInstruction,
       tools: [{ functionDeclarations: activeTools }] as any
     });
 
@@ -2105,26 +1920,7 @@ export async function POST(req: Request) {
                 // Ends the turn like navigate_to does: the client starts the overlay, and the
                 // walkthrough itself is free of the model from here on.
                 await chargeCredits?.();
-                await rememberTourAnswer({ reply: reason, startTutorial: { id: tutorial.id } });
                 return NextResponse.json({ reply: reason, startTutorial: { id: tutorial.id } });
-             }
-          } else if (call.name === "open_tour_stop") {
-             const wantedId = String((call.args as any).stopId || "").trim();
-             // offeredTourStops, not TOUR_STOPS: a stop this client cannot open must be refused.
-             const target = offeredTourStops.find((s) => s.id === wantedId);
-             if (!target) {
-                toolResult = {
-                   success: false,
-                   error: `No tour stop named '${wantedId}' is available here. Valid ids: ${offeredTourStops.map((s) => s.id).join(", ")}.`,
-                };
-             } else {
-                const reason = String((call.args as any).reason || "").trim()
-                   || `Let me show you — ${target.title.en}.`;
-                // Ends the turn like start_tutorial: the client moves the tour, and the stop's
-                // own narration takes it from here.
-                await chargeCredits?.();
-                await rememberTourAnswer({ reply: reason, tourGoTo: { stopId: target.id } });
-                return NextResponse.json({ reply: reason, tourGoTo: { stopId: target.id } });
              }
           } else if (call.name === "navigate_to") {
              const requested = (call.args as any).path;
@@ -2248,7 +2044,6 @@ export async function POST(req: Request) {
       }
 
       await chargeCredits?.();
-      if (!pendingAction) await rememberTourAnswer({ reply: replyText });
       return NextResponse.json({ reply: replyText, pendingAction, ...(documentToSend ? { document: documentToSend } : {}) });
 
   } catch (error: any) {

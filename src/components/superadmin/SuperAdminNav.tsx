@@ -2,13 +2,13 @@
 
 import React from "react";
 import {
-  BarChart3, Building2, Compass, Globe2, HardDriveDownload, ListChecks, Megaphone, Receipt, Search,
+  BarChart3, Building2, Globe2, HardDriveDownload, ListChecks, Megaphone, Receipt, Search,
   ShoppingBag, SlidersHorizontal, Users,
 } from "lucide-react";
 import { useSuperAdminText, type SAKey } from "./i18n";
 
 export type SuperAdminTab =
-  | "clinics" | "analytics" | "costs" | "users" | "meta" | "migrate" | "misplaced" | "platform" | "supply" | "tour" | "tasks";
+  | "clinics" | "analytics" | "costs" | "users" | "meta" | "migrate" | "misplaced" | "platform" | "supply" | "tasks";
 
 const GROUPS: { label: SAKey; items: { tab: SuperAdminTab; label: SAKey; icon: React.ElementType }[] }[] = [
   { label: "groupWork", items: [{ tab: "tasks", label: "navTasks", icon: ListChecks }] },
@@ -34,7 +34,6 @@ const GROUPS: { label: SAKey; items: { tab: SuperAdminTab; label: SAKey; icon: R
       { tab: "platform", label: "navPlatform", icon: SlidersHorizontal },
       { tab: "migrate", label: "navMigrate", icon: HardDriveDownload },
       { tab: "misplaced", label: "navAudit", icon: Search },
-      { tab: "tour", label: "navTour", icon: Compass },
     ],
   },
 ];

@@ -45,10 +45,6 @@
       "schedule": "0 5 * * *"
     },
     {
-      "path": "/api/tour/cleanup",
-      "schedule": "0 1 * * *"
-    },
-    {
       "path": "/api/automation/flush-lead-welcome",
       "schedule": "0 6 * * *"
     },

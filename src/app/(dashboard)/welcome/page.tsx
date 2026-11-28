@@ -20,7 +20,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useTutorial } from "@/context/TutorialContext";
 import { useWelcome } from "@/context/WelcomeContext";
 import { DemoTourCard } from "@/components/welcome/DemoTour";
-import TourHero from "@/components/tour/TourHero";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { MISSIONS, type Mission } from "@/lib/welcomeJourney";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -129,8 +128,6 @@ export default function WelcomePage() {
                 : "Every step below is taught on the real screen — press \"Show me how\" and a ring points at the exact spot. A step ticks itself when you actually do it, not when you watch it."}
       />
 
-      {/* Sara first: the tour is the guide now; the checklist below is the work. */}
-      <TourHero />
 
       {/* A white card now: Sara's slab above is the one dark block on the page. */}
       <header className="relative overflow-hidden rounded-[2rem] border border-line bg-surface px-6 py-6 text-ink sm:px-8">
