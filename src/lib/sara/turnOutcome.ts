@@ -54,3 +54,33 @@ export function withoutEmptyTurns<T extends Turn>(history: readonly T[]): T[] {
   }
   return out;
 }
+
+/** ready = a ready-made answer; read = raw records; deep = the paid deeper search; none = no answer; action = she did or staged something. */
+export type SaraOutcome = "ready" | "read" | "deep" | "none" | "action" | "talk";
+
+/** Tools that compute the answer on the server and hand the model a digest. */
+export const READY_TOOLS = new Set([
+  "money_day",
+  "who_owes",
+  "run_report",
+  "payment_changes",
+  "generate_financial_summary",
+  "run_clinic_report",
+  "attendance_report",
+  "dentist_shares",
+  "suggest_appointment_slots",
+  "audit_patient_records",
+  "find_duplicate_ledger_entries",
+]);
+
+const RAW_TOOLS = new Set(["db_read"]);
+
+/** How the turn was answered, from the tools it used. Pure, so it is tested. */
+export function outcomeOf(args: { tools: readonly string[]; noAnswer: boolean; deep: boolean; acted: boolean }): SaraOutcome {
+  if (args.noAnswer) return "none";
+  if (args.deep) return "deep";
+  if (args.tools.some((t) => RAW_TOOLS.has(t))) return "read";
+  if (args.tools.some((t) => READY_TOOLS.has(t))) return "ready";
+  if (args.acted || args.tools.length > 0) return "action";
+  return "talk";
+}

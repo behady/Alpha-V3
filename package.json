@@ -71,6 +71,7 @@
     "test:invites": "npx tsx tests/inviteLinks.test.mts",
     "test:demotour": "npx tsx tests/demoTour.test.mts",
     "test:errors": "npx tsx tests/friendlyErrors.test.mts",
+    "test:sara": "npx tsx tests/sara.test.mts",
     "test:dentist": "npx tsx tests/dentistHome.test.mts",
     "test:dentist-visit": "npx tsx tests/dentistVisit.test.mts",
     "test:dentist-report": "npx tsx tests/dentistReport.test.mts",
